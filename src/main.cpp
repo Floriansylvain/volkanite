@@ -1,13 +1,12 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
-#include <vulkan/vulkan.h>
+#include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_beta.h>
+#include <vulkan/vulkan_raii.hpp>
 
 #include <iostream>
 #include <set>
 #include <vector>
-
-#define VK_USE_PLATFORM_WIN32_KHR
 
 const auto APPLICATION_NAME = "Vulkan M4 Setup";
 const std::vector<const char *> validationLayers = {"VK_LAYER_KHRONOS_validation"};
@@ -66,7 +65,7 @@ VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMes
 void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT &createInfo) {
     createInfo = {};
     createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-    createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
+    createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
                                  VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
                                  VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
     createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
@@ -111,22 +110,17 @@ SDL_Window *initSDL3() {
     return window;
 }
 
-VkInstance initVkInstance() {
+vk::raii::Instance initVkInstance(vk::raii::Context &context) {
     if (enableValidationLayers && !checkValidationLayerSupport()) {
         throw std::runtime_error("validation layers requested, but not available!");
     }
 
-    VkApplicationInfo appInfo{};
-    appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+    vk::ApplicationInfo appInfo;
     appInfo.pApplicationName = APPLICATION_NAME;
     appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
     appInfo.pEngineName = "No Engine";
     appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-    appInfo.apiVersion = VK_API_VERSION_1_0;
-
-    VkInstanceCreateInfo createInfo{};
-    createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-    createInfo.pApplicationInfo = &appInfo;
+    appInfo.apiVersion = VK_API_VERSION_1_4;
 
     uint32_t extensionCount = 0;
     const char *const *extensions = SDL_Vulkan_GetInstanceExtensions(&extensionCount);
@@ -135,37 +129,33 @@ VkInstance initVkInstance() {
     for (uint32_t i = 0; i < extensionCount; i++) {
         requiredExtensions.emplace_back(extensions[i]);
     }
-
-    requiredExtensions.emplace_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
     requiredExtensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
     requiredExtensions.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
-    createInfo.flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
-
     if (enableValidationLayers) {
         requiredExtensions.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
     }
 
+    vk::InstanceCreateInfo createInfo;
+    createInfo.pApplicationInfo = &appInfo;
     createInfo.enabledExtensionCount = static_cast<uint32_t>(requiredExtensions.size());
     createInfo.ppEnabledExtensionNames = requiredExtensions.data();
+    createInfo.flags = vk::InstanceCreateFlags();
 
-    VkInstance instance;
     VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo{};
     if (enableValidationLayers) {
         createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
         createInfo.ppEnabledLayerNames = validationLayers.data();
 
         populateDebugMessengerCreateInfo(debugCreateInfo);
-        createInfo.pNext = (VkDebugUtilsMessengerCreateInfoEXT *)&debugCreateInfo;
+        createInfo.pNext = &debugCreateInfo;
     } else {
         createInfo.enabledLayerCount = 0;
         createInfo.pNext = nullptr;
     }
 
-    if (vkCreateInstance(&createInfo, nullptr, &instance) != VK_SUCCESS) {
-        throw std::runtime_error("failed to create instance!");
-    }
+    createInfo.flags |= vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR;
 
-    return instance;
+    return vk::raii::Instance(context, createInfo);
 }
 
 struct QueueFamilyIndices {
@@ -238,9 +228,10 @@ SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device, VkSurface
 
 int rateDeviceSuitability(VkPhysicalDevice device, VkSurfaceKHR surface, std::vector<const char *> deviceExtensions) {
     VkPhysicalDeviceProperties deviceProperties;
-    VkPhysicalDeviceFeatures deviceFeatures;
     vkGetPhysicalDeviceProperties(device, &deviceProperties);
-    vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
+
+    VkPhysicalDeviceFeatures2 deviceFeatures2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+    vkGetPhysicalDeviceFeatures2(device, &deviceFeatures2);
 
     bool extensionsSupported = checkDeviceExtensionSupport(device, deviceExtensions);
 
@@ -287,25 +278,21 @@ VkPhysicalDevice initVkPysicalDevice(VkInstance instance, VkSurfaceKHR surface, 
     return physicalDevice;
 }
 
-VkDevice initVkLogicalDevice(VkPhysicalDevice physicalDevice, QueueFamilyIndices indices,
-                             std::vector<const char *> deviceExtensions) {
-    VkDevice logicalDevice = VK_NULL_HANDLE;
-
-    std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+vk::raii::Device initVkLogicalDevice(const vk::raii::PhysicalDevice &physicalDevice, QueueFamilyIndices indices,
+                                     std::vector<const char *> deviceExtensions) {
+    std::vector<vk::DeviceQueueCreateInfo> queueCreateInfos;
     std::set<uint32_t> uniqueQueueFamilies = {indices.graphicsFamily.value(), indices.presentFamily.value()};
     float queuePriority = 1.0f;
     for (uint32_t queueFamily : uniqueQueueFamilies) {
-        VkDeviceQueueCreateInfo queueCreateInfo{};
-        queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        vk::DeviceQueueCreateInfo queueCreateInfo{};
         queueCreateInfo.queueFamilyIndex = queueFamily;
         queueCreateInfo.queueCount = 1;
         queueCreateInfo.pQueuePriorities = &queuePriority;
         queueCreateInfos.push_back(queueCreateInfo);
     }
 
-    VkPhysicalDeviceFeatures deviceFeatures{};
-    VkDeviceCreateInfo createInfo{};
-    createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    vk::PhysicalDeviceFeatures deviceFeatures{};
+    vk::DeviceCreateInfo createInfo;
     createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
     createInfo.pQueueCreateInfos = queueCreateInfos.data();
     createInfo.pEnabledFeatures = &deviceFeatures;
@@ -316,20 +303,14 @@ VkDevice initVkLogicalDevice(VkPhysicalDevice physicalDevice, QueueFamilyIndices
     if (enableValidationLayers) {
         createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
         createInfo.ppEnabledLayerNames = validationLayers.data();
-    } else {
-        createInfo.enabledLayerCount = 0;
     }
 
-    if (vkCreateDevice(physicalDevice, &createInfo, nullptr, &logicalDevice) != VK_SUCCESS) {
-        throw std::runtime_error("failed to create logical device!");
-    }
-
-    return logicalDevice;
+    return vk::raii::Device(physicalDevice, createInfo);
 }
 
-VkQueue initVkPresentQueue(VkDevice logicalDevice, QueueFamilyIndices indices) {
+VkQueue initVkPresentQueue(const vk::raii::Device &logicalDevice, QueueFamilyIndices indices) {
     VkQueue graphicsQueue = VK_NULL_HANDLE;
-    vkGetDeviceQueue(logicalDevice, indices.graphicsFamily.value(), 0, &graphicsQueue);
+    vkGetDeviceQueue(static_cast<VkDevice>(*logicalDevice), indices.graphicsFamily.value(), 0, &graphicsQueue);
     return graphicsQueue;
 }
 
@@ -436,13 +417,18 @@ int main(int argc, char *argv[]) {
 
     SDL_Window *window = initSDL3();
 
-    VkInstance instance = initVkInstance();
-    VkDebugUtilsMessengerEXT debugMessenger = initDebugMessenger(instance);
-    VkSurfaceKHR surface = initVkSurface(instance, window);
+    vk::raii::Context context;
+    vk::raii::Instance instance = initVkInstance(context);
+    VkInstance instanceHandle = static_cast<VkInstance>(*instance);
 
-    VkPhysicalDevice physicalDevice = initVkPysicalDevice(instance, surface, deviceExtensions);
+    VkDebugUtilsMessengerEXT debugMessenger = initDebugMessenger(instanceHandle);
+    VkSurfaceKHR surface = initVkSurface(instanceHandle, window);
+
+    VkPhysicalDevice physicalDevice = initVkPysicalDevice(instanceHandle, surface, deviceExtensions);
     QueueFamilyIndices indices = findQueueFamilies(physicalDevice, surface);
-    VkDevice logicalDevice = initVkLogicalDevice(physicalDevice, indices, deviceExtensions);
+
+    vk::raii::PhysicalDevice physicalDeviceRAII(instance, physicalDevice);
+    vk::raii::Device logicalDevice = initVkLogicalDevice(physicalDeviceRAII, indices, deviceExtensions);
 
     VkQueue presentQueue = initVkPresentQueue(logicalDevice, indices);
 
@@ -450,7 +436,8 @@ int main(int argc, char *argv[]) {
     VkFormat swapChainImageFormat;
     VkExtent2D swapChainExtent;
     // TODO Struct 'initSwapChainCommand' (ou autre nom) avec tous les arguments ici ; faire attention aux pointers
-    VkSwapchainKHR swapChain = initSwapChain(physicalDevice, window, surface, indices, logicalDevice, swapChainImages);
+    VkSwapchainKHR swapChain =
+        initSwapChain(physicalDevice, window, surface, indices, static_cast<VkDevice>(*logicalDevice), swapChainImages);
 
     // swapChainImageFormat = surfaceFormat.format;
     // swapChainExtent = extent;
@@ -464,11 +451,9 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    vkDestroySwapchainKHR(logicalDevice, swapChain, nullptr);
-    vkDestroyDevice(logicalDevice, nullptr);
-    DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
-    vkDestroySurfaceKHR(instance, surface, nullptr);
-    vkDestroyInstance(instance, nullptr);
+    vkDestroySwapchainKHR(*logicalDevice, swapChain, nullptr);
+    DestroyDebugUtilsMessengerEXT(instanceHandle, debugMessenger, nullptr);
+    vkDestroySurfaceKHR(instanceHandle, surface, nullptr);
     SDL_DestroyWindow(window);
     SDL_Quit();
 
