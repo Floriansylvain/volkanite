@@ -159,16 +159,42 @@ VkInstance initVkInstance() {
     return instance;
 }
 
+struct QueueFamilyIndices {
+    std::optional<uint32_t> graphicsFamily;
+
+    bool isComplete() {
+        return graphicsFamily.has_value();
+    }
+};
+
+QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) {
+    QueueFamilyIndices indices;
+
+    uint32_t queueFamilyCount = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
+
+    std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
+
+    int i = 0;
+    for (const auto& queueFamily : queueFamilies) {
+        if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) indices.graphicsFamily = i;
+        i++;
+    }
+
+    return indices;
+}
+
 int rateDeviceSuitability(VkPhysicalDevice device) {
     VkPhysicalDeviceProperties deviceProperties;
     VkPhysicalDeviceFeatures deviceFeatures;
     vkGetPhysicalDeviceProperties(device, &deviceProperties);
     vkGetPhysicalDeviceFeatures(device, &deviceFeatures);
 
-    int score = 1;
-    if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
-        score += 10;
-    }
+    int score = 0;
+    if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) score += 10;
+    if (findQueueFamilies(device).isComplete()) score += 10;
+
     return score;
 }
 
@@ -191,7 +217,7 @@ VkPhysicalDevice initVkPysicalDevice(VkInstance instance) {
         candidates.insert(std::make_pair(score, device));
     }
 
-    if (candidates.begin()->first > 0) {
+    if (candidates.begin()->first >= 0) {
         physicalDevice = candidates.begin()->second;
     } else {
         throw std::runtime_error("failed to find a suitable GPU!");
