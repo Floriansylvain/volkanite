@@ -69,7 +69,8 @@ void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& create
     createInfo.pfnUserCallback = debugCallback;
 }
 
-VkDebugUtilsMessengerEXT setupDebugMessenger(VkInstance instance) {
+VkDebugUtilsMessengerEXT initDebugMessenger(VkInstance instance) {
+    if (!enableValidationLayers) return VK_NULL_HANDLE;
     VkDebugUtilsMessengerCreateInfoEXT createInfo;
     populateDebugMessengerCreateInfo(createInfo);
 
@@ -168,19 +169,13 @@ void cleanup(VkInstance* instance, SDL_Window* window, VkDebugUtilsMessengerEXT 
 int main(int argc, char* argv[]) {
     SDL_Window* window = initSDL3();
     VkInstance instance = initVulkan();
-
-    VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;
-    if (enableValidationLayers) {
-        debugMessenger = setupDebugMessenger(instance);
-    }
+    VkDebugUtilsMessengerEXT debugMessenger = initDebugMessenger(instance);
 
     bool running = true;
     while (running) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
-            if (event.type == SDL_EVENT_QUIT) {
-                running = false;
-            }
+            if (event.type == SDL_EVENT_QUIT) running = false;
         }
     }
 
