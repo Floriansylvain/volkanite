@@ -4,7 +4,9 @@
 #include <vulkan/vulkan_beta.h>
 #include <vulkan/vulkan_raii.hpp>
 
+#include <algorithm>
 #include <iostream>
+#include <ranges>
 #include <set>
 #include <vector>
 
@@ -24,22 +26,11 @@ bool checkValidationLayerSupport() {
     std::vector<VkLayerProperties> availableLayers(layerCount);
     vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
 
-    for (const char *layerName : validationLayers) {
-        bool layerFound = false;
-
-        for (const auto &layerProperties : availableLayers) {
-            if (strcmp(layerName, layerProperties.layerName) == 0) {
-                layerFound = true;
-                break;
-            }
-        }
-
-        if (!layerFound) {
-            return false;
-        }
-    }
-
-    return true;
+    return std::all_of(validationLayers.begin(), validationLayers.end(), [&availableLayers](const char *layerName) {
+        return std::ranges::any_of(availableLayers, [layerName](const auto &layerProperties) {
+            return strcmp(layerName, layerProperties.layerName) == 0;
+        });
+    });
 }
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -174,21 +165,20 @@ QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surfa
     std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
     vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
 
-    int i = 0;
-    for (const auto &queueFamily : queueFamilies) {
+    for (uint32_t i = 0; const auto &queueFamily : queueFamilies) {
         if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT)
             indices.graphicsFamily = i;
         VkBool32 presentSupport = false;
         vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
         if (presentSupport)
             indices.presentFamily = i;
-        i++;
+        ++i;
     }
 
     return indices;
 }
 
-bool checkDeviceExtensionSupport(VkPhysicalDevice device, std::vector<const char *> deviceExtensions) {
+bool checkDeviceExtensionSupport(VkPhysicalDevice device, const std::vector<const char *> &deviceExtensions) {
     uint32_t extensionCount;
     vkEnumerateDeviceExtensionProperties(device, nullptr, &extensionCount, nullptr);
 
@@ -226,7 +216,7 @@ SwapChainSupportDetails querySwapChainSupport(VkPhysicalDevice device, VkSurface
     return details;
 }
 
-int rateDeviceSuitability(VkPhysicalDevice device, VkSurfaceKHR surface, std::vector<const char *> deviceExtensions) {
+int rateDeviceSuitability(VkPhysicalDevice device, VkSurfaceKHR surface, const std::vector<const char *> &deviceExtensions) {
     VkPhysicalDeviceProperties deviceProperties;
     vkGetPhysicalDeviceProperties(device, &deviceProperties);
 
@@ -279,7 +269,7 @@ VkPhysicalDevice initVkPysicalDevice(VkInstance instance, VkSurfaceKHR surface, 
 }
 
 vk::raii::Device initVkLogicalDevice(const vk::raii::PhysicalDevice &physicalDevice, QueueFamilyIndices indices,
-                                     std::vector<const char *> deviceExtensions) {
+                                     const std::vector<const char *> &deviceExtensions) {
     std::vector<vk::DeviceQueueCreateInfo> queueCreateInfos;
     std::set<uint32_t> uniqueQueueFamilies = {indices.graphicsFamily.value(), indices.presentFamily.value()};
     float queuePriority = 1.0f;
@@ -300,11 +290,6 @@ vk::raii::Device initVkLogicalDevice(const vk::raii::PhysicalDevice &physicalDev
     createInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());
     createInfo.ppEnabledExtensionNames = deviceExtensions.data();
 
-    if (enableValidationLayers) {
-        createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
-        createInfo.ppEnabledLayerNames = validationLayers.data();
-    }
-
     return vk::raii::Device(physicalDevice, createInfo);
 }
 
@@ -323,22 +308,15 @@ VkSurfaceKHR initVkSurface(VkInstance instance, SDL_Window *window) {
 }
 
 VkSurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<VkSurfaceFormatKHR> &availableFormats) {
-    for (const auto &availableFormat : availableFormats) {
-        if (availableFormat.format == VK_FORMAT_B8G8R8A8_SRGB &&
-            availableFormat.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
-            return availableFormat;
-        }
-    }
-    return availableFormats[0];
+    auto it = std::ranges::find_if(availableFormats, [](const auto &format) {
+        return format.format == VK_FORMAT_B8G8R8A8_SRGB && format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+    });
+    return it != availableFormats.end() ? *it : availableFormats[0];
 }
 
 VkPresentModeKHR chooseSwapPresentMode(const std::vector<VkPresentModeKHR> &availablePresentModes) {
-    for (const auto &availablePresentMode : availablePresentModes) {
-        if (availablePresentMode == VK_PRESENT_MODE_MAILBOX_KHR) {
-            return availablePresentMode;
-        }
-    }
-    return VK_PRESENT_MODE_FIFO_KHR;
+    auto it = std::ranges::find(availablePresentModes, VK_PRESENT_MODE_MAILBOX_KHR);
+    return it != availablePresentModes.end() ? *it : VK_PRESENT_MODE_FIFO_KHR;
 }
 
 VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities, SDL_Window *window) {
@@ -412,7 +390,7 @@ VkSwapchainKHR initSwapChain(VkPhysicalDevice physicalDevice, SDL_Window *window
     return swapChain;
 }
 
-int main(int argc, char *argv[]) {
+int main() {
     std::vector<const char *> deviceExtensions = {VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME, VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 
     SDL_Window *window = initSDL3();
