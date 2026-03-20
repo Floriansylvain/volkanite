@@ -5,6 +5,8 @@
 #include <iostream>
 #include <vector>
 
+#define VK_USE_PLATFORM_WIN32_KHR
+
 const auto APPLICATION_NAME = "Vulkan M4 Setup";
 const std::vector<const char*> validationLayers = {
     "VK_LAYER_KHRONOS_validation"
@@ -164,13 +166,14 @@ VkInstance initVkInstance() {
 
 struct QueueFamilyIndices {
     std::optional<uint32_t> graphicsFamily;
+    std::optional<uint32_t> presentFamily;
 
     bool isComplete() {
-        return graphicsFamily.has_value();
+        return graphicsFamily.has_value() && presentFamily.has_value();
     }
 };
 
-QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) {
+QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device, VkSurfaceKHR surface) {
     QueueFamilyIndices indices;
 
     uint32_t queueFamilyCount = 0;
@@ -182,13 +185,16 @@ QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device) {
     int i = 0;
     for (const auto& queueFamily : queueFamilies) {
         if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) indices.graphicsFamily = i;
+        VkBool32 presentSupport = false;
+        vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
+        if (presentSupport) indices.presentFamily = i;
         i++;
     }
 
     return indices;
 }
 
-int rateDeviceSuitability(VkPhysicalDevice device) {
+int rateDeviceSuitability(VkPhysicalDevice device, VkSurfaceKHR surface) {
     VkPhysicalDeviceProperties deviceProperties;
     VkPhysicalDeviceFeatures deviceFeatures;
     vkGetPhysicalDeviceProperties(device, &deviceProperties);
@@ -196,12 +202,12 @@ int rateDeviceSuitability(VkPhysicalDevice device) {
 
     int score = 0;
     if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) score += 10;
-    if (findQueueFamilies(device).isComplete()) score += 10;
+    if (findQueueFamilies(device, surface).isComplete()) score += 10;
 
     return score;
 }
 
-VkPhysicalDevice initVkPysicalDevice(VkInstance instance) {
+VkPhysicalDevice initVkPysicalDevice(VkInstance instance, VkSurfaceKHR surface) {
     uint32_t deviceCount = 0;
     vkEnumeratePhysicalDevices(instance, &deviceCount, nullptr);
 
@@ -216,7 +222,7 @@ VkPhysicalDevice initVkPysicalDevice(VkInstance instance) {
     std::unordered_multimap<int, VkPhysicalDevice> candidates;
 
     for (const auto& device : devices) {
-        int score = rateDeviceSuitability(device);
+        int score = rateDeviceSuitability(device, surface);
         candidates.insert(std::make_pair(score, device));
     }
 
@@ -273,12 +279,21 @@ VkQueue initVkQueue(VkDevice logicalDevice, QueueFamilyIndices indices) {
     return graphicsQueue;
 }
 
+VkSurfaceKHR initVkSurface(VkInstance instance, SDL_Window* window) {
+    VkSurfaceKHR surface = VK_NULL_HANDLE;
+    if (!SDL_Vulkan_CreateSurface(window, instance, NULL, &surface)) {
+        throw std::runtime_error("Failed to create window surface: " + std::string(SDL_GetError()));
+    }
+    return surface;
+}
+
 int main(int argc, char* argv[]) {
     SDL_Window* window = initSDL3();
     VkInstance instance = initVkInstance();
     VkDebugUtilsMessengerEXT debugMessenger = initDebugMessenger(instance);
-    VkPhysicalDevice physicalDevice = initVkPysicalDevice(instance);
-    QueueFamilyIndices indices = findQueueFamilies(physicalDevice);
+    VkSurfaceKHR surface = initVkSurface(instance, window);
+    VkPhysicalDevice physicalDevice = initVkPysicalDevice(instance, surface);
+    QueueFamilyIndices indices = findQueueFamilies(physicalDevice, surface);
     VkDevice logicalDevice = initVkLogicalDevice(physicalDevice, indices);
 
     bool running = true;
@@ -291,8 +306,8 @@ int main(int argc, char* argv[]) {
 
     vkDestroyDevice(logicalDevice, nullptr);
     DestroyDebugUtilsMessengerEXT(instance, debugMessenger, nullptr);
-    vkDestroyInstance(instance, nullptr);
-    SDL_DestroyWindow(window);
+    vkDestroySurfaceKHR(instance, surface, nullptr);
+    vkDestroyInstance(instance, nullptr);    SDL_DestroyWindow(window);
     SDL_Quit();
 
     return 0;
