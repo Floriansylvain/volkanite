@@ -336,15 +336,15 @@ VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities, SDL_Wi
     return actualExtent;
 }
 
-struct InitSwapChainContext {
-    std::vector<VkImage> swapChainImages;
-    VkFormat swapChainImageFormat;
-    VkExtent2D swapChainExtent;
+struct SwapChainDetails {
+    VkSwapchainKHR swapChain;
+    VkFormat imageFormat;
+    VkExtent2D extent;
+    std::vector<VkImage> images;
 };
 
-VkSwapchainKHR initSwapChain(VkPhysicalDevice physicalDevice, SDL_Window *window, VkSurfaceKHR surface,
-                             QueueFamilyIndices indices, VkDevice logicalDevice) {
-    InitSwapChainContext initSwapChainContext;
+SwapChainDetails initSwapChain(VkPhysicalDevice physicalDevice, SDL_Window *window, VkSurfaceKHR surface,
+                               QueueFamilyIndices indices, VkDevice logicalDevice) {
     SwapChainSupportDetails swapChainSupport = querySwapChainSupport(physicalDevice, surface);
 
     VkSurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formats);
@@ -352,7 +352,6 @@ VkSwapchainKHR initSwapChain(VkPhysicalDevice physicalDevice, SDL_Window *window
     VkExtent2D extent = chooseSwapExtent(swapChainSupport.capabilities, window);
 
     uint32_t imageCount = swapChainSupport.capabilities.minImageCount + 1;
-
     if (swapChainSupport.capabilities.maxImageCount > 0 && imageCount > swapChainSupport.capabilities.maxImageCount) {
         imageCount = swapChainSupport.capabilities.maxImageCount;
     }
@@ -360,7 +359,6 @@ VkSwapchainKHR initSwapChain(VkPhysicalDevice physicalDevice, SDL_Window *window
     VkSwapchainCreateInfoKHR createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
     createInfo.surface = surface;
-
     createInfo.minImageCount = imageCount;
     createInfo.imageFormat = surfaceFormat.format;
     createInfo.imageColorSpace = surfaceFormat.colorSpace;
@@ -369,7 +367,6 @@ VkSwapchainKHR initSwapChain(VkPhysicalDevice physicalDevice, SDL_Window *window
     createInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
     uint32_t queueFamilyIndices[] = {indices.graphicsFamily.value(), indices.presentFamily.value()};
-
     if (indices.graphicsFamily != indices.presentFamily) {
         createInfo.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
         createInfo.queueFamilyIndexCount = 2;
@@ -391,23 +388,28 @@ VkSwapchainKHR initSwapChain(VkPhysicalDevice physicalDevice, SDL_Window *window
         throw std::runtime_error("failed to create swap chain!");
     }
 
-    vkGetSwapchainImagesKHR(logicalDevice, swapChain, &imageCount, nullptr);
-    initSwapChainContext.swapChainImages.resize(imageCount);
-    vkGetSwapchainImagesKHR(logicalDevice, swapChain, &imageCount, initSwapChainContext.swapChainImages.data());
+    SwapChainDetails details;
+    details.swapChain = swapChain;
+    details.imageFormat = surfaceFormat.format;
+    details.extent = extent;
 
-    return swapChain;
+    vkGetSwapchainImagesKHR(logicalDevice, swapChain, &imageCount, nullptr);
+    details.images.resize(imageCount);
+    vkGetSwapchainImagesKHR(logicalDevice, swapChain, &imageCount, details.images.data());
+
+    return details;
 }
 
-std::vector<VkImageView> initImageViews(const vk::raii::Device &logicalDevice) {
-    InitSwapChainContext initSwapChainContext;
+std::vector<VkImageView> initImageViews(const vk::raii::Device &logicalDevice, const SwapChainDetails &details) {
     std::vector<VkImageView> swapChainImageViews;
-    swapChainImageViews.resize(initSwapChainContext.swapChainImages.size());
-    for (size_t i = 0; i < initSwapChainContext.swapChainImages.size(); i++) {
+    swapChainImageViews.resize(details.images.size());
+
+    for (size_t i = 0; i < details.images.size(); i++) {
         VkImageViewCreateInfo createInfo{};
         createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        createInfo.image = initSwapChainContext.swapChainImages[i];
+        createInfo.image = details.images[i];
         createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        createInfo.format = initSwapChainContext.swapChainImageFormat;
+        createInfo.format = details.imageFormat;
         createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
         createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
         createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
@@ -423,6 +425,7 @@ std::vector<VkImageView> initImageViews(const vk::raii::Device &logicalDevice) {
             throw std::runtime_error("failed to create image views!");
         }
     }
+
     return swapChainImageViews;
 }
 
@@ -457,9 +460,8 @@ VkShaderModule createShaderModule(const std::vector<char> &code, VkDevice logica
     return shaderModule;
 }
 
-VkPipeline initGraphicsPipeline(VkDevice logicalDevice, VkRenderPass renderPass, VkPipelineLayout pipelineLayout) {
-    InitSwapChainContext initSwapChainContext;
-
+VkPipeline initGraphicsPipeline(VkDevice logicalDevice, VkRenderPass renderPass, VkPipelineLayout pipelineLayout,
+                                const VkExtent2D &extent) {
     auto vertShaderCode = readFile("shaders/vert.spv");
     auto fragShaderCode = readFile("shaders/frag.spv");
 
@@ -480,11 +482,7 @@ VkPipeline initGraphicsPipeline(VkDevice logicalDevice, VkRenderPass renderPass,
 
     VkPipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
 
-    vkDestroyShaderModule(logicalDevice, fragShaderModule, nullptr);
-    vkDestroyShaderModule(logicalDevice, vertShaderModule, nullptr);
-
     std::vector<VkDynamicState> dynamicStates = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-
     VkPipelineDynamicStateCreateInfo dynamicState{};
     dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
     dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
@@ -505,21 +503,14 @@ VkPipeline initGraphicsPipeline(VkDevice logicalDevice, VkRenderPass renderPass,
     VkViewport viewport{};
     viewport.x = 0.0f;
     viewport.y = 0.0f;
-    viewport.width = (float)initSwapChainContext.swapChainExtent.width;
-    viewport.height = (float)initSwapChainContext.swapChainExtent.height;
+    viewport.width = static_cast<float>(extent.width);
+    viewport.height = static_cast<float>(extent.height);
     viewport.minDepth = 0.0f;
     viewport.maxDepth = 1.0f;
 
     VkRect2D scissor{};
     scissor.offset = {0, 0};
-    scissor.extent = initSwapChainContext.swapChainExtent;
-
-    std::vector<VkDynamicState> dynamicStates = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
-
-    VkPipelineDynamicStateCreateInfo dynamicState{};
-    dynamicState.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-    dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
-    dynamicState.pDynamicStates = dynamicStates.data();
+    scissor.extent = extent;
 
     VkPipelineViewportStateCreateInfo viewportState{};
     viewportState.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -575,7 +566,6 @@ VkPipeline initGraphicsPipeline(VkDevice logicalDevice, VkRenderPass renderPass,
     pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
     pipelineInfo.stageCount = 2;
     pipelineInfo.pStages = shaderStages;
-
     pipelineInfo.pVertexInputState = &vertexInputInfo;
     pipelineInfo.pInputAssemblyState = &inputAssembly;
     pipelineInfo.pViewportState = &viewportState;
@@ -592,8 +582,14 @@ VkPipeline initGraphicsPipeline(VkDevice logicalDevice, VkRenderPass renderPass,
 
     VkPipeline graphicsPipeline;
     if (vkCreateGraphicsPipelines(logicalDevice, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline) != VK_SUCCESS) {
+        vkDestroyShaderModule(logicalDevice, fragShaderModule, nullptr);
+        vkDestroyShaderModule(logicalDevice, vertShaderModule, nullptr);
         throw std::runtime_error("failed to create graphics pipeline!");
     }
+
+    vkDestroyShaderModule(logicalDevice, fragShaderModule, nullptr);
+    vkDestroyShaderModule(logicalDevice, vertShaderModule, nullptr);
+
     return graphicsPipeline;
 }
 
@@ -614,11 +610,9 @@ VkPipelineLayout initPipelineLayout(VkDevice logicalDevice) {
     return pipelineLayout;
 }
 
-VkRenderPass initRenderPass(VkDevice logicalDevice) {
-    InitSwapChainContext initSwapChainContext;
-
+VkRenderPass initRenderPass(VkDevice logicalDevice, VkFormat swapChainImageFormat) {
     VkAttachmentDescription colorAttachment{};
-    colorAttachment.format = initSwapChainContext.swapChainImageFormat;
+    colorAttachment.format = swapChainImageFormat;
     colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
     colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -633,7 +627,6 @@ VkRenderPass initRenderPass(VkDevice logicalDevice) {
 
     VkSubpassDescription subpass{};
     subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-
     subpass.colorAttachmentCount = 1;
     subpass.pColorAttachments = &colorAttachmentRef;
 
@@ -648,6 +641,33 @@ VkRenderPass initRenderPass(VkDevice logicalDevice) {
     if (vkCreateRenderPass(logicalDevice, &renderPassInfo, nullptr, &renderPass) != VK_SUCCESS) {
         throw std::runtime_error("failed to create render pass!");
     }
+
+    return renderPass;
+}
+
+std::vector<VkFramebuffer> initFramebuffers(VkRenderPass renderPass, VkDevice logicalDevice,
+                                            const std::vector<VkImageView> &swapChainImageViews, const VkExtent2D &extent) {
+    std::vector<VkFramebuffer> swapChainFramebuffers;
+    swapChainFramebuffers.resize(swapChainImageViews.size());
+
+    for (size_t i = 0; i < swapChainImageViews.size(); i++) {
+        VkImageView attachments[] = {swapChainImageViews[i]};
+
+        VkFramebufferCreateInfo framebufferInfo{};
+        framebufferInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        framebufferInfo.renderPass = renderPass;
+        framebufferInfo.attachmentCount = 1;
+        framebufferInfo.pAttachments = attachments;
+        framebufferInfo.width = extent.width;
+        framebufferInfo.height = extent.height;
+        framebufferInfo.layers = 1;
+
+        if (vkCreateFramebuffer(logicalDevice, &framebufferInfo, nullptr, &swapChainFramebuffers[i]) != VK_SUCCESS) {
+            throw std::runtime_error("failed to create framebuffer!");
+        }
+    }
+
+    return swapChainFramebuffers;
 }
 
 int main() {
@@ -667,16 +687,20 @@ int main() {
 
     vk::raii::PhysicalDevice physicalDeviceRAII(instance, physicalDevice);
     vk::raii::Device logicalDevice = initVkLogicalDevice(physicalDeviceRAII, indices, deviceExtensions);
+    VkDevice device = static_cast<VkDevice>(*logicalDevice);
 
     VkQueue presentQueue = initVkPresentQueue(logicalDevice, indices);
 
-    VkSwapchainKHR swapChain = initSwapChain(physicalDevice, window, surface, indices, static_cast<VkDevice>(*logicalDevice));
+    SwapChainDetails swapChainDetails = initSwapChain(physicalDevice, window, surface, indices, device);
 
-    std::vector<VkImageView> swapChainImageViews = initImageViews(logicalDevice);
+    std::vector<VkImageView> swapChainImageViews = initImageViews(logicalDevice, swapChainDetails);
 
-    VkPipelineLayout pipelineLayout = initPipelineLayout(static_cast<VkDevice>(*logicalDevice));
-    VkRenderPass renderPass = initRenderPass(static_cast<VkDevice>(*logicalDevice));
-    VkPipeline graphicsPipeline = initGraphicsPipeline(static_cast<VkDevice>(*logicalDevice), renderPass, pipelineLayout);
+    VkPipelineLayout pipelineLayout = initPipelineLayout(device);
+    VkRenderPass renderPass = initRenderPass(device, swapChainDetails.imageFormat);
+    VkPipeline graphicsPipeline = initGraphicsPipeline(device, renderPass, pipelineLayout, swapChainDetails.extent);
+
+    std::vector<VkFramebuffer> swapChainFramebuffers =
+        initFramebuffers(renderPass, device, swapChainImageViews, swapChainDetails.extent);
 
     bool running = true;
     while (running) {
@@ -687,13 +711,16 @@ int main() {
         }
     }
 
-    vkDestroyPipeline(static_cast<VkDevice>(*logicalDevice), graphicsPipeline, nullptr);
-    vkDestroyPipelineLayout(static_cast<VkDevice>(*logicalDevice), pipelineLayout, nullptr);
-    vkDestroyRenderPass(static_cast<VkDevice>(*logicalDevice), renderPass, nullptr);
-    for (auto imageView : swapChainImageViews) {
-        vkDestroyImageView(static_cast<VkDevice>(*logicalDevice), imageView, nullptr);
+    for (auto framebuffer : swapChainFramebuffers) {
+        vkDestroyFramebuffer(device, framebuffer, nullptr);
     }
-    vkDestroySwapchainKHR(static_cast<VkDevice>(*logicalDevice), swapChain, nullptr);
+    vkDestroyPipeline(device, graphicsPipeline, nullptr);
+    vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
+    vkDestroyRenderPass(device, renderPass, nullptr);
+    for (auto imageView : swapChainImageViews) {
+        vkDestroyImageView(device, imageView, nullptr);
+    }
+    vkDestroySwapchainKHR(device, swapChainDetails.swapChain, nullptr);
     DestroyDebugUtilsMessengerEXT(instanceHandle, debugMessenger, nullptr);
     vkDestroySurfaceKHR(instanceHandle, surface, nullptr);
     SDL_DestroyWindow(window);
