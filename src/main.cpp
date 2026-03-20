@@ -4,6 +4,7 @@
 #include <vulkan/vulkan_beta.h>
 #include <iostream>
 #include <vector>
+#include <set>
 
 #define VK_USE_PLATFORM_WIN32_KHR
 
@@ -238,19 +239,23 @@ VkPhysicalDevice initVkPysicalDevice(VkInstance instance, VkSurfaceKHR surface) 
 VkDevice initVkLogicalDevice(VkPhysicalDevice physicalDevice, QueueFamilyIndices indices) {
     VkDevice logicalDevice = VK_NULL_HANDLE;
 
-    VkDeviceQueueCreateInfo queueCreateInfo{};
-    queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    queueCreateInfo.queueFamilyIndex = indices.graphicsFamily.value();
-    queueCreateInfo.queueCount = 1;
-
+    std::vector<VkDeviceQueueCreateInfo> queueCreateInfos;
+    std::set<uint32_t> uniqueQueueFamilies = {indices.graphicsFamily.value(), indices.presentFamily.value()};
     float queuePriority = 1.0f;
-    queueCreateInfo.pQueuePriorities = &queuePriority;
+    for (uint32_t queueFamily : uniqueQueueFamilies) {
+        VkDeviceQueueCreateInfo queueCreateInfo{};
+        queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queueCreateInfo.queueFamilyIndex = queueFamily;
+        queueCreateInfo.queueCount = 1;
+        queueCreateInfo.pQueuePriorities = &queuePriority;
+        queueCreateInfos.push_back(queueCreateInfo);
+    }
 
     VkPhysicalDeviceFeatures deviceFeatures{};
     VkDeviceCreateInfo createInfo{};
     createInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    createInfo.pQueueCreateInfos = &queueCreateInfo;
-    createInfo.queueCreateInfoCount = 1;
+    createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
+    createInfo.pQueueCreateInfos = queueCreateInfos.data();
     createInfo.pEnabledFeatures = &deviceFeatures;
 
     std::vector<const char*> deviceExtensions;
@@ -273,7 +278,7 @@ VkDevice initVkLogicalDevice(VkPhysicalDevice physicalDevice, QueueFamilyIndices
     return logicalDevice;
 }
 
-VkQueue initVkQueue(VkDevice logicalDevice, QueueFamilyIndices indices) {
+VkQueue initVkPresentQueue(VkDevice logicalDevice, QueueFamilyIndices indices) {
     VkQueue graphicsQueue = VK_NULL_HANDLE;
     vkGetDeviceQueue(logicalDevice, indices.graphicsFamily.value(), 0, &graphicsQueue);
     return graphicsQueue;
@@ -295,6 +300,7 @@ int main(int argc, char* argv[]) {
     VkPhysicalDevice physicalDevice = initVkPysicalDevice(instance, surface);
     QueueFamilyIndices indices = findQueueFamilies(physicalDevice, surface);
     VkDevice logicalDevice = initVkLogicalDevice(physicalDevice, indices);
+    VkQueue presentQueue = initVkPresentQueue(logicalDevice, indices);
 
     bool running = true;
     while (running) {
