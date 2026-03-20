@@ -335,8 +335,15 @@ VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities, SDL_Wi
     return actualExtent;
 }
 
+struct InitSwapChainContext {
+    std::vector<VkImage> swapChainImages;
+    VkFormat swapChainImageFormat;
+    VkExtent2D swapChainExtent;
+};
+
 VkSwapchainKHR initSwapChain(VkPhysicalDevice physicalDevice, SDL_Window *window, VkSurfaceKHR surface,
-                             QueueFamilyIndices indices, VkDevice logicalDevice, std::vector<VkImage> swapChainImages) {
+                             QueueFamilyIndices indices, VkDevice logicalDevice) {
+    InitSwapChainContext initSwapChainContext;
     SwapChainSupportDetails swapChainSupport = querySwapChainSupport(physicalDevice, surface);
 
     VkSurfaceFormatKHR surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formats);
@@ -384,10 +391,38 @@ VkSwapchainKHR initSwapChain(VkPhysicalDevice physicalDevice, SDL_Window *window
     }
 
     vkGetSwapchainImagesKHR(logicalDevice, swapChain, &imageCount, nullptr);
-    swapChainImages.resize(imageCount);
-    vkGetSwapchainImagesKHR(logicalDevice, swapChain, &imageCount, swapChainImages.data());
+    initSwapChainContext.swapChainImages.resize(imageCount);
+    vkGetSwapchainImagesKHR(logicalDevice, swapChain, &imageCount, initSwapChainContext.swapChainImages.data());
 
     return swapChain;
+}
+
+std::vector<VkImageView> initImageViews(const vk::raii::Device &logicalDevice) {
+    InitSwapChainContext initSwapChainContext;
+    std::vector<VkImageView> swapChainImageViews;
+    swapChainImageViews.resize(initSwapChainContext.swapChainImages.size());
+    for (size_t i = 0; i < initSwapChainContext.swapChainImages.size(); i++) {
+        VkImageViewCreateInfo createInfo{};
+        createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        createInfo.image = initSwapChainContext.swapChainImages[i];
+        createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        createInfo.format = initSwapChainContext.swapChainImageFormat;
+        createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+        createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+        createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+        createInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+        createInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        createInfo.subresourceRange.baseMipLevel = 0;
+        createInfo.subresourceRange.levelCount = 1;
+        createInfo.subresourceRange.baseArrayLayer = 0;
+        createInfo.subresourceRange.layerCount = 1;
+
+        if (vkCreateImageView(static_cast<VkDevice>(*logicalDevice), &createInfo, nullptr, &swapChainImageViews[i]) !=
+            VK_SUCCESS) {
+            throw std::runtime_error("failed to create image views!");
+        }
+    }
+    return swapChainImageViews;
 }
 
 int main() {
@@ -410,15 +445,9 @@ int main() {
 
     VkQueue presentQueue = initVkPresentQueue(logicalDevice, indices);
 
-    std::vector<VkImage> swapChainImages;
-    VkFormat swapChainImageFormat;
-    VkExtent2D swapChainExtent;
-    // TODO Struct 'initSwapChainCommand' (ou autre nom) avec tous les arguments ici ; faire attention aux pointers
-    VkSwapchainKHR swapChain =
-        initSwapChain(physicalDevice, window, surface, indices, static_cast<VkDevice>(*logicalDevice), swapChainImages);
+    VkSwapchainKHR swapChain = initSwapChain(physicalDevice, window, surface, indices, static_cast<VkDevice>(*logicalDevice));
 
-    // swapChainImageFormat = surfaceFormat.format;
-    // swapChainExtent = extent;
+    std::vector<VkImageView> swapChainImageViews = initImageViews(logicalDevice);
 
     bool running = true;
     while (running) {
@@ -429,7 +458,10 @@ int main() {
         }
     }
 
-    vkDestroySwapchainKHR(*logicalDevice, swapChain, nullptr);
+    for (auto imageView : swapChainImageViews) {
+        vkDestroyImageView(static_cast<VkDevice>(*logicalDevice), imageView, nullptr);
+    }
+    vkDestroySwapchainKHR(static_cast<VkDevice>(*logicalDevice), swapChain, nullptr);
     DestroyDebugUtilsMessengerEXT(instanceHandle, debugMessenger, nullptr);
     vkDestroySurfaceKHR(instanceHandle, surface, nullptr);
     SDL_DestroyWindow(window);
