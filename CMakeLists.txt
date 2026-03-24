@@ -12,24 +12,38 @@ if(NOT GLSLC)
     message(FATAL_ERROR "glslc not found! Make sure Vulkan SDK is installed.")
 endif()
 
+set(SOURCES
+    src/main.cpp
+    src/core/Window.cpp
+)
+
+set(VERT_SHADER ${CMAKE_SOURCE_DIR}/src/shaders/shader.vert)
+set(FRAG_SHADER ${CMAKE_SOURCE_DIR}/src/shaders/shader.frag)
+set(VERT_SPV ${CMAKE_BINARY_DIR}/shaders/vert.spv)
+set(FRAG_SPV ${CMAKE_BINARY_DIR}/shaders/frag.spv)
+
 add_custom_command(
-    OUTPUT ${CMAKE_BINARY_DIR}/shaders/vert.spv
+    OUTPUT ${VERT_SPV}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/shaders
-    COMMAND ${GLSLC} ${CMAKE_SOURCE_DIR}/src/shaders/shader.vert -o ${CMAKE_BINARY_DIR}/shaders/vert.spv
-    DEPENDS ${CMAKE_SOURCE_DIR}/src/shaders/shader.vert
+    COMMAND ${GLSLC} ${VERT_SHADER} -o ${VERT_SPV}
+    DEPENDS ${VERT_SHADER}
     COMMENT "Compiling vertex shader"
 )
 
 add_custom_command(
-    OUTPUT ${CMAKE_BINARY_DIR}/shaders/frag.spv
-    COMMAND ${GLSLC} ${CMAKE_SOURCE_DIR}/src/shaders/shader.frag -o ${CMAKE_BINARY_DIR}/shaders/frag.spv
-    DEPENDS ${CMAKE_SOURCE_DIR}/src/shaders/shader.frag
+    OUTPUT ${FRAG_SPV}
+    COMMAND ${GLSLC} ${FRAG_SHADER} -o ${FRAG_SPV}
+    DEPENDS ${FRAG_SHADER}
     COMMENT "Compiling fragment shader"
 )
 
-add_custom_target(shaders ALL DEPENDS ${CMAKE_BINARY_DIR}/shaders/vert.spv ${CMAKE_BINARY_DIR}/shaders/frag.spv)
+add_custom_target(shaders ALL DEPENDS ${VERT_SPV} ${FRAG_SPV})
 
-add_executable(${PROJECT_NAME} src/main.cpp)
+add_executable(${PROJECT_NAME} ${SOURCES})
+
+target_include_directories(${PROJECT_NAME} PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
 
 add_dependencies(${PROJECT_NAME} shaders)
 

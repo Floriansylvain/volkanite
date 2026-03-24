@@ -4,6 +4,8 @@
 #include <vulkan/vulkan_beta.h>
 #include <vulkan/vulkan_raii.hpp>
 
+#include <core/Window.hpp>
+
 #include <algorithm>
 #include <fstream>
 #include <iostream>
@@ -86,21 +88,6 @@ void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT
     if (func != nullptr) {
         func(instance, debugMessenger, pAllocator);
     }
-}
-
-SDL_Window *initSDL3() {
-    if (SDL_Init(SDL_INIT_VIDEO) == false) {
-        SDL_Log("Erreur SDL_Init : %s", SDL_GetError());
-        throw std::runtime_error("Failed to initialize SDL");
-    }
-
-    SDL_Window *window = SDL_CreateWindow(APPLICATION_NAME, 800, 600, SDL_WINDOW_VULKAN);
-    if (!window) {
-        std::cerr << "Erreur création fenêtre : " << SDL_GetError() << std::endl;
-        throw std::runtime_error("Failed to create window");
-    }
-
-    return window;
 }
 
 vk::raii::Instance initVkInstance(vk::raii::Context &context) {
@@ -681,13 +668,13 @@ int main() {
     std::vector<const char *> deviceExtensions = {VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME, VK_KHR_SWAPCHAIN_EXTENSION_NAME,
                                                   VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME};
 
-    SDL_Window *window = initSDL3();
+    Window window = Window(APPLICATION_NAME, 800, 600);
 
     vk::raii::Context context;
     vk::raii::Instance instance = initVkInstance(context);
 
     VkDebugUtilsMessengerEXT debugMessenger = initDebugMessenger(*instance);
-    vk::raii::SurfaceKHR surface = initVkSurface(instance, window);
+    vk::raii::SurfaceKHR surface = initVkSurface(instance, window.getSDL_window());
 
     vk::raii::PhysicalDevice physicalDevice = initVkPysicalDevice(instance, surface, deviceExtensions);
     QueueFamilyIndices indices = findQueueFamilies(physicalDevice, surface);
@@ -696,7 +683,7 @@ int main() {
 
     vk::raii::Queue presentQueue = initVkPresentQueue(logicalDevice, indices);
 
-    SwapChainDetails swapChainDetails = initSwapChain(physicalDevice, window, surface, indices, logicalDevice);
+    SwapChainDetails swapChainDetails = initSwapChain(physicalDevice, window.getSDL_window(), surface, indices, logicalDevice);
 
     std::vector<vk::raii::ImageView> swapChainImageViews = initImageViews(logicalDevice, swapChainDetails);
 
@@ -758,8 +745,6 @@ int main() {
     logicalDevice.waitIdle();
 
     DestroyDebugUtilsMessengerEXT(*instance, debugMessenger, nullptr);
-    SDL_DestroyWindow(window);
-    SDL_Quit();
 
     return 0;
 }
