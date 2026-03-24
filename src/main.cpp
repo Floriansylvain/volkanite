@@ -4,6 +4,7 @@
 #include <vulkan/vulkan_beta.h>
 #include <vulkan/vulkan_raii.hpp>
 
+#include <core/Instance.hpp>
 #include <core/Window.hpp>
 
 #include <algorithm>
@@ -15,27 +16,12 @@
 
 const auto APPLICATION_NAME = "Vulkan M4 Setup";
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
-const std::vector<const char *> validationLayers = {"VK_LAYER_KHRONOS_validation"};
 
 #ifdef NDEBUG
 const bool enableValidationLayers = false;
 #else
 const bool enableValidationLayers = true;
 #endif
-
-bool checkValidationLayerSupport() {
-    uint32_t layerCount;
-    vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
-
-    std::vector<VkLayerProperties> availableLayers(layerCount);
-    vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
-
-    return std::all_of(validationLayers.begin(), validationLayers.end(), [&availableLayers](const char *layerName) {
-        return std::ranges::any_of(availableLayers, [layerName](const auto &layerProperties) {
-            return strcmp(layerName, layerProperties.layerName) == 0;
-        });
-    });
-}
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
                                                     VkDebugUtilsMessageTypeFlagsEXT messageType,
@@ -45,97 +31,6 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityF
         std::cerr << "validation layer: " << pCallbackData->pMessage << std::endl;
     }
     return VK_FALSE;
-}
-
-VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT *pCreateInfo,
-                                      const VkAllocationCallbacks *pAllocator, VkDebugUtilsMessengerEXT *pDebugMessenger) {
-    auto func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
-    if (func != nullptr) {
-        return func(instance, pCreateInfo, pAllocator, pDebugMessenger);
-    } else {
-        return VK_ERROR_EXTENSION_NOT_PRESENT;
-    }
-}
-
-void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT &createInfo) {
-    createInfo = {};
-    createInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-    createInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
-                                 VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
-                                 VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-    createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
-                             VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-    createInfo.pfnUserCallback = debugCallback;
-}
-
-VkDebugUtilsMessengerEXT initDebugMessenger(VkInstance instance) {
-    if (!enableValidationLayers)
-        return VK_NULL_HANDLE;
-    VkDebugUtilsMessengerCreateInfoEXT createInfo;
-    populateDebugMessengerCreateInfo(createInfo);
-
-    VkDebugUtilsMessengerEXT debugMessenger;
-    if (CreateDebugUtilsMessengerEXT(instance, &createInfo, nullptr, &debugMessenger) != VK_SUCCESS) {
-        throw std::runtime_error("failed to set up debug messenger!");
-    }
-
-    return debugMessenger;
-}
-
-void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger,
-                                   const VkAllocationCallbacks *pAllocator) {
-    auto func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT");
-    if (func != nullptr) {
-        func(instance, debugMessenger, pAllocator);
-    }
-}
-
-vk::raii::Instance initVkInstance(vk::raii::Context &context) {
-    if (enableValidationLayers && !checkValidationLayerSupport()) {
-        throw std::runtime_error("validation layers requested, but not available!");
-    }
-
-    vk::ApplicationInfo appInfo;
-    appInfo.pApplicationName = APPLICATION_NAME;
-    appInfo.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-    appInfo.pEngineName = "No Engine";
-    appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-    appInfo.apiVersion = VK_API_VERSION_1_4;
-
-    uint32_t extensionCount = 0;
-    const char *const *extensions = SDL_Vulkan_GetInstanceExtensions(&extensionCount);
-
-    std::vector<const char *> requiredExtensions;
-    for (uint32_t i = 0; i < extensionCount; i++) {
-        requiredExtensions.emplace_back(extensions[i]);
-    }
-    requiredExtensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
-    requiredExtensions.push_back(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
-    if (enableValidationLayers) {
-        requiredExtensions.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-    }
-
-    vk::InstanceCreateInfo createInfo;
-    createInfo.pApplicationInfo = &appInfo;
-    createInfo.enabledExtensionCount = static_cast<uint32_t>(requiredExtensions.size());
-    createInfo.ppEnabledExtensionNames = requiredExtensions.data();
-    createInfo.flags = vk::InstanceCreateFlags();
-
-    VkDebugUtilsMessengerCreateInfoEXT debugCreateInfo{};
-    if (enableValidationLayers) {
-        createInfo.enabledLayerCount = static_cast<uint32_t>(validationLayers.size());
-        createInfo.ppEnabledLayerNames = validationLayers.data();
-
-        populateDebugMessengerCreateInfo(debugCreateInfo);
-        createInfo.pNext = &debugCreateInfo;
-    } else {
-        createInfo.enabledLayerCount = 0;
-        createInfo.pNext = nullptr;
-    }
-
-    createInfo.flags |= vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR;
-
-    return vk::raii::Instance(context, createInfo);
 }
 
 struct QueueFamilyIndices {
@@ -272,14 +167,6 @@ vk::raii::Device initVkLogicalDevice(const vk::raii::PhysicalDevice &physicalDev
 
 vk::raii::Queue initVkPresentQueue(const vk::raii::Device &logicalDevice, QueueFamilyIndices indices) {
     return vk::raii::Queue(logicalDevice, indices.graphicsFamily.value(), 0);
-}
-
-vk::raii::SurfaceKHR initVkSurface(const vk::raii::Instance &instance, SDL_Window *window) {
-    VkSurfaceKHR surface = VK_NULL_HANDLE;
-    if (!SDL_Vulkan_CreateSurface(window, *instance, NULL, &surface)) {
-        throw std::runtime_error("Failed to create window surface: " + std::string(SDL_GetError()));
-    }
-    return vk::raii::SurfaceKHR(instance, surface);
 }
 
 vk::SurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<vk::SurfaceFormatKHR> &availableFormats) {
@@ -669,21 +556,18 @@ int main() {
                                                   VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME};
 
     Window window = Window(APPLICATION_NAME, 800, 600);
+    Instance instance = Instance(window, enableValidationLayers);
 
-    vk::raii::Context context;
-    vk::raii::Instance instance = initVkInstance(context);
-
-    VkDebugUtilsMessengerEXT debugMessenger = initDebugMessenger(*instance);
-    vk::raii::SurfaceKHR surface = initVkSurface(instance, window.getSDL_window());
-
-    vk::raii::PhysicalDevice physicalDevice = initVkPysicalDevice(instance, surface, deviceExtensions);
-    QueueFamilyIndices indices = findQueueFamilies(physicalDevice, surface);
+    vk::raii::PhysicalDevice physicalDevice =
+        initVkPysicalDevice(*instance.getVkInstance(), *instance.getVkSurface(), deviceExtensions);
+    QueueFamilyIndices indices = findQueueFamilies(physicalDevice, *instance.getVkSurface());
 
     vk::raii::Device logicalDevice = initVkLogicalDevice(physicalDevice, indices, deviceExtensions);
 
     vk::raii::Queue presentQueue = initVkPresentQueue(logicalDevice, indices);
 
-    SwapChainDetails swapChainDetails = initSwapChain(physicalDevice, window.getSDL_window(), surface, indices, logicalDevice);
+    SwapChainDetails swapChainDetails =
+        initSwapChain(physicalDevice, window.getSDL_window(), *instance.getVkSurface(), indices, logicalDevice);
 
     std::vector<vk::raii::ImageView> swapChainImageViews = initImageViews(logicalDevice, swapChainDetails);
 
@@ -743,8 +627,6 @@ int main() {
     };
 
     logicalDevice.waitIdle();
-
-    DestroyDebugUtilsMessengerEXT(*instance, debugMessenger, nullptr);
 
     return 0;
 }

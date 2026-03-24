@@ -1,5 +1,6 @@
 #include "Window.hpp"
 #include "SDL3/SDL.h"
+#include "SDL3/SDL_vulkan.h"
 
 #include <iostream>
 
@@ -24,3 +25,5 @@ void Window::initSDL3(const char *title, int width, int height) {
 }
 
 SDL_Window *Window::getSDL_window() { return _SDL_Window; };
+
+const char *const *Window::getInstanceExtensions(uint32_t *count) { return SDL_Vulkan_GetInstanceExtensions(count); };
