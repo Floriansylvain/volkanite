@@ -133,7 +133,15 @@ vk::raii::PhysicalDevice initVkPysicalDevice(const vk::raii::Instance &instance,
 }
 
 vk::raii::Device initVkLogicalDevice(const vk::raii::PhysicalDevice &physicalDevice, QueueFamilyIndices indices,
-                                     const std::vector<const char *> &deviceExtensions) {
+                                     std::vector<const char *> deviceExtensions) {
+    auto supportedExtensions = physicalDevice.enumerateDeviceExtensionProperties();
+    for (const auto &ext : supportedExtensions) {
+        if (std::string_view(ext.extensionName) == "VK_KHR_portability_subset") {
+            deviceExtensions.push_back("VK_KHR_portability_subset");
+            break;
+        }
+    }
+
     std::vector<vk::DeviceQueueCreateInfo> queueCreateInfos;
     std::set<uint32_t> uniqueQueueFamilies = {indices.graphicsFamily.value(), indices.presentFamily.value()};
     float queuePriority = 1.0f;
@@ -552,8 +560,7 @@ SyncObjects initSyncObjects(const vk::raii::Device &device, uint32_t imageCount)
 }
 
 int main() {
-    std::vector<const char *> deviceExtensions = {VK_KHR_PORTABILITY_SUBSET_EXTENSION_NAME, VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-                                                  VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME};
+    std::vector<const char *> deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME};
 
     Window window = Window(APPLICATION_NAME, 800, 600);
     Instance instance = Instance(window, enableValidationLayers);
