@@ -15,6 +15,7 @@ class Window {
 
     SDL_Window *getSDL_window();
     const char *const *getInstanceExtensions(uint32_t *count);
+    bool getSizeInPixels(int *w, int *h);
 
   private:
     SDL_Window *_SDL_Window = nullptr;
