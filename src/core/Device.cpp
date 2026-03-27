@@ -5,7 +5,7 @@
 #include <stdexcept>
 #include <string_view>
 
-Device::Device(Instance *instance) : instance(*instance), physicalDevices(instance->getPhysicalDevices()) {
+Device::Device(Instance &instance) : instance(instance), physicalDevices(instance.getPhysicalDevices()) {
     initVkPhysicalDevice();
     initVkLogicalDevice();
     initVkPresentQueue();

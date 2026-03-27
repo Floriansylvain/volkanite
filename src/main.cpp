@@ -420,7 +420,7 @@ int main() {
 
     Window window(APPLICATION_NAME, 800, 600);
     Instance instance(window, enableValidationLayers);
-    Device device(&instance);
+    Device device(instance);
 
     SwapChainDetails swapChainDetails = initSwapChain(window.getSDL_window(), device, instance);
 
