@@ -27,3 +27,5 @@ void Window::initSDL3(const char *title, int width, int height) {
 SDL_Window *Window::getSDL_window() { return _SDL_Window; };
 
 const char *const *Window::getInstanceExtensions(uint32_t *count) { return SDL_Vulkan_GetInstanceExtensions(count); };
+
+bool Window::getSizeInPixels(int *w, int *h) { return SDL_GetWindowSizeInPixels(_SDL_Window, w, h); }

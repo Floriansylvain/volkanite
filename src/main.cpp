@@ -6,6 +6,7 @@
 
 #include <core/Device.hpp>
 #include <core/Instance.hpp>
+#include <core/SwapChain.hpp>
 #include <core/Window.hpp>
 
 #include <algorithm>
@@ -15,7 +16,6 @@
 #include <set>
 #include <vector>
 
-const auto APPLICATION_NAME = "volkanite";
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 
 #ifdef NDEBUG
@@ -23,119 +23,6 @@ const bool enableValidationLayers = false;
 #else
 const bool enableValidationLayers = true;
 #endif
-
-vk::SurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<vk::SurfaceFormatKHR> &availableFormats) {
-    auto it = std::ranges::find_if(availableFormats, [](const auto &format) {
-        return format.format == vk::Format::eB8G8R8A8Srgb && format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear;
-    });
-    return it != availableFormats.end() ? *it : availableFormats[0];
-}
-
-vk::PresentModeKHR chooseSwapPresentMode(const std::vector<vk::PresentModeKHR> &availablePresentModes) {
-    auto it = std::ranges::find(availablePresentModes, vk::PresentModeKHR::eMailbox);
-    return it != availablePresentModes.end() ? *it : vk::PresentModeKHR::eFifo;
-}
-
-VkExtent2D chooseSwapExtent(const VkSurfaceCapabilitiesKHR &capabilities, SDL_Window *window) {
-    if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max())
-        return capabilities.currentExtent;
-
-    int width, height;
-    SDL_GetWindowSizeInPixels(window, &width, &height);
-
-    VkExtent2D actualExtent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
-
-    actualExtent.width = std::clamp(actualExtent.width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
-    actualExtent.height =
-        std::clamp(actualExtent.height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
-
-    return actualExtent;
-}
-
-struct SwapChainDetails {
-    vk::raii::SwapchainKHR swapChain = nullptr;
-    vk::Format imageFormat = vk::Format::eUndefined;
-    vk::Extent2D extent = vk::Extent2D{0, 0};
-    std::vector<vk::Image> images;
-};
-
-SwapChainDetails initSwapChain(SDL_Window *window, Device &device, Instance &instance) {
-    SwapChainSupportDetails swapChainSupport = device.querySwapChainSupport(device.getPhysicalDevice());
-
-    auto surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formats);
-    auto presentMode = chooseSwapPresentMode(swapChainSupport.presentModes);
-    VkExtent2D extent = chooseSwapExtent(swapChainSupport.capabilities, window);
-
-    uint32_t imageCount = swapChainSupport.capabilities.minImageCount + 1;
-    if (swapChainSupport.capabilities.maxImageCount > 0 && imageCount > swapChainSupport.capabilities.maxImageCount) {
-        imageCount = swapChainSupport.capabilities.maxImageCount;
-    }
-
-    vk::SwapchainCreateInfoKHR createInfo{};
-    createInfo.surface = *instance.getVkSurface();
-    createInfo.minImageCount = imageCount;
-    createInfo.imageFormat = surfaceFormat.format;
-    createInfo.imageColorSpace = surfaceFormat.colorSpace;
-    createInfo.imageExtent = vk::Extent2D{static_cast<uint32_t>(extent.width), static_cast<uint32_t>(extent.height)};
-    createInfo.imageArrayLayers = 1;
-    createInfo.imageUsage = vk::ImageUsageFlagBits::eColorAttachment;
-
-    uint32_t queueFamilyIndices[] = {device.getQueueFamilyIndices().graphicsFamily.value(),
-                                     device.getQueueFamilyIndices().presentFamily.value()};
-    if (device.getQueueFamilyIndices().graphicsFamily != device.getQueueFamilyIndices().presentFamily) {
-        createInfo.imageSharingMode = vk::SharingMode::eConcurrent;
-        createInfo.queueFamilyIndexCount = 2;
-        createInfo.pQueueFamilyIndices = queueFamilyIndices;
-    } else {
-        createInfo.imageSharingMode = vk::SharingMode::eExclusive;
-        createInfo.queueFamilyIndexCount = 0;
-        createInfo.pQueueFamilyIndices = nullptr;
-    }
-
-    createInfo.preTransform = static_cast<vk::SurfaceTransformFlagBitsKHR>(swapChainSupport.capabilities.currentTransform);
-    createInfo.compositeAlpha = vk::CompositeAlphaFlagBitsKHR::eOpaque;
-    createInfo.presentMode = presentMode;
-    createInfo.clipped = vk::True;
-    createInfo.oldSwapchain = nullptr;
-
-    SwapChainDetails details;
-    details.swapChain = vk::raii::SwapchainKHR(device.getLogicalDevice(), createInfo);
-    details.imageFormat = surfaceFormat.format;
-    details.extent = vk::Extent2D{static_cast<uint32_t>(extent.width), static_cast<uint32_t>(extent.height)};
-
-    uint32_t swapchainImageCount = 0;
-    vkGetSwapchainImagesKHR(*device.getLogicalDevice(), *details.swapChain, &swapchainImageCount, nullptr);
-    std::vector<VkImage> vkImages(swapchainImageCount);
-    vkGetSwapchainImagesKHR(*device.getLogicalDevice(), *details.swapChain, &swapchainImageCount, vkImages.data());
-    details.images.assign(vkImages.begin(), vkImages.end());
-
-    return details;
-}
-
-std::vector<vk::raii::ImageView> initImageViews(const vk::raii::Device &logicalDevice, const SwapChainDetails &details) {
-    std::vector<vk::raii::ImageView> swapChainImageViews;
-    swapChainImageViews.reserve(details.images.size());
-
-    for (const auto &image : details.images) {
-        vk::ImageViewCreateInfo createInfo{};
-        createInfo.image = image;
-        createInfo.viewType = vk::ImageViewType::e2D;
-        createInfo.format = details.imageFormat;
-        createInfo.components.r = vk::ComponentSwizzle::eIdentity;
-        createInfo.components.g = vk::ComponentSwizzle::eIdentity;
-        createInfo.components.b = vk::ComponentSwizzle::eIdentity;
-        createInfo.components.a = vk::ComponentSwizzle::eIdentity;
-        createInfo.subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
-        createInfo.subresourceRange.baseMipLevel = 0;
-        createInfo.subresourceRange.levelCount = 1;
-        createInfo.subresourceRange.baseArrayLayer = 0;
-        createInfo.subresourceRange.layerCount = 1;
-
-        swapChainImageViews.emplace_back(logicalDevice, createInfo);
-    }
-
-    return swapChainImageViews;
-}
 
 static std::vector<char> readFile(const std::string &filename) {
     std::ifstream file(filename, std::ios::ate | std::ios::binary);
@@ -406,24 +293,19 @@ SyncObjects initSyncObjects(const vk::raii::Device &device, uint32_t imageCount)
 }
 
 int main() {
-    std::vector<const char *> deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME};
-
-    Window window(APPLICATION_NAME, 800, 600);
+    Window window("volkanite", 800, 600);
     Instance instance(window, enableValidationLayers);
     Device device(instance);
-
-    SwapChainDetails swapChainDetails = initSwapChain(window.getSDL_window(), device, instance);
-
-    std::vector<vk::raii::ImageView> swapChainImageViews = initImageViews(device.getLogicalDevice(), swapChainDetails);
+    SwapChain swapChain(window, instance, device);
 
     vk::raii::PipelineLayout pipelineLayout = initPipelineLayout(device.getLogicalDevice());
     vk::raii::Pipeline graphicsPipeline =
-        initGraphicsPipeline(device.getLogicalDevice(), swapChainDetails.imageFormat, pipelineLayout, swapChainDetails.extent);
+        initGraphicsPipeline(device.getLogicalDevice(), *swapChain.getImageFormat(), pipelineLayout, *swapChain.getExtent());
 
     vk::raii::CommandPool commandPool = initCommandPool(device.getLogicalDevice(), device.getQueueFamilyIndices());
     std::vector<vk::raii::CommandBuffer> commandBuffers = initCommandBuffers(device.getLogicalDevice(), commandPool);
 
-    SyncObjects syncObjects = initSyncObjects(device.getLogicalDevice(), swapChainDetails.images.size());
+    SyncObjects syncObjects = initSyncObjects(device.getLogicalDevice(), swapChain.getImages().size());
     uint32_t frameIndex = 0;
 
     bool running = true;
@@ -441,12 +323,12 @@ int main() {
         }
         device.getLogicalDevice().resetFences(*syncObjects.inFlightFences[frameIndex]);
 
-        auto [result, imageIndex] = swapChainDetails.swapChain.acquireNextImage(
+        auto [result, imageIndex] = swapChain.getSwapChainKHR()->acquireNextImage(
             UINT64_MAX, *syncObjects.presentCompleteSemaphores[frameIndex], nullptr);
 
         commandBuffers[frameIndex].reset();
-        recordCommandBuffer(imageIndex, swapChainDetails.images, commandBuffers, graphicsPipeline, swapChainImageViews,
-                            swapChainDetails.extent, frameIndex);
+        recordCommandBuffer(imageIndex, swapChain.getImages(), commandBuffers, graphicsPipeline, swapChain.getImageViews(),
+                            *swapChain.getExtent(), frameIndex);
 
         vk::PipelineStageFlags waitDestinationStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput);
         vk::SubmitInfo submitInfo{};
@@ -460,10 +342,11 @@ int main() {
 
         device.getPresentQueue().submit(submitInfo, *syncObjects.inFlightFences[frameIndex]);
 
+        vk::SwapchainKHR rawHandle = swapChain.getRawHandle();
         vk::PresentInfoKHR presentInfo{};
         presentInfo.waitSemaphoreCount = 1;
         presentInfo.swapchainCount = 1;
-        presentInfo.pSwapchains = &*swapChainDetails.swapChain;
+        presentInfo.pSwapchains = &rawHandle;
         presentInfo.pWaitSemaphores = &*syncObjects.renderFinishedSemaphores[imageIndex];
         presentInfo.pImageIndices = &imageIndex;
 
