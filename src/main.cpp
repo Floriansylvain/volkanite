@@ -4,6 +4,7 @@
 #include <vulkan/vulkan_beta.h>
 #include <vulkan/vulkan_raii.hpp>
 
+#include <core/Device.hpp>
 #include <core/Instance.hpp>
 #include <core/Window.hpp>
 
@@ -14,7 +15,7 @@
 #include <set>
 #include <vector>
 
-const auto APPLICATION_NAME = "Vulkan M4 Setup";
+const auto APPLICATION_NAME = "volkanite";
 constexpr int MAX_FRAMES_IN_FLIGHT = 2;
 
 #ifdef NDEBUG
@@ -31,150 +32,6 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityF
         std::cerr << "validation layer: " << pCallbackData->pMessage << std::endl;
     }
     return VK_FALSE;
-}
-
-struct QueueFamilyIndices {
-    std::optional<uint32_t> graphicsFamily;
-    std::optional<uint32_t> presentFamily;
-
-    bool isComplete() { return graphicsFamily.has_value() && presentFamily.has_value(); }
-};
-
-QueueFamilyIndices findQueueFamilies(const vk::raii::PhysicalDevice &device, const vk::raii::SurfaceKHR &surface) {
-    QueueFamilyIndices indices;
-
-    auto queueFamilies = device.getQueueFamilyProperties();
-
-    for (uint32_t i = 0; i < queueFamilies.size(); ++i) {
-        const auto &queueFamily = queueFamilies[i];
-        if (queueFamily.queueFlags & vk::QueueFlagBits::eGraphics)
-            indices.graphicsFamily = i;
-        if (device.getSurfaceSupportKHR(i, *surface))
-            indices.presentFamily = i;
-    }
-
-    return indices;
-}
-
-bool checkDeviceExtensionSupport(const vk::raii::PhysicalDevice &device, const std::vector<const char *> &deviceExtensions) {
-    auto availableExtensions = device.enumerateDeviceExtensionProperties();
-
-    std::set<std::string> requiredExtensions(deviceExtensions.begin(), deviceExtensions.end());
-
-    for (const auto &extension : availableExtensions) {
-        requiredExtensions.erase(extension.extensionName);
-    }
-
-    return requiredExtensions.empty();
-}
-
-struct SwapChainSupportDetails {
-    VkSurfaceCapabilitiesKHR capabilities;
-    std::vector<vk::SurfaceFormatKHR> formats;
-    std::vector<vk::PresentModeKHR> presentModes;
-};
-
-SwapChainSupportDetails querySwapChainSupport(const vk::raii::PhysicalDevice &device, const vk::raii::SurfaceKHR &surface) {
-    SwapChainSupportDetails details;
-
-    details.capabilities = device.getSurfaceCapabilitiesKHR(*surface);
-    details.formats = device.getSurfaceFormatsKHR(*surface);
-    details.presentModes = device.getSurfacePresentModesKHR(*surface);
-
-    return details;
-}
-
-int rateDeviceSuitability(const vk::raii::PhysicalDevice &device, const vk::raii::SurfaceKHR &surface,
-                          const std::vector<const char *> &deviceExtensions) {
-    auto deviceProperties = device.getProperties();
-    auto deviceFeatures = device.getFeatures2();
-
-    bool extensionsSupported = checkDeviceExtensionSupport(device, deviceExtensions);
-
-    int score = 0;
-    if (deviceProperties.deviceType == vk::PhysicalDeviceType::eDiscreteGpu)
-        score += 10;
-    if (findQueueFamilies(device, surface).isComplete())
-        score += 10;
-    if (extensionsSupported) {
-        score += 10;
-        SwapChainSupportDetails swapChainSupport = querySwapChainSupport(device, surface);
-        if (!swapChainSupport.formats.empty() && !swapChainSupport.presentModes.empty())
-            score += 10;
-    }
-
-    return score;
-}
-
-vk::raii::PhysicalDevice initVkPysicalDevice(const vk::raii::Instance &instance, const vk::raii::SurfaceKHR &surface,
-                                             std::vector<const char *> deviceExtensions) {
-    auto devices = instance.enumeratePhysicalDevices();
-
-    if (devices.empty()) {
-        throw std::runtime_error("failed to find GPUs with Vulkan support!");
-    }
-
-    int bestScore = -1;
-    size_t bestIndex = 0;
-
-    for (size_t i = 0; i < devices.size(); ++i) {
-        int score = rateDeviceSuitability(devices[i], surface, deviceExtensions);
-        if (score > bestScore) {
-            bestScore = score;
-            bestIndex = i;
-        }
-    }
-
-    if (bestScore > 0) {
-        return std::move(devices[bestIndex]);
-    } else {
-        throw std::runtime_error("failed to find a suitable GPU!");
-    }
-}
-
-vk::raii::Device initVkLogicalDevice(const vk::raii::PhysicalDevice &physicalDevice, QueueFamilyIndices indices,
-                                     std::vector<const char *> deviceExtensions) {
-    auto supportedExtensions = physicalDevice.enumerateDeviceExtensionProperties();
-    for (const auto &ext : supportedExtensions) {
-        if (std::string_view(ext.extensionName) == "VK_KHR_portability_subset") {
-            deviceExtensions.push_back("VK_KHR_portability_subset");
-            break;
-        }
-    }
-
-    std::vector<vk::DeviceQueueCreateInfo> queueCreateInfos;
-    std::set<uint32_t> uniqueQueueFamilies = {indices.graphicsFamily.value(), indices.presentFamily.value()};
-    float queuePriority = 1.0f;
-    for (uint32_t queueFamily : uniqueQueueFamilies) {
-        vk::DeviceQueueCreateInfo queueCreateInfo{};
-        queueCreateInfo.queueFamilyIndex = queueFamily;
-        queueCreateInfo.queueCount = 1;
-        queueCreateInfo.pQueuePriorities = &queuePriority;
-        queueCreateInfos.push_back(queueCreateInfo);
-    }
-
-    vk::PhysicalDeviceDynamicRenderingFeatures dynamicRenderingFeatures{};
-    dynamicRenderingFeatures.dynamicRendering = vk::True;
-
-    vk::PhysicalDeviceFeatures deviceFeatures{};
-    vk::PhysicalDeviceSynchronization2Features synchronization2Features{};
-    synchronization2Features.synchronization2 = vk::True;
-    synchronization2Features.pNext = &dynamicRenderingFeatures;
-
-    vk::DeviceCreateInfo createInfo;
-    createInfo.pNext = &synchronization2Features;
-    createInfo.queueCreateInfoCount = static_cast<uint32_t>(queueCreateInfos.size());
-    createInfo.pQueueCreateInfos = queueCreateInfos.data();
-    createInfo.pEnabledFeatures = &deviceFeatures;
-
-    createInfo.enabledExtensionCount = static_cast<uint32_t>(deviceExtensions.size());
-    createInfo.ppEnabledExtensionNames = deviceExtensions.data();
-
-    return vk::raii::Device(physicalDevice, createInfo);
-}
-
-vk::raii::Queue initVkPresentQueue(const vk::raii::Device &logicalDevice, QueueFamilyIndices indices) {
-    return vk::raii::Queue(logicalDevice, indices.graphicsFamily.value(), 0);
 }
 
 vk::SurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<vk::SurfaceFormatKHR> &availableFormats) {
@@ -212,10 +69,8 @@ struct SwapChainDetails {
     std::vector<vk::Image> images;
 };
 
-SwapChainDetails initSwapChain(const vk::raii::PhysicalDevice &physicalDevice, SDL_Window *window,
-                               const vk::raii::SurfaceKHR &surface, QueueFamilyIndices indices,
-                               const vk::raii::Device &logicalDevice) {
-    SwapChainSupportDetails swapChainSupport = querySwapChainSupport(physicalDevice, surface);
+SwapChainDetails initSwapChain(SDL_Window *window, Device &device, Instance &instance) {
+    SwapChainSupportDetails swapChainSupport = device.querySwapChainSupport(device.getPhysicalDevice());
 
     auto surfaceFormat = chooseSwapSurfaceFormat(swapChainSupport.formats);
     auto presentMode = chooseSwapPresentMode(swapChainSupport.presentModes);
@@ -227,7 +82,7 @@ SwapChainDetails initSwapChain(const vk::raii::PhysicalDevice &physicalDevice, S
     }
 
     vk::SwapchainCreateInfoKHR createInfo{};
-    createInfo.surface = *surface;
+    createInfo.surface = *instance.getVkSurface();
     createInfo.minImageCount = imageCount;
     createInfo.imageFormat = surfaceFormat.format;
     createInfo.imageColorSpace = surfaceFormat.colorSpace;
@@ -235,8 +90,9 @@ SwapChainDetails initSwapChain(const vk::raii::PhysicalDevice &physicalDevice, S
     createInfo.imageArrayLayers = 1;
     createInfo.imageUsage = vk::ImageUsageFlagBits::eColorAttachment;
 
-    uint32_t queueFamilyIndices[] = {indices.graphicsFamily.value(), indices.presentFamily.value()};
-    if (indices.graphicsFamily != indices.presentFamily) {
+    uint32_t queueFamilyIndices[] = {device.getQueueFamilyIndices().graphicsFamily.value(),
+                                     device.getQueueFamilyIndices().presentFamily.value()};
+    if (device.getQueueFamilyIndices().graphicsFamily != device.getQueueFamilyIndices().presentFamily) {
         createInfo.imageSharingMode = vk::SharingMode::eConcurrent;
         createInfo.queueFamilyIndexCount = 2;
         createInfo.pQueueFamilyIndices = queueFamilyIndices;
@@ -253,14 +109,14 @@ SwapChainDetails initSwapChain(const vk::raii::PhysicalDevice &physicalDevice, S
     createInfo.oldSwapchain = nullptr;
 
     SwapChainDetails details;
-    details.swapChain = vk::raii::SwapchainKHR(logicalDevice, createInfo);
+    details.swapChain = vk::raii::SwapchainKHR(device.getLogicalDevice(), createInfo);
     details.imageFormat = surfaceFormat.format;
     details.extent = vk::Extent2D{static_cast<uint32_t>(extent.width), static_cast<uint32_t>(extent.height)};
 
     uint32_t swapchainImageCount = 0;
-    vkGetSwapchainImagesKHR(*logicalDevice, *details.swapChain, &swapchainImageCount, nullptr);
+    vkGetSwapchainImagesKHR(*device.getLogicalDevice(), *details.swapChain, &swapchainImageCount, nullptr);
     std::vector<VkImage> vkImages(swapchainImageCount);
-    vkGetSwapchainImagesKHR(*logicalDevice, *details.swapChain, &swapchainImageCount, vkImages.data());
+    vkGetSwapchainImagesKHR(*device.getLogicalDevice(), *details.swapChain, &swapchainImageCount, vkImages.data());
     details.images.assign(vkImages.begin(), vkImages.end());
 
     return details;
@@ -562,30 +418,22 @@ SyncObjects initSyncObjects(const vk::raii::Device &device, uint32_t imageCount)
 int main() {
     std::vector<const char *> deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME};
 
-    Window window = Window(APPLICATION_NAME, 800, 600);
-    Instance instance = Instance(window, enableValidationLayers);
+    Window window(APPLICATION_NAME, 800, 600);
+    Instance instance(window, enableValidationLayers);
+    Device device(&instance);
 
-    vk::raii::PhysicalDevice physicalDevice =
-        initVkPysicalDevice(*instance.getVkInstance(), *instance.getVkSurface(), deviceExtensions);
-    QueueFamilyIndices indices = findQueueFamilies(physicalDevice, *instance.getVkSurface());
+    SwapChainDetails swapChainDetails = initSwapChain(window.getSDL_window(), device, instance);
 
-    vk::raii::Device logicalDevice = initVkLogicalDevice(physicalDevice, indices, deviceExtensions);
+    std::vector<vk::raii::ImageView> swapChainImageViews = initImageViews(device.getLogicalDevice(), swapChainDetails);
 
-    vk::raii::Queue presentQueue = initVkPresentQueue(logicalDevice, indices);
-
-    SwapChainDetails swapChainDetails =
-        initSwapChain(physicalDevice, window.getSDL_window(), *instance.getVkSurface(), indices, logicalDevice);
-
-    std::vector<vk::raii::ImageView> swapChainImageViews = initImageViews(logicalDevice, swapChainDetails);
-
-    vk::raii::PipelineLayout pipelineLayout = initPipelineLayout(logicalDevice);
+    vk::raii::PipelineLayout pipelineLayout = initPipelineLayout(device.getLogicalDevice());
     vk::raii::Pipeline graphicsPipeline =
-        initGraphicsPipeline(logicalDevice, swapChainDetails.imageFormat, pipelineLayout, swapChainDetails.extent);
+        initGraphicsPipeline(device.getLogicalDevice(), swapChainDetails.imageFormat, pipelineLayout, swapChainDetails.extent);
 
-    vk::raii::CommandPool commandPool = initCommandPool(logicalDevice, indices);
-    std::vector<vk::raii::CommandBuffer> commandBuffers = initCommandBuffers(logicalDevice, commandPool);
+    vk::raii::CommandPool commandPool = initCommandPool(device.getLogicalDevice(), device.getQueueFamilyIndices());
+    std::vector<vk::raii::CommandBuffer> commandBuffers = initCommandBuffers(device.getLogicalDevice(), commandPool);
 
-    SyncObjects syncObjects = initSyncObjects(logicalDevice, swapChainDetails.images.size());
+    SyncObjects syncObjects = initSyncObjects(device.getLogicalDevice(), swapChainDetails.images.size());
     uint32_t frameIndex = 0;
 
     bool running = true;
@@ -596,11 +444,12 @@ int main() {
                 running = false;
         }
 
-        auto fenceResult = logicalDevice.waitForFences(*syncObjects.inFlightFences[frameIndex], vk::True, UINT64_MAX);
+        auto fenceResult =
+            device.getLogicalDevice().waitForFences(*syncObjects.inFlightFences[frameIndex], vk::True, UINT64_MAX);
         if (fenceResult != vk::Result::eSuccess) {
             throw std::runtime_error("failed to wait for fence!");
         }
-        logicalDevice.resetFences(*syncObjects.inFlightFences[frameIndex]);
+        device.getLogicalDevice().resetFences(*syncObjects.inFlightFences[frameIndex]);
 
         auto [result, imageIndex] = swapChainDetails.swapChain.acquireNextImage(
             UINT64_MAX, *syncObjects.presentCompleteSemaphores[frameIndex], nullptr);
@@ -619,7 +468,7 @@ int main() {
         submitInfo.signalSemaphoreCount = 1;
         submitInfo.pSignalSemaphores = &*syncObjects.renderFinishedSemaphores[imageIndex];
 
-        presentQueue.submit(submitInfo, *syncObjects.inFlightFences[frameIndex]);
+        device.getPresentQueue().submit(submitInfo, *syncObjects.inFlightFences[frameIndex]);
 
         vk::PresentInfoKHR presentInfo{};
         presentInfo.waitSemaphoreCount = 1;
@@ -628,12 +477,12 @@ int main() {
         presentInfo.pWaitSemaphores = &*syncObjects.renderFinishedSemaphores[imageIndex];
         presentInfo.pImageIndices = &imageIndex;
 
-        result = presentQueue.presentKHR(presentInfo);
+        result = device.getPresentQueue().presentKHR(presentInfo);
 
         frameIndex = (frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
     };
 
-    logicalDevice.waitIdle();
+    device.getLogicalDevice().waitIdle();
 
     return 0;
 }

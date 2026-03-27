@@ -14,6 +14,8 @@ Instance::Instance(Window &window, bool isDebug)
     initVkSurface();
 }
 
+Instance::~Instance() { DestroyDebugUtilsMessengerEXT(nullptr); }
+
 bool Instance::checkValidationLayerSupport() {
     uint32_t layerCount;
     vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
@@ -137,4 +139,4 @@ vk::raii::Instance *Instance::getVkInstance() { return &instance; }
 
 vk::raii::SurfaceKHR *Instance::getVkSurface() { return &surface; }
 
-Instance::~Instance() { DestroyDebugUtilsMessengerEXT(nullptr); }
+std::vector<vk::raii::PhysicalDevice> Instance::getPhysicalDevices() { return instance.enumeratePhysicalDevices(); }

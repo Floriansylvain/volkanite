@@ -16,6 +16,7 @@ set(SOURCES
     src/main.cpp
     src/core/Window.cpp
     src/core/Instance.cpp
+    src/core/Device.cpp
 )
 
 set(VERT_SHADER ${CMAKE_SOURCE_DIR}/src/shaders/shader.vert)
