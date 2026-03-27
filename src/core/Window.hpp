@@ -5,6 +5,7 @@ struct SDL_Window;
 
 #include <cstdint>
 
+// OS Abstraction
 class Window {
   public:
     Window(const char *title, int width, int height);

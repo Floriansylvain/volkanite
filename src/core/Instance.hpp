@@ -4,13 +4,18 @@
 #include "Window.hpp"
 #include <vulkan/vulkan_raii.hpp>
 
+// Vulkan setup
 class Instance {
   public:
     Instance(Window &window, bool isDebug);
     ~Instance();
 
+    Instance(const Instance &) = delete;
+    Instance &operator=(const Instance &) = delete;
+
     vk::raii::Instance *getVkInstance();
     vk::raii::SurfaceKHR *getVkSurface();
+    std::vector<vk::raii::PhysicalDevice> getPhysicalDevices();
 
   private:
     Window &window;
