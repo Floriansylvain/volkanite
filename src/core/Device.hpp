@@ -21,7 +21,7 @@ struct QueueFamilyIndices {
 // Hardware interface
 class Device {
   public:
-    Device(Instance *instance);
+    Device(Instance &instance);
     ~Device();
 
     Device(const Device &) = delete;
