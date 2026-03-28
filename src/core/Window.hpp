@@ -17,8 +17,14 @@ class Window {
     const char *const *getInstanceExtensions(uint32_t *count);
     bool getSizeInPixels(int *w, int *h);
 
+    bool isRunning();
+    void pollEvents();
+
   private:
     SDL_Window *_SDL_Window = nullptr;
+
+    bool running;
+
     void initSDL3(const char *title, int width, int height);
 };
 
