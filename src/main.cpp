@@ -1,22 +1,9 @@
-#include <SDL3/SDL.h>
-#include <SDL3/SDL_vulkan.h>
-#include <vulkan/vulkan.hpp>
-#include <vulkan/vulkan_beta.h>
-#include <vulkan/vulkan_raii.hpp>
-
 #include <core/Device.hpp>
 #include <core/Instance.hpp>
 #include <core/Pipeline.hpp>
 #include <core/Renderer.hpp>
 #include <core/SwapChain.hpp>
 #include <core/Window.hpp>
-
-#include <algorithm>
-#include <fstream>
-#include <iostream>
-#include <ranges>
-#include <set>
-#include <vector>
 
 #ifdef NDEBUG
 const bool enableValidationLayers = false;
