@@ -4,6 +4,7 @@
 #include "Device.hpp"
 #include "SwapChain.hpp"
 
+// GPU Program
 class Pipeline {
   public:
     Pipeline(Device &device, SwapChain &swapChain);

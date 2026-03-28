@@ -19,6 +19,7 @@ set(SOURCES
     src/core/Device.cpp
     src/core/SwapChain.cpp
     src/core/Pipeline.cpp
+    src/core/Renderer.cpp
 )
 
 set(VERT_SHADER ${CMAKE_SOURCE_DIR}/src/shaders/shader.vert)
