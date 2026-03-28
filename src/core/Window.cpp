@@ -17,7 +17,7 @@ void Window::initSDL3(const char *title, int width, int height) {
         throw std::runtime_error("Failed to initialize SDL");
     }
 
-    _SDL_Window = SDL_CreateWindow(title, width, height, SDL_WINDOW_VULKAN);
+    _SDL_Window = SDL_CreateWindow(title, width, height, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
     if (!_SDL_Window) {
         std::cerr << "Erreur création fenêtre : " << SDL_GetError() << std::endl;
         throw std::runtime_error("Failed to create window");
