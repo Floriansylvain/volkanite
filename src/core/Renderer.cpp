@@ -2,7 +2,7 @@
 #include <vulkan/vulkan_raii.hpp>
 
 Renderer::Renderer(Device &device, SwapChain &swapChain, Pipeline &pipeline)
-    : device(device), swapChain(swapChain), pipeline(pipeline), frameIndex(0) {
+    : device(device), swapChain(swapChain), pipeline(pipeline), frameIndex(0), framebufferResized(false) {
     initCommandPool();
     initCommandBuffer();
     initSyncObjects();
@@ -124,11 +124,19 @@ void Renderer::render() {
     if (fenceResult != vk::Result::eSuccess) {
         throw std::runtime_error("failed to wait for fence!");
     }
-    device.getLogicalDevice().resetFences(*syncObjects.inFlightFences[frameIndex]);
 
     auto [result, imageIndex] =
         swapChain.getSwapChainKHR()->acquireNextImage(UINT64_MAX, *syncObjects.presentCompleteSemaphores[frameIndex], nullptr);
 
+    if (result == vk::Result::eErrorOutOfDateKHR) {
+        swapChain.recreateSwapChain();
+        return;
+    } else if (result != vk::Result::eSuccess && result != vk::Result::eSuboptimalKHR) {
+        assert(result == vk::Result::eTimeout || result == vk::Result::eNotReady);
+        throw std::runtime_error("failed to acquire swap chain image!");
+    }
+
+    device.getLogicalDevice().resetFences(*syncObjects.inFlightFences[frameIndex]);
     commandBuffers[frameIndex].reset();
     recordCommandBuffer(imageIndex);
 
@@ -153,6 +161,14 @@ void Renderer::render() {
     presentInfo.pImageIndices = &imageIndex;
 
     result = device.getPresentQueue().presentKHR(presentInfo);
+    if ((result == vk::Result::eSuboptimalKHR) || (result == vk::Result::eErrorOutOfDateKHR) || framebufferResized) {
+        framebufferResized = false;
+        swapChain.recreateSwapChain();
+    } else {
+        assert(result == vk::Result::eSuccess);
+    }
 
     frameIndex = (frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
 }
+
+void Renderer::setFramebufferResized() { framebufferResized = true; }

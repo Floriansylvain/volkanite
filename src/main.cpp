@@ -19,6 +19,8 @@ int main() {
     Pipeline pipeline(device, swapChain);
     Renderer renderer(device, swapChain, pipeline);
 
+    window.setChangeCallback([&](int w, int h) { renderer.setFramebufferResized(); });
+
     while (window.isRunning()) {
         window.pollEvents();
         renderer.render();

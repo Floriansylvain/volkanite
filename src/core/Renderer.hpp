@@ -17,6 +17,7 @@ class Renderer {
     Renderer &operator=(const Renderer &) = delete;
 
     void render();
+    void setFramebufferResized();
 
   private:
     const int MAX_FRAMES_IN_FLIGHT = 2;
@@ -35,6 +36,7 @@ class Renderer {
     std::vector<vk::raii::CommandBuffer> commandBuffers;
     SyncObjects syncObjects;
     uint32_t frameIndex;
+    bool framebufferResized;
 
     void initCommandPool();
     void initCommandBuffer();
