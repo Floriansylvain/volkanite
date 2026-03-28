@@ -4,6 +4,7 @@
 struct SDL_Window;
 
 #include <cstdint>
+#include <functional>
 
 // OS Abstraction
 class Window {
@@ -19,11 +20,14 @@ class Window {
 
     bool isRunning();
     void pollEvents();
+    void setChangeCallback(std::function<void(int, int)> callback) { onChange = callback; }
+    void waitEvents();
 
   private:
     SDL_Window *_SDL_Window = nullptr;
 
     bool running;
+    std::function<void(int, int)> onChange;
 
     void initSDL3(const char *title, int width, int height);
 };

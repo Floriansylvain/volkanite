@@ -33,9 +33,16 @@ bool Window::getSizeInPixels(int *w, int *h) { return SDL_GetWindowSizeInPixels(
 void Window::pollEvents() {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
-        if (event.type == SDL_EVENT_QUIT)
+        if (event.type == SDL_EVENT_QUIT) {
             running = false;
+        } else if (event.type == SDL_EVENT_WINDOW_RESIZED || event.type == SDL_EVENT_WINDOW_MINIMIZED) {
+            if (onChange) {
+                onChange(event.window.data1, event.window.data2);
+            }
+        }
     }
 }
+
+void Window::waitEvents() { SDL_WaitEvent(nullptr); }
 
 bool Window::isRunning() { return running; }

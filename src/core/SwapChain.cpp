@@ -5,7 +5,7 @@ SwapChain::SwapChain(Window &window, Instance &instance, Device &device) : windo
     initImageViews();
 }
 
-SwapChain::~SwapChain() {}
+SwapChain::~SwapChain() { cleanupSwapChain(); }
 
 vk::SurfaceFormatKHR SwapChain::chooseSwapSurfaceFormat(const std::vector<vk::SurfaceFormatKHR> &availableFormats) {
     auto it = std::ranges::find_if(availableFormats, [](const auto &format) {
@@ -106,6 +106,28 @@ void SwapChain::initImageViews() {
 
         imageViews.emplace_back(device.getLogicalDevice(), createInfo);
     }
+}
+
+void SwapChain::cleanupSwapChain() {
+    imageViews.clear();
+    swapChainKHR = nullptr;
+}
+
+void SwapChain::recreateSwapChain() {
+    int width = 0, height = 0;
+    window.getSizeInPixels(&width, &height);
+
+    while (width == 0 || height == 0) {
+        window.getSizeInPixels(&width, &height);
+        window.waitEvents();
+    }
+
+    device.getLogicalDevice().waitIdle();
+
+    cleanupSwapChain();
+
+    initSwapChain();
+    initImageViews();
 }
 
 vk::raii::SwapchainKHR *SwapChain::getSwapChainKHR() { return &swapChainKHR.value(); }

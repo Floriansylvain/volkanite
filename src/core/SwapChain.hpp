@@ -23,6 +23,8 @@ class SwapChain {
     const std::vector<vk::Image> &getImages() const;
     const std::vector<vk::raii::ImageView> &getImageViews() const;
 
+    void recreateSwapChain();
+
   private:
     std::optional<vk::raii::SwapchainKHR> swapChainKHR;
     vk::Format imageFormat;
@@ -40,6 +42,7 @@ class SwapChain {
 
     void initSwapChain();
     void initImageViews();
+    void cleanupSwapChain();
 };
 
 #endif
