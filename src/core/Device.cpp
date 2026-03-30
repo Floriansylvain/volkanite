@@ -55,7 +55,8 @@ void Device::initVkLogicalDevice() {
         queueCreateInfos.push_back(queueCreateInfo);
     }
 
-    vk::PhysicalDeviceDynamicRenderingFeatures dynamicRenderingFeatures(vk::True);
+    vk::PhysicalDeviceShaderDrawParametersFeatures shaderDrawParametersFeatures(vk::True);
+    vk::PhysicalDeviceDynamicRenderingFeatures dynamicRenderingFeatures(vk::True, &shaderDrawParametersFeatures);
     vk::PhysicalDeviceSynchronization2Features synchronization2Features(vk::True, &dynamicRenderingFeatures);
     vk::PhysicalDeviceFeatures deviceFeatures{};
 
