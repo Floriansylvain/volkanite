@@ -1,9 +1,29 @@
 #include "Pipeline.hpp"
+#include <array>
 #include <fstream>
+#include <glm/glm.hpp>
+
+struct Vertex {
+    glm::vec2 pos;
+    glm::vec3 color;
+
+    static vk::VertexInputBindingDescription getBindingDescription() {
+        return {0, sizeof(Vertex), vk::VertexInputRate::eVertex};
+    }
+
+    static std::array<vk::VertexInputAttributeDescription, 2> getAttributeDescriptions() {
+        return {vk::VertexInputAttributeDescription(0, 0, vk::Format::eR32G32Sfloat, offsetof(Vertex, pos)),
+                vk::VertexInputAttributeDescription(1, 0, vk::Format::eR32G32B32Sfloat, offsetof(Vertex, color))};
+    }
+};
+
+const std::vector<Vertex> vertices = {
+    {{0.0f, -0.5f}, {1.0f, 1.0f, 1.0f}}, {{0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}}, {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}};
 
 Pipeline::Pipeline(Device &device, SwapChain &swapChain) : device(device), swapChain(swapChain) {
     initPipelineLayout();
     initGraphicsPipeline();
+    initVertexBuffer();
 }
 
 Pipeline::~Pipeline() {}
@@ -16,6 +36,40 @@ void Pipeline::initPipelineLayout() {
     pipelineLayoutInfo.pPushConstantRanges = nullptr;
 
     pipelineLayout.emplace(vk::raii::PipelineLayout(device.getLogicalDevice(), pipelineLayoutInfo));
+}
+
+uint32_t Pipeline::findMemoryType(uint32_t typeFilter, vk::MemoryPropertyFlags properties) {
+    vk::PhysicalDeviceMemoryProperties memProperties = device.getPhysicalDevice().getMemoryProperties();
+
+    for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+        if ((typeFilter & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+            return i;
+        }
+    }
+
+    throw std::runtime_error("failed to find suitable memory type!");
+}
+
+void Pipeline::initVertexBuffer() {
+    vk::BufferCreateInfo bufferInfo{};
+    bufferInfo.size = sizeof(vertices[0]) * vertices.size();
+    bufferInfo.usage = vk::BufferUsageFlagBits::eVertexBuffer;
+    bufferInfo.sharingMode = vk::SharingMode::eExclusive;
+
+    vertexBuffer.emplace(vk::raii::Buffer(device.getLogicalDevice(), bufferInfo));
+    auto reqs = vertexBuffer.value().getMemoryRequirements();
+
+    vk::MemoryAllocateInfo allocInfo{};
+    allocInfo.allocationSize = reqs.size;
+    allocInfo.memoryTypeIndex = findMemoryType(reqs.memoryTypeBits, vk::MemoryPropertyFlagBits::eHostVisible |
+                                                                        vk::MemoryPropertyFlagBits::eHostCoherent);
+
+    vertexBufferMemory.emplace(device.getLogicalDevice(), allocInfo);
+    vertexBuffer->bindMemory(*vertexBufferMemory, 0);
+
+    void *data = vertexBufferMemory->mapMemory(0, bufferInfo.size);
+    memcpy(data, vertices.data(), bufferInfo.size);
+    vertexBufferMemory->unmapMemory();
 }
 
 std::vector<char> Pipeline::readFile(const std::string &filename) {
@@ -41,7 +95,7 @@ vk::raii::ShaderModule Pipeline::createShaderModule(const std::vector<char> &cod
 }
 
 void Pipeline::initGraphicsPipeline() {
-    auto shaderCode = readFile("shaders/slang.spv");
+    auto shaderCode = readFile("shaders/shader.spv");
 
     vk::raii::ShaderModule shaderModule = createShaderModule(shaderCode);
 
@@ -62,11 +116,14 @@ void Pipeline::initGraphicsPipeline() {
     dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
     dynamicState.pDynamicStates = dynamicStates.data();
 
+    auto bindingDescription = Vertex::getBindingDescription();
+    auto attributeDescriptions = Vertex::getAttributeDescriptions();
+
     vk::PipelineVertexInputStateCreateInfo vertexInputInfo{};
-    vertexInputInfo.vertexBindingDescriptionCount = 0;
-    vertexInputInfo.pVertexBindingDescriptions = nullptr;
-    vertexInputInfo.vertexAttributeDescriptionCount = 0;
-    vertexInputInfo.pVertexAttributeDescriptions = nullptr;
+    vertexInputInfo.vertexBindingDescriptionCount = 1;
+    vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+    vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
+    vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
 
     vk::PipelineInputAssemblyStateCreateInfo inputAssembly{};
     inputAssembly.topology = vk::PrimitiveTopology::eTriangleList;
@@ -159,3 +216,5 @@ void Pipeline::initGraphicsPipeline() {
 vk::raii::PipelineLayout *Pipeline::getPipelineLayout() { return &pipelineLayout.value(); }
 
 vk::raii::Pipeline *Pipeline::getGraphicsPipeline() { return &graphicsPipeline.value(); }
+
+vk::raii::Buffer *Pipeline::getVertexBuffer() { return &vertexBuffer.value(); }
