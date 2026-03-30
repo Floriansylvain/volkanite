@@ -92,6 +92,7 @@ void Renderer::recordCommandBuffer(uint32_t imageIndex) {
     vk::Rect2D scissor{{0, 0}, *extent};
     commandBuffer.setScissor(0, scissor);
 
+    commandBuffer.bindVertexBuffers(0, **pipeline.getVertexBuffer(), {0});
     commandBuffer.draw(3, 1, 0, 0);
     commandBuffer.endRendering();
 
