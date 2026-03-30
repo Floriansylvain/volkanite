@@ -3,60 +3,46 @@ project(VulkanSDL3Project LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(Vulkan REQUIRED)
 find_package(SDL3 REQUIRED)
+find_package(glm CONFIG REQUIRED)
 
-find_program(GLSLC glslc)
-if(NOT GLSLC)
-    message(FATAL_ERROR "glslc not found! Make sure Vulkan SDK is installed.")
-endif()
+find_program(SLANGC slangc REQUIRED)
 
-set(SOURCES
-    src/main.cpp
-    src/core/Window.cpp
-    src/core/Instance.cpp
-    src/core/Device.cpp
-    src/core/SwapChain.cpp
-    src/core/Pipeline.cpp
-    src/core/Renderer.cpp
-)
+file(GLOB_RECURSE SOURCES "src/*.cpp")
 
-set(VERT_SHADER ${CMAKE_SOURCE_DIR}/src/shaders/shader.vert)
-set(FRAG_SHADER ${CMAKE_SOURCE_DIR}/src/shaders/shader.frag)
-set(VERT_SPV ${CMAKE_BINARY_DIR}/shaders/vert.spv)
-set(FRAG_SPV ${CMAKE_BINARY_DIR}/shaders/frag.spv)
+set(SLANG_SHADER "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/shader.slang")
+set(SLANG_SPV "${CMAKE_CURRENT_BINARY_DIR}/shaders/shader.spv")
 
 add_custom_command(
-    OUTPUT ${VERT_SPV}
-    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/shaders
-    COMMAND ${GLSLC} ${VERT_SHADER} -o ${VERT_SPV}
-    DEPENDS ${VERT_SHADER}
-    COMMENT "Compiling vertex shader"
+    OUTPUT "${SLANG_SPV}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/shaders"
+    COMMAND ${SLANGC} "${SLANG_SHADER}" 
+            -target spirv 
+            -profile spirv_1_4 
+            -emit-spirv-directly 
+            -fvk-use-entrypoint-name 
+            -o "${SLANG_SPV}"
+    DEPENDS "${SLANG_SHADER}"
+    VERBATIM
 )
 
-add_custom_command(
-    OUTPUT ${FRAG_SPV}
-    COMMAND ${GLSLC} ${FRAG_SHADER} -o ${FRAG_SPV}
-    DEPENDS ${FRAG_SHADER}
-    COMMENT "Compiling fragment shader"
-)
-
-add_custom_target(shaders ALL DEPENDS ${VERT_SPV} ${FRAG_SPV})
+add_custom_target(generate_shaders DEPENDS "${SLANG_SPV}")
 
 add_executable(${PROJECT_NAME} ${SOURCES})
 
-target_include_directories(${PROJECT_NAME} PRIVATE
-    ${CMAKE_SOURCE_DIR}/src
-)
+target_include_directories(${PROJECT_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
-add_dependencies(${PROJECT_NAME} shaders)
+add_dependencies(${PROJECT_NAME} generate_shaders)
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
     Vulkan::Vulkan
-    SDL3::SDL3
+    SDL3::SDL3-shared
+    glm::glm
 )
 
 if(APPLE)
-    target_link_libraries(${PROJECT_NAME} PRIVATE "-framework Cocoa" "-framework IOKit" "-framework QuartzCore")
+    target_link_options(${PROJECT_NAME} PRIVATE "-framework" "Cocoa" "-framework" "IOKit" "-framework" "CoreVideo")
 endif()

@@ -24,12 +24,9 @@ std::vector<char> Pipeline::readFile(const std::string &filename) {
     if (!file.is_open()) {
         throw std::runtime_error("failed to open file!");
     }
-
-    size_t fileSize = (size_t)file.tellg();
-    std::vector<char> buffer(fileSize);
-
-    file.seekg(0);
-    file.read(buffer.data(), fileSize);
+    std::vector<char> buffer(file.tellg());
+    file.seekg(0, std::ios::beg);
+    file.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
     file.close();
 
     return buffer;
@@ -37,28 +34,26 @@ std::vector<char> Pipeline::readFile(const std::string &filename) {
 
 vk::raii::ShaderModule Pipeline::createShaderModule(const std::vector<char> &code) {
     vk::ShaderModuleCreateInfo createInfo{};
-    createInfo.codeSize = code.size();
+    createInfo.codeSize = code.size() * sizeof(char);
     createInfo.pCode = reinterpret_cast<const uint32_t *>(code.data());
 
     return vk::raii::ShaderModule(device.getLogicalDevice(), createInfo);
 }
 
 void Pipeline::initGraphicsPipeline() {
-    auto vertShaderCode = readFile("shaders/vert.spv");
-    auto fragShaderCode = readFile("shaders/frag.spv");
+    auto shaderCode = readFile("shaders/slang.spv");
 
-    vk::raii::ShaderModule vertShaderModule = createShaderModule(vertShaderCode);
-    vk::raii::ShaderModule fragShaderModule = createShaderModule(fragShaderCode);
+    vk::raii::ShaderModule shaderModule = createShaderModule(shaderCode);
 
     vk::PipelineShaderStageCreateInfo vertShaderStageInfo{};
     vertShaderStageInfo.stage = vk::ShaderStageFlagBits::eVertex;
-    vertShaderStageInfo.module = *vertShaderModule;
-    vertShaderStageInfo.pName = "main";
+    vertShaderStageInfo.module = *shaderModule;
+    vertShaderStageInfo.pName = "vertMain";
 
     vk::PipelineShaderStageCreateInfo fragShaderStageInfo{};
     fragShaderStageInfo.stage = vk::ShaderStageFlagBits::eFragment;
-    fragShaderStageInfo.module = *fragShaderModule;
-    fragShaderStageInfo.pName = "main";
+    fragShaderStageInfo.module = *shaderModule;
+    fragShaderStageInfo.pName = "fragMain";
 
     vk::PipelineShaderStageCreateInfo shaderStages[] = {vertShaderStageInfo, fragShaderStageInfo};
 

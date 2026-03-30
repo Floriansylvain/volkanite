@@ -42,7 +42,8 @@ class Device {
     std::optional<vk::raii::Queue> presentQueue;
 
     QueueFamilyIndices indices;
-    std::vector<const char *> deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME};
+    std::vector<const char *> deviceExtensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME, VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME,
+                                                  VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME};
 
     int rateDeviceSuitability(const vk::raii::PhysicalDevice &device);
     QueueFamilyIndices findQueueFamilies(const vk::raii::PhysicalDevice &device) const;
