@@ -44,5 +44,5 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
 )
 
 if(APPLE)
-    target_link_options(${PROJECT_NAME} PRIVATE "-framework" "Cocoa" "-framework" "IOKit" "-framework" "CoreVideo")
+    target_link_libraries(${PROJECT_NAME} PRIVATE "-framework Cocoa" "-framework IOKit" "-framework QuartzCore")
 endif()
