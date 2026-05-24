@@ -2,6 +2,7 @@
 #include "SDL3/SDL_vulkan.h"
 
 #include <iostream>
+#include <vulkan/vulkan_core.h>
 
 Window::Window() {};
 
@@ -15,7 +16,7 @@ Window::~Window() {
     }
 };
 
-void Window::init(const char *title, int width, int height) {
+void Window::init(const char *title, const int width, const int height) {
     if (!isInitialized) {
         if (SDL_Init(SDL_INIT_VIDEO) == false) {
             SDL_Log("SDL_Init error : %s", SDL_GetError());
@@ -38,7 +39,24 @@ void Window::init(const char *title, int width, int height) {
 
 SDL_Window *Window::getSDL_window() const { return SDL_Window; }
 
-const char *const *Window::getInstanceExtensions(uint32_t *count) const { return SDL_Vulkan_GetInstanceExtensions(count); }
+const char *const *Window::getInstanceExtensions(uint32_t *count) {
+    uint32_t sdlCount = 0;
+    auto sdlExtensions = SDL_Vulkan_GetInstanceExtensions(&sdlCount);
+
+    static std::vector<const char *> extendedExtensions;
+    extendedExtensions.clear();
+
+    for (uint32_t i = 0; i < sdlCount; ++i) {
+        extendedExtensions.push_back(sdlExtensions[i]);
+    }
+
+#if defined(__APPLE__) || defined(__MACH__)
+    extendedExtensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+#endif
+
+    *count = static_cast<uint32_t>(extendedExtensions.size());
+    return extendedExtensions.data();
+}
 
 bool Window::getSizeInPixels(int *w, int *h) const { return SDL_GetWindowSizeInPixels(SDL_Window, w, h); }
 

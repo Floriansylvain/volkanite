@@ -16,11 +16,18 @@ class Engine {
     ~Engine();
 
     void init();
-    void run();
-    void cleanup();
+    void run() const;
+    static void cleanup();
 
   private:
     Window &window;
+
+    vk::raii::Context context;
+    vk::raii::Instance instance = nullptr;
+
+    bool isInitialized = false;
+
+    void createInstance();
 };
 
 #endif
