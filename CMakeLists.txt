@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(VulkanSDL3Project LANGUAGES CXX)
+project(volkanite LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -38,11 +38,11 @@ target_include_directories(${PROJECT_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/
 add_dependencies(${PROJECT_NAME} generate_shaders)
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
-    Vulkan::Vulkan
-    SDL3::SDL3-shared
-    glm::glm
+        Vulkan::Vulkan
+        SDL3::SDL3-shared
+        glm::glm
 )
 
-if(APPLE)
+if (APPLE)
     target_link_libraries(${PROJECT_NAME} PRIVATE "-framework Cocoa" "-framework IOKit" "-framework QuartzCore")
-endif()
+endif ()

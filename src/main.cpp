@@ -1,18 +1,26 @@
+#include "core/Engine.hpp"
+
 #include <core/Window.hpp>
+#include <iostream>
+#include <stdexcept>
 
 #ifdef NDEBUG
-const bool enableValidationLayers = false;
+constexpr bool enableValidationLayers = false;
 #else
-const bool enableValidationLayers = true;
+constexpr bool enableValidationLayers = true;
 #endif
 
 int main() {
     Window window;
-    window.initSDL3("volkanite", 800, 600);
+    Engine engine(&window);
 
-    while (window.isRunning()) {
-        window.pollEvents();
+    try {
+        window.init("volkanite", 800, 600);
+        engine.run();
+    } catch (const std::exception &e) {
+        std::cerr << e.what() << std::endl;
+        return EXIT_FAILURE;
     }
 
-    return 0;
+    return EXIT_SUCCESS;
 }
