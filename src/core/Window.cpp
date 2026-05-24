@@ -4,31 +4,44 @@
 
 #include <iostream>
 
-Window::Window(const char *title, int width, int height) : running(true) { initSDL3(title, width, height); };
+Window::Window() {};
 
 Window::~Window() {
-    SDL_DestroyWindow(_SDL_Window);
-    SDL_Quit();
+    if (isWindowCreated) {
+        SDL_DestroyWindow(_SDL_Window);
+    }
+
+    if (isInitialized) {
+        SDL_Quit();
+    }
 };
 
 void Window::initSDL3(const char *title, int width, int height) {
-    if (SDL_Init(SDL_INIT_VIDEO) == false) {
-        SDL_Log("Erreur SDL_Init : %s", SDL_GetError());
-        throw std::runtime_error("Failed to initialize SDL");
+    if (!isInitialized) {
+        if (SDL_Init(SDL_INIT_VIDEO) == false) {
+            SDL_Log("SDL_Init error : %s", SDL_GetError());
+            throw std::runtime_error("Failed to initialize SDL");
+        }
+        isInitialized = true;
     }
 
-    _SDL_Window = SDL_CreateWindow(title, width, height, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
-    if (!_SDL_Window) {
-        std::cerr << "Erreur création fenêtre : " << SDL_GetError() << std::endl;
-        throw std::runtime_error("Failed to create window");
+    if (!isWindowCreated) {
+        _SDL_Window = SDL_CreateWindow(title, width, height, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
+        if (!_SDL_Window) {
+            std::cerr << "SDL_CreateWindow error : " << SDL_GetError() << std::endl;
+            throw std::runtime_error("Failed to create window");
+        }
+        isWindowCreated = true;
     }
+
+    running = true;
 }
 
-SDL_Window *Window::getSDL_window() { return _SDL_Window; };
+SDL_Window *Window::getSDL_window() const { return _SDL_Window; }
 
-const char *const *Window::getInstanceExtensions(uint32_t *count) { return SDL_Vulkan_GetInstanceExtensions(count); };
+const char *const *Window::getInstanceExtensions(uint32_t *count) const { return SDL_Vulkan_GetInstanceExtensions(count); }
 
-bool Window::getSizeInPixels(int *w, int *h) { return SDL_GetWindowSizeInPixels(_SDL_Window, w, h); }
+bool Window::getSizeInPixels(int *w, int *h) const { return SDL_GetWindowSizeInPixels(_SDL_Window, w, h); }
 
 void Window::pollEvents() {
     SDL_Event event;
@@ -43,6 +56,4 @@ void Window::pollEvents() {
     }
 }
 
-void Window::waitEvents() { SDL_WaitEvent(nullptr); }
-
-bool Window::isRunning() { return running; }
+bool Window::isRunning() const { return running; }

@@ -7,11 +7,12 @@ const bool enableValidationLayers = true;
 #endif
 
 int main() {
-    Window window("volkanite", 800, 600);
+    Window window;
+    window.initSDL3("volkanite", 800, 600);
 
     while (window.isRunning()) {
         window.pollEvents();
-    };
+    }
 
     return 0;
 }
