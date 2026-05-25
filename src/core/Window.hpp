@@ -11,7 +11,7 @@ class Window {
     ~Window();
 
     [[nodiscard]] SDL_Window *getSDL_window() const;
-    static const char *const *getInstanceExtensions(uint32_t *count);
+    static std::vector<const char *> getInstanceExtensions(uint32_t *count);
     bool getSizeInPixels(int *w, int *h) const;
 
     void init(const char *title, int width, int height);

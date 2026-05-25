@@ -24,10 +24,12 @@ class Engine {
 
     vk::raii::Context context;
     vk::raii::Instance instance = nullptr;
+    vk::raii::DebugUtilsMessengerEXT debugMessenger = nullptr;
 
     bool isInitialized = false;
 
     void createInstance();
+    void setupDebugMessenger();
 };
 
 #endif
