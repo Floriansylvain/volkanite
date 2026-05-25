@@ -142,6 +142,13 @@ void Engine::createLogicalDevice() {
     vk::StructureChain featureChain(features2, features13, extendedFeatures);
 
     std::vector _requiredDeviceExtension = {vk::KHRSwapchainExtensionName};
+    for (auto const availableExtensions = physicalDevice.enumerateDeviceExtensionProperties();
+         const auto &ext : availableExtensions) {
+        if (std::strcmp(ext.extensionName, "VK_KHR_portability_subset") == 0) {
+            _requiredDeviceExtension.push_back("VK_KHR_portability_subset");
+            break;
+        }
+    }
 
     vk::DeviceCreateInfo deviceCreateInfo{};
     deviceCreateInfo.pNext = &featureChain.get<vk::PhysicalDeviceFeatures2>();
