@@ -121,10 +121,44 @@ void Engine::pickPhysicalDevice() {
     physicalDevice = *devIter;
 }
 
+void Engine::createLogicalDevice() {
+    std::vector<vk::QueueFamilyProperties> queueFamilyProperties = physicalDevice.getQueueFamilyProperties();
+    const auto graphicsQueueFamilyProperty = std::ranges::find_if(queueFamilyProperties, [](auto const &qfp) {
+        return (qfp.queueFlags & vk::QueueFlagBits::eGraphics) != static_cast<vk::QueueFlags>(0);
+    });
+    const auto graphicsIndex = static_cast<uint32_t>(std::distance(queueFamilyProperties.begin(), graphicsQueueFamilyProperty));
+
+    float queuePriority = 0.5f;
+    vk::DeviceQueueCreateInfo deviceQueueCreateInfo{};
+    deviceQueueCreateInfo.queueFamilyIndex = graphicsIndex;
+    deviceQueueCreateInfo.queueCount = 1;
+    deviceQueueCreateInfo.pQueuePriorities = &queuePriority;
+
+    vk::PhysicalDeviceFeatures2 features2{};
+    vk::PhysicalDeviceVulkan13Features features13{};
+    features13.dynamicRendering = true;
+    vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT extendedFeatures{};
+    extendedFeatures.extendedDynamicState = true;
+    vk::StructureChain featureChain(features2, features13, extendedFeatures);
+
+    std::vector _requiredDeviceExtension = {vk::KHRSwapchainExtensionName};
+
+    vk::DeviceCreateInfo deviceCreateInfo{};
+    deviceCreateInfo.pNext = &featureChain.get<vk::PhysicalDeviceFeatures2>();
+    deviceCreateInfo.queueCreateInfoCount = 1;
+    deviceCreateInfo.pQueueCreateInfos = &deviceQueueCreateInfo;
+    deviceCreateInfo.enabledExtensionCount = static_cast<uint32_t>(_requiredDeviceExtension.size());
+    deviceCreateInfo.ppEnabledExtensionNames = _requiredDeviceExtension.data();
+
+    device = vk::raii::Device(physicalDevice, deviceCreateInfo);
+    graphicsQueue = vk::raii::Queue(device, graphicsIndex, 0);
+}
+
 void Engine::init() {
     createInstance();
     setupDebugMessenger();
     pickPhysicalDevice();
+    createLogicalDevice();
 }
 
 void Engine::run() const {
