@@ -20,16 +20,21 @@ class Engine {
     static void cleanup();
 
   private:
+    std::vector<const char *> requiredDeviceExtension = {vk::KHRSwapchainExtensionName};
+
     Window &window;
 
     vk::raii::Context context;
     vk::raii::Instance instance = nullptr;
     vk::raii::DebugUtilsMessengerEXT debugMessenger = nullptr;
+    vk::raii::PhysicalDevice physicalDevice = nullptr;
 
     bool isInitialized = false;
 
     void createInstance();
     void setupDebugMessenger();
+    bool isDeviceSuitable(vk::raii::PhysicalDevice const &_physicalDevice);
+    void pickPhysicalDevice();
 };
 
 #endif

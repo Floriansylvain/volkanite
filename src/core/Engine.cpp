@@ -87,11 +87,49 @@ void Engine::createInstance() {
     isInitialized = true;
 }
 
-void Engine::init() { createInstance(); }
+bool Engine::isDeviceSuitable(vk::raii::PhysicalDevice const &_physicalDevice) {
+    bool supportsVulkan1_3 = _physicalDevice.getProperties().apiVersion >= vk::ApiVersion13;
+
+    auto queueFamilies = _physicalDevice.getQueueFamilyProperties();
+    bool supportsGraphics =
+        std::ranges::any_of(queueFamilies, [](auto const &qfp) { return !!(qfp.queueFlags & vk::QueueFlagBits::eGraphics); });
+
+    auto availableDeviceExtensions = _physicalDevice.enumerateDeviceExtensionProperties();
+    bool supportsAllRequiredExtensions =
+        std::ranges::all_of(requiredDeviceExtension, [&availableDeviceExtensions](auto const &requiredDeviceExtension) {
+            return std::ranges::any_of(availableDeviceExtensions,
+                                       [requiredDeviceExtension](auto const &availableDeviceExtension) {
+                                           return strcmp(availableDeviceExtension.extensionName, requiredDeviceExtension) == 0;
+                                       });
+        });
+
+    auto features = _physicalDevice.getFeatures2<vk::PhysicalDeviceFeatures2, vk::PhysicalDeviceVulkan13Features,
+                                                 vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>();
+    bool supportsRequiredFeatures = features.get<vk::PhysicalDeviceVulkan13Features>().dynamicRendering &&
+                                    features.get<vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>().extendedDynamicState;
+
+    return supportsVulkan1_3 && supportsGraphics && supportsAllRequiredExtensions && supportsRequiredFeatures;
+}
+
+void Engine::pickPhysicalDevice() {
+    std::vector<vk::raii::PhysicalDevice> physicalDevices = instance.enumeratePhysicalDevices();
+    auto const devIter =
+        std::ranges::find_if(physicalDevices, [&](auto const &_physicalDevice) { return isDeviceSuitable(_physicalDevice); });
+    if (devIter == physicalDevices.end()) {
+        throw std::runtime_error("failed to find a suitable GPU!");
+    }
+    physicalDevice = *devIter;
+}
+
+void Engine::init() {
+    createInstance();
+    setupDebugMessenger();
+    pickPhysicalDevice();
+}
 
 void Engine::run() const {
     if (!isInitialized) {
-        throw std::runtime_error("Engine is not initialized");
+        throw std::runtime_error("Failed to run Engine : Engine is not initialized");
     }
     if (!window.isRunning()) {
         throw std::runtime_error("Failed to run Engine : Window is not running");
