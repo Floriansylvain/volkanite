@@ -23,6 +23,12 @@ class Shader : public std::runtime_error {
     explicit Shader(const char *message) : std::runtime_error(message) {}
 };
 
+class Render : public std::runtime_error {
+  public:
+    explicit Render(const std::string &message) : std::runtime_error(message) {}
+    explicit Render(const char *message) : std::runtime_error(message) {}
+};
+
 } // namespace EngineExceptions
 
 #endif
