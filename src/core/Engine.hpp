@@ -31,6 +31,10 @@ class Engine {
     vk::raii::Device device = nullptr;
     vk::raii::Queue queue = nullptr;
     vk::raii::SurfaceKHR surface = nullptr;
+    vk::raii::SwapchainKHR swapChain = nullptr;
+    vk::SurfaceFormatKHR swapChainSurfaceFormat;
+    vk::Extent2D swapChainExtent;
+    std::vector<vk::raii::ImageView> swapChainImageViews;
 
     bool isInitialized = false;
 
@@ -40,6 +44,12 @@ class Engine {
     void pickPhysicalDevice();
     void createLogicalDevice();
     void createSurface();
+    static vk::SurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<vk::SurfaceFormatKHR> &availableFormats);
+    static vk::PresentModeKHR chooseSwapPresentMode(std::vector<vk::PresentModeKHR> const &availablePresentModes);
+    [[nodiscard]] vk::Extent2D chooseSwapExtent(vk::SurfaceCapabilitiesKHR const &capabilities) const;
+    static uint32_t chooseSwapMinImageCount(vk::SurfaceCapabilitiesKHR const &surfaceCapabilities);
+    void createSwapChain();
+    void createImageViews();
 };
 
 #endif
