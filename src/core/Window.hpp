@@ -2,8 +2,8 @@
 #define WINDOW_HPP
 
 #include "SDL3/SDL.h"
-#include <cstdint>
 #include <functional>
+#include <vulkan/vulkan_core.h>
 
 class Window {
   public:
@@ -11,6 +11,7 @@ class Window {
     ~Window();
 
     [[nodiscard]] SDL_Window *getSDL_window() const;
+    void createSurface(VkInstance instance, const VkAllocationCallbacks *allocator, VkSurfaceKHR *surface) const;
     static std::vector<const char *> getInstanceExtensions(uint32_t *count);
     bool getSizeInPixels(int *w, int *h) const;
 

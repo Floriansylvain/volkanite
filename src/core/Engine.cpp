@@ -123,16 +123,17 @@ void Engine::pickPhysicalDevice() {
 
 void Engine::createLogicalDevice() {
     std::vector<vk::QueueFamilyProperties> queueFamilyProperties = physicalDevice.getQueueFamilyProperties();
-    const auto graphicsQueueFamilyProperty = std::ranges::find_if(queueFamilyProperties, [](auto const &qfp) {
-        return (qfp.queueFlags & vk::QueueFlagBits::eGraphics) != static_cast<vk::QueueFlags>(0);
-    });
-    const auto graphicsIndex = static_cast<uint32_t>(std::distance(queueFamilyProperties.begin(), graphicsQueueFamilyProperty));
-
-    float queuePriority = 0.5f;
-    vk::DeviceQueueCreateInfo deviceQueueCreateInfo{};
-    deviceQueueCreateInfo.queueFamilyIndex = graphicsIndex;
-    deviceQueueCreateInfo.queueCount = 1;
-    deviceQueueCreateInfo.pQueuePriorities = &queuePriority;
+    uint32_t queueIndex = ~0;
+    for (uint32_t qfpIndex = 0; qfpIndex < queueFamilyProperties.size(); qfpIndex++) {
+        if ((queueFamilyProperties[qfpIndex].queueFlags & vk::QueueFlagBits::eGraphics) &&
+            physicalDevice.getSurfaceSupportKHR(qfpIndex, *surface)) {
+            queueIndex = qfpIndex;
+            break;
+        }
+    }
+    if (queueIndex == ~0) {
+        throw std::runtime_error("Could not find a queue for graphics and present -> terminating");
+    }
 
     vk::PhysicalDeviceFeatures2 features2{};
     vk::PhysicalDeviceVulkan13Features features13{};
@@ -150,6 +151,12 @@ void Engine::createLogicalDevice() {
         }
     }
 
+    float queuePriority = 0.5f;
+    vk::DeviceQueueCreateInfo deviceQueueCreateInfo{};
+    deviceQueueCreateInfo.queueFamilyIndex = queueIndex;
+    deviceQueueCreateInfo.queueCount = 1;
+    deviceQueueCreateInfo.pQueuePriorities = &queuePriority;
+
     vk::DeviceCreateInfo deviceCreateInfo{};
     deviceCreateInfo.pNext = &featureChain.get<vk::PhysicalDeviceFeatures2>();
     deviceCreateInfo.queueCreateInfoCount = 1;
@@ -158,12 +165,19 @@ void Engine::createLogicalDevice() {
     deviceCreateInfo.ppEnabledExtensionNames = _requiredDeviceExtension.data();
 
     device = vk::raii::Device(physicalDevice, deviceCreateInfo);
-    graphicsQueue = vk::raii::Queue(device, graphicsIndex, 0);
+    queue = vk::raii::Queue(device, queueIndex, 0);
+}
+
+void Engine::createSurface() {
+    VkSurfaceKHR _surface;
+    window.createSurface(*instance, nullptr, &_surface);
+    surface = vk::raii::SurfaceKHR(instance, _surface);
 }
 
 void Engine::init() {
     createInstance();
     setupDebugMessenger();
+    createSurface();
     pickPhysicalDevice();
     createLogicalDevice();
 }

@@ -30,8 +30,7 @@ void Window::init(const char *title, const int width, const int height) {
     if (!isWindowCreated) {
         SDL_Window = SDL_CreateWindow(title, width, height, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
         if (!SDL_Window) {
-            std::cerr << "SDL_CreateWindow error : " << SDL_GetError() << std::endl;
-            throw std::runtime_error("Failed to create window");
+            throw std::runtime_error(std::string("Failed to create window : ") + SDL_GetError());
         }
         isWindowCreated = true;
     }
@@ -40,6 +39,12 @@ void Window::init(const char *title, const int width, const int height) {
 }
 
 SDL_Window *Window::getSDL_window() const { return SDL_Window; }
+
+void Window::createSurface(const VkInstance instance, const VkAllocationCallbacks *allocator, VkSurfaceKHR *surface) const {
+    if (!SDL_Vulkan_CreateSurface(SDL_Window, instance, allocator, surface)) {
+        throw std::runtime_error(std::string("Failed to create vulkan surface : ") + SDL_GetError());
+    }
+}
 
 std::vector<const char *> Window::getInstanceExtensions(uint32_t *count) {
     uint32_t sdlCount = 0;

@@ -29,7 +29,8 @@ class Engine {
     vk::raii::DebugUtilsMessengerEXT debugMessenger = nullptr;
     vk::raii::PhysicalDevice physicalDevice = nullptr;
     vk::raii::Device device = nullptr;
-    vk::raii::Queue graphicsQueue = nullptr;
+    vk::raii::Queue queue = nullptr;
+    vk::raii::SurfaceKHR surface = nullptr;
 
     bool isInitialized = false;
 
@@ -38,6 +39,7 @@ class Engine {
     bool isDeviceSuitable(vk::raii::PhysicalDevice const &_physicalDevice);
     void pickPhysicalDevice();
     void createLogicalDevice();
+    void createSurface();
 };
 
 #endif
