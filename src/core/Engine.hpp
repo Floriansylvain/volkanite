@@ -12,7 +12,7 @@ import vulkan_hpp;
 
 class Engine {
   public:
-    Engine(Window *window);
+    explicit Engine(Window *_window);
     ~Engine();
 
     void init();

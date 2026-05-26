@@ -1,12 +1,13 @@
 #include "Window.hpp"
 #include "Constants.hpp"
+#include "Exceptions.hpp"
 #include "SDL3/SDL_vulkan.h"
 
 #include <iostream>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_core.h>
 
-Window::Window() {};
+Window::Window() = default;
 
 Window::~Window() {
     if (isWindowCreated) {
@@ -21,8 +22,7 @@ Window::~Window() {
 void Window::init(const char *title, const int width, const int height) {
     if (!isInitialized) {
         if (SDL_Init(SDL_INIT_VIDEO) == false) {
-            SDL_Log("SDL_Init error : %s", SDL_GetError());
-            throw std::runtime_error("Failed to initialize SDL");
+            throw EngineExceptions::Compatibility(std::string("Failed to initialize SDL : ") + SDL_GetError());
         }
         isInitialized = true;
     }
@@ -30,7 +30,7 @@ void Window::init(const char *title, const int width, const int height) {
     if (!isWindowCreated) {
         SDL_Window = SDL_CreateWindow(title, width, height, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
         if (!SDL_Window) {
-            throw std::runtime_error(std::string("Failed to create window : ") + SDL_GetError());
+            throw EngineExceptions::Compatibility(std::string("Failed to create window : ") + SDL_GetError());
         }
         isWindowCreated = true;
     }
@@ -40,13 +40,13 @@ void Window::init(const char *title, const int width, const int height) {
 
 SDL_Window *Window::getSDL_window() const { return SDL_Window; }
 
-void Window::createSurface(const VkInstance instance, const VkAllocationCallbacks *allocator, VkSurfaceKHR *surface) const {
+void Window::createSurface(VkInstance instance, const VkAllocationCallbacks *allocator, VkSurfaceKHR *surface) const {
     if (!SDL_Vulkan_CreateSurface(SDL_Window, instance, allocator, surface)) {
-        throw std::runtime_error(std::string("Failed to create vulkan surface : ") + SDL_GetError());
+        throw EngineExceptions::Compatibility(std::string("Failed to create vulkan surface : ") + SDL_GetError());
     }
 }
 
-std::vector<const char *> Window::getInstanceExtensions(uint32_t *count) {
+std::vector<const char *> Window::getInstanceExtensions([[maybe_unused]] uint32_t *count) {
     uint32_t sdlCount = 0;
     const auto sdlExtensions = SDL_Vulkan_GetInstanceExtensions(&sdlCount);
 
@@ -75,10 +75,8 @@ void Window::pollEvents() {
     while (SDL_PollEvent(&event)) {
         if (event.type == SDL_EVENT_QUIT) {
             running = false;
-        } else if (event.type == SDL_EVENT_WINDOW_RESIZED || event.type == SDL_EVENT_WINDOW_MINIMIZED) {
-            if (onChange) {
-                onChange(event.window.data1, event.window.data2);
-            }
+        } else if ((event.type == SDL_EVENT_WINDOW_RESIZED || event.type == SDL_EVENT_WINDOW_MINIMIZED) && onChange) {
+            onChange(event.window.data1, event.window.data2);
         }
     }
 }

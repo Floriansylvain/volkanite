@@ -2,7 +2,6 @@
 
 #include <core/Window.hpp>
 #include <iostream>
-#include <stdexcept>
 
 int main() {
     Window window;

@@ -1,9 +1,10 @@
 #include "Engine.hpp"
 #include "Constants.hpp"
+#include "Exceptions.hpp"
 
 #include <iostream>
 
-Engine::Engine(Window *window) : window(*window) {};
+Engine::Engine(Window *_window) : window(*_window) {};
 
 Engine::~Engine() = default;
 
@@ -11,11 +12,11 @@ void Engine::setupDebugMessenger() {
     if constexpr (!enableValidationLayers)
         return;
 
-    constexpr vk::DebugUtilsMessageSeverityFlagsEXT severityFlags(vk::DebugUtilsMessageSeverityFlagBitsEXT::eWarning |
-                                                                  vk::DebugUtilsMessageSeverityFlagBitsEXT::eError);
-    constexpr vk::DebugUtilsMessageTypeFlagsEXT messageTypeFlags(vk::DebugUtilsMessageTypeFlagBitsEXT::eGeneral |
-                                                                 vk::DebugUtilsMessageTypeFlagBitsEXT::ePerformance |
-                                                                 vk::DebugUtilsMessageTypeFlagBitsEXT::eValidation);
+    using enum vk::DebugUtilsMessageSeverityFlagBitsEXT;
+    constexpr vk::DebugUtilsMessageSeverityFlagsEXT severityFlags(eWarning | eError);
+
+    using enum vk::DebugUtilsMessageTypeFlagBitsEXT;
+    constexpr vk::DebugUtilsMessageTypeFlagsEXT messageTypeFlags(eGeneral | ePerformance | eValidation);
 
     vk::DebugUtilsMessengerCreateInfoEXT debugUtilsMessengerCreateInfoEXT{};
     debugUtilsMessengerCreateInfoEXT.messageSeverity = severityFlags;
@@ -39,27 +40,31 @@ void Engine::createInstance() {
     }
 
     auto layerProperties = context.enumerateInstanceLayerProperties();
-    const auto unsupportedLayerIt = std::ranges::find_if(requiredLayers, [&layerProperties](auto const &requiredLayer) {
-        return std::ranges::none_of(layerProperties, [requiredLayer](auto const &layerProperty) {
-            return strcmp(layerProperty.layerName, requiredLayer) == 0;
-        });
-    });
-    if (unsupportedLayerIt != requiredLayers.end()) {
-        throw std::runtime_error("Required layer not supported : " + std::string(*unsupportedLayerIt));
+
+    if (const auto unsupportedLayerIt =
+            std::ranges::find_if(requiredLayers,
+                                 [&layerProperties](auto const &requiredLayer) {
+                                     return std::ranges::none_of(layerProperties, [requiredLayer](auto const &layerProperty) {
+                                         return strcmp(layerProperty.layerName, requiredLayer) == 0;
+                                     });
+                                 });
+        unsupportedLayerIt != requiredLayers.end()) {
+        throw EngineExceptions::Compatibility("Required layer not supported : " + std::string(*unsupportedLayerIt));
     }
 
     uint32_t sdlExtensionsCount = 0;
     auto requiredExtensions = Window::getInstanceExtensions(&sdlExtensionsCount);
-
     auto extensionProperties = context.enumerateInstanceExtensionProperties();
-    const auto unsupportedPropertyIt =
-        std::ranges::find_if(requiredExtensions, [&extensionProperties](auto const &requiredExtension) {
-            return std::ranges::none_of(extensionProperties, [requiredExtension](auto const &extensionProperty) {
-                return strcmp(extensionProperty.extensionName, requiredExtension) == 0;
+
+    if (const auto unsupportedPropertyIt = std::ranges::find_if(
+            requiredExtensions,
+            [&extensionProperties](auto const &requiredExtension) {
+                return std::ranges::none_of(extensionProperties, [requiredExtension](auto const &extensionProperty) {
+                    return strcmp(extensionProperty.extensionName, requiredExtension) == 0;
+                });
             });
-        });
-    if (unsupportedPropertyIt != requiredExtensions.end()) {
-        throw std::runtime_error("Required extension not supported : " + std::string(*unsupportedPropertyIt));
+        unsupportedPropertyIt != requiredExtensions.end()) {
+        throw EngineExceptions::Compatibility("Required extension not supported : " + std::string(*unsupportedPropertyIt));
     }
 
     vk::InstanceCreateInfo createInfo{};
@@ -114,7 +119,7 @@ void Engine::pickPhysicalDevice() {
     auto const devIter =
         std::ranges::find_if(physicalDevices, [&](auto const &_physicalDevice) { return isDeviceSuitable(_physicalDevice); });
     if (devIter == physicalDevices.end()) {
-        throw std::runtime_error("failed to find a suitable GPU!");
+        throw EngineExceptions::Compatibility("Could not find a suitable GPU");
     }
     physicalDevice = *devIter;
 }
@@ -122,15 +127,15 @@ void Engine::pickPhysicalDevice() {
 void Engine::createLogicalDevice() {
     std::vector<vk::QueueFamilyProperties> queueFamilyProperties = physicalDevice.getQueueFamilyProperties();
     uint32_t queueIndex = ~0;
-    for (uint32_t qfpIndex = 0; qfpIndex < queueFamilyProperties.size(); qfpIndex++) {
-        if ((queueFamilyProperties[qfpIndex].queueFlags & vk::QueueFlagBits::eGraphics) &&
+    for (uint32_t qfpIndex = 0; std::cmp_less(qfpIndex, queueFamilyProperties.size()); qfpIndex++) {
+        if (queueFamilyProperties[qfpIndex].queueFlags & vk::QueueFlagBits::eGraphics &&
             physicalDevice.getSurfaceSupportKHR(qfpIndex, *surface)) {
             queueIndex = qfpIndex;
             break;
         }
     }
-    if (queueIndex == ~0) {
-        throw std::runtime_error("Could not find a queue for graphics and present -> terminating");
+    if (std::cmp_equal(queueIndex, ~0)) {
+        throw EngineExceptions::Compatibility("Could not find a queue for graphics and present");
     }
 
     vk::PhysicalDeviceFeatures2 features2{};
@@ -159,7 +164,7 @@ void Engine::createLogicalDevice() {
     deviceCreateInfo.pNext = &featureChain.get<vk::PhysicalDeviceFeatures2>();
     deviceCreateInfo.queueCreateInfoCount = 1;
     deviceCreateInfo.pQueueCreateInfos = &deviceQueueCreateInfo;
-    deviceCreateInfo.enabledExtensionCount = _requiredDeviceExtension.size();
+    deviceCreateInfo.enabledExtensionCount = static_cast<uint32_t>(_requiredDeviceExtension.size());
     deviceCreateInfo.ppEnabledExtensionNames = _requiredDeviceExtension.data();
 
     device = vk::raii::Device(physicalDevice, deviceCreateInfo);
@@ -192,7 +197,8 @@ vk::Extent2D Engine::chooseSwapExtent(vk::SurfaceCapabilitiesKHR const &capabili
     if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
         return capabilities.currentExtent;
     }
-    int width, height;
+    int width;
+    int height;
     window.getSizeInPixels(&width, &height);
 
     return {std::clamp<uint32_t>(width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width),
@@ -218,7 +224,8 @@ void Engine::createSwapChain() {
     const std::vector<vk::PresentModeKHR> availablePresentModes = physicalDevice.getSurfacePresentModesKHR(surface);
 
     vk::SwapchainCreateInfoKHR swapChainCreateInfo{};
-    swapChainCreateInfo.surface = *surface, swapChainCreateInfo.minImageCount = minImageCount;
+    swapChainCreateInfo.surface = *surface;
+    swapChainCreateInfo.minImageCount = minImageCount;
     swapChainCreateInfo.imageFormat = swapChainSurfaceFormat.format;
     swapChainCreateInfo.imageColorSpace = swapChainSurfaceFormat.colorSpace;
     swapChainCreateInfo.imageExtent = swapChainExtent;
@@ -240,8 +247,9 @@ void Engine::createImageViews() {
     imageViewCreateInfo.viewType = vk::ImageViewType::e2D;
     imageViewCreateInfo.format = swapChainSurfaceFormat.format;
     imageViewCreateInfo.subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
-    imageViewCreateInfo.components = {vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity,
-                                      vk::ComponentSwizzle::eIdentity, vk::ComponentSwizzle::eIdentity};
+
+    using enum vk::ComponentSwizzle;
+    imageViewCreateInfo.components = {eIdentity, eIdentity, eIdentity, eIdentity};
 
     for (const std::vector<vk::Image> swapChainImages = swapChain.getImages(); auto &image : swapChainImages) {
         imageViewCreateInfo.image = image;
@@ -251,7 +259,7 @@ void Engine::createImageViews() {
 
 void Engine::init() {
     if (!window.isRunning()) {
-        throw std::runtime_error("Failed to run Engine : Window is not running");
+        throw EngineExceptions::NotInitialized("Failed to run Engine : Window is not running");
     }
 
     createInstance();
@@ -267,7 +275,7 @@ void Engine::init() {
 
 void Engine::run() const {
     if (!isInitialized) {
-        throw std::runtime_error("Failed to run Engine : Engine is not initialized");
+        throw EngineExceptions::NotInitialized("Failed to run Engine : Engine is not initialized");
     }
 
     while (window.isRunning()) {
@@ -275,4 +283,6 @@ void Engine::run() const {
     }
 }
 
-void Engine::cleanup() {}
+void Engine::cleanup() {
+    // future cleanup method, now RAII is dealing with everything
+}

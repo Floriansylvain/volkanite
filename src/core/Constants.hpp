@@ -10,10 +10,10 @@ constexpr bool enableValidationLayers = false;
 constexpr bool enableValidationLayers = true;
 #endif
 
-const std::vector<char const *> validationLayers = {"VK_LAYER_KHRONOS_validation"};
+const std::vector validationLayers = {"VK_LAYER_KHRONOS_validation"};
 
 static VKAPI_ATTR vk::Bool32 VKAPI_CALL debugCallback(vk::DebugUtilsMessageSeverityFlagBitsEXT severity,
-                                                      vk::DebugUtilsMessageTypeFlagsEXT type,
+                                                      const vk::DebugUtilsMessageTypeFlagsEXT type,
                                                       const vk::DebugUtilsMessengerCallbackDataEXT *pCallbackData,
                                                       void *pUserData) {
     std::cerr << "validation layer: type " << to_string(type) << " msg: " << pCallbackData->pMessage << std::endl;
