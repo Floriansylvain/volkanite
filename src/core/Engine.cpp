@@ -83,8 +83,6 @@ void Engine::createInstance() {
             std::cout << '\t' << extension.extensionName << '\n';
         }
     }
-
-    isInitialized = true;
 }
 
 bool Engine::isDeviceSuitable(vk::raii::PhysicalDevice const &_physicalDevice) {
@@ -175,19 +173,22 @@ void Engine::createSurface() {
 }
 
 void Engine::init() {
+    if (!window.isRunning()) {
+        throw std::runtime_error("Failed to run Engine : Window is not running");
+    }
+
     createInstance();
     setupDebugMessenger();
     createSurface();
     pickPhysicalDevice();
     createLogicalDevice();
+
+    isInitialized = true;
 }
 
 void Engine::run() const {
     if (!isInitialized) {
         throw std::runtime_error("Failed to run Engine : Engine is not initialized");
-    }
-    if (!window.isRunning()) {
-        throw std::runtime_error("Failed to run Engine : Window is not running");
     }
 
     while (window.isRunning()) {
