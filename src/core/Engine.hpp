@@ -35,21 +35,29 @@ class Engine {
     vk::SurfaceFormatKHR swapChainSurfaceFormat;
     vk::Extent2D swapChainExtent;
     std::vector<vk::raii::ImageView> swapChainImageViews;
+    vk::raii::PipelineLayout pipelineLayout = nullptr;
+    vk::raii::Pipeline graphicsPipeline = nullptr;
 
     bool isInitialized = false;
 
     void createInstance();
     void setupDebugMessenger();
+
     bool isDeviceSuitable(vk::raii::PhysicalDevice const &_physicalDevice);
     void pickPhysicalDevice();
     void createLogicalDevice();
     void createSurface();
+
     static vk::SurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<vk::SurfaceFormatKHR> &availableFormats);
     static vk::PresentModeKHR chooseSwapPresentMode(std::vector<vk::PresentModeKHR> const &availablePresentModes);
     [[nodiscard]] vk::Extent2D chooseSwapExtent(vk::SurfaceCapabilitiesKHR const &capabilities) const;
     static uint32_t chooseSwapMinImageCount(vk::SurfaceCapabilitiesKHR const &surfaceCapabilities);
     void createSwapChain();
     void createImageViews();
+
+    static std::vector<char> readFile(const std::string &filename);
+    [[nodiscard]] vk::raii::ShaderModule createShaderModule(const std::vector<char> &code) const;
+    void createGraphicsPipeline();
 };
 
 #endif

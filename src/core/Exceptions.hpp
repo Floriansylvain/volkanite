@@ -17,6 +17,12 @@ class Compatibility : public std::runtime_error {
     explicit Compatibility(const char *message) : std::runtime_error(message) {}
 };
 
+class Shader : public std::runtime_error {
+  public:
+    explicit Shader(const std::string &message) : std::runtime_error(message) {}
+    explicit Shader(const char *message) : std::runtime_error(message) {}
+};
+
 } // namespace EngineExceptions
 
 #endif
