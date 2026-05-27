@@ -17,8 +17,10 @@ class Window {
 
     void init(const char *title, int width, int height);
     [[nodiscard]] bool isRunning() const;
+    [[nodiscard]] bool isMinimized() const;
     void pollEvents();
-    void setChangeCallback(const std::function<void(int, int)> &callback) { onChange = callback; }
+    void waitEvents();
+    void setChangeCallback(const std::function<void()> &callback) { onChange = callback; }
 
   private:
     SDL_Window *SDL_Window = nullptr;
@@ -26,7 +28,7 @@ class Window {
     bool running = false;
     bool isInitialized = false;
     bool isWindowCreated = false;
-    std::function<void(int, int)> onChange;
+    std::function<void()> onChange;
 };
 
 #endif

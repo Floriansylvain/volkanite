@@ -76,9 +76,23 @@ void Window::pollEvents() {
         if (event.type == SDL_EVENT_QUIT) {
             running = false;
         } else if ((event.type == SDL_EVENT_WINDOW_RESIZED || event.type == SDL_EVENT_WINDOW_MINIMIZED) && onChange) {
-            onChange(event.window.data1, event.window.data2);
+            onChange();
         }
     }
 }
+
+void Window::waitEvents() {
+    SDL_Event event;
+    if (const bool success = SDL_WaitEvent(&event); !success) {
+        throw EngineExceptions::Render(std::string("Failed to wait for SDL event : ") + SDL_GetError());
+    }
+    if (event.type == SDL_EVENT_QUIT) {
+        running = false;
+    } else if ((event.type == SDL_EVENT_WINDOW_RESIZED || event.type == SDL_EVENT_WINDOW_MINIMIZED) && onChange) {
+        onChange();
+    }
+}
+
+bool Window::isMinimized() const { return SDL_GetWindowFlags(SDL_Window) & SDL_WINDOW_MINIMIZED; }
 
 bool Window::isRunning() const { return running; }

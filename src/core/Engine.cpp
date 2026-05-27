@@ -492,13 +492,22 @@ void Engine::drawFrame() {
         fenceResult != vk::Result::eSuccess) {
         throw EngineExceptions::Render("Failed to wait for fence");
     }
-    device.resetFences(*inFlightFences[frameIndex]);
 
     auto [result, imageIndex] = swapChain.acquireNextImage(UINT64_MAX, *presentCompleteSemaphores[frameIndex], nullptr);
 
+    if (result == vk::Result::eErrorOutOfDateKHR) {
+        recreateSwapChain();
+        return;
+    }
+    if (result != vk::Result::eSuccess && result != vk::Result::eSuboptimalKHR) {
+        assert(result == vk::Result::eTimeout || result == vk::Result::eNotReady);
+        throw EngineExceptions::Render("Failed to acquire swap chain image");
+    }
+
+    device.resetFences(*inFlightFences[frameIndex]);
+
     commandBuffers[frameIndex].reset();
     recordCommandBuffer(imageIndex);
-
     queue.waitIdle();
 
     constexpr vk::PipelineStageFlags waitDestinationStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput);
@@ -529,14 +538,39 @@ void Engine::drawFrame() {
     presentInfoKHR.pImageIndices = &imageIndex;
 
     result = queue.presentKHR(presentInfoKHR);
-
+    if (result == vk::Result::eSuboptimalKHR || result == vk::Result::eErrorOutOfDateKHR || framebufferResized) {
+        framebufferResized = false;
+        recreateSwapChain();
+    } else {
+        assert(result == vk::Result::eSuccess);
+    }
     frameIndex = (frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
+}
+
+void Engine::cleanupSwapChain() {
+    swapChainImageViews.clear();
+    swapChain = nullptr;
+}
+
+void Engine::recreateSwapChain() {
+    while (SDL_GetWindowFlags(window.getSDL_window()) & SDL_WINDOW_MINIMIZED) {
+        window.waitEvents();
+    }
+
+    cleanupSwapChain();
+
+    device.waitIdle();
+
+    createSwapChain();
+    createImageViews();
 }
 
 void Engine::init() {
     if (!window.isRunning()) {
         throw EngineExceptions::NotInitialized("Failed to run Engine : Window is not running");
     }
+
+    window.setChangeCallback([this] { framebufferResized = true; });
 
     createInstance();
     setupDebugMessenger();
@@ -566,6 +600,4 @@ void Engine::run() {
     device.waitIdle();
 }
 
-void Engine::cleanup() {
-    // future cleanup method, now RAII is dealing with everything
-}
+void Engine::cleanup() { cleanupSwapChain(); }

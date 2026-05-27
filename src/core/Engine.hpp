@@ -17,7 +17,7 @@ class Engine {
 
     void init();
     void run();
-    static void cleanup();
+    void cleanup();
 
   private:
     constexpr static int MAX_FRAMES_IN_FLIGHT = 2;
@@ -48,6 +48,7 @@ class Engine {
     uint32_t frameIndex = 0;
 
     bool isInitialized = false;
+    bool framebufferResized = false;
 
     void createInstance();
     void setupDebugMessenger();
@@ -75,6 +76,8 @@ class Engine {
     void recordCommandBuffer(uint32_t imageIndex) const;
     void createSyncObjects();
     void drawFrame();
+    void recreateSwapChain();
+    void cleanupSwapChain();
 };
 
 #endif
