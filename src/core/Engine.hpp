@@ -16,10 +16,11 @@ class Engine {
     ~Engine();
 
     void init();
-    void run() const;
+    void run();
     static void cleanup();
 
   private:
+    constexpr static int MAX_FRAMES_IN_FLIGHT = 2;
     std::vector<const char *> requiredDeviceExtension = {vk::KHRSwapchainExtensionName};
 
     Window &window;
@@ -40,10 +41,11 @@ class Engine {
     vk::raii::PipelineLayout pipelineLayout = nullptr;
     vk::raii::Pipeline graphicsPipeline = nullptr;
     vk::raii::CommandPool commandPool = nullptr;
-    vk::raii::CommandBuffer commandBuffer = nullptr;
-    vk::raii::Semaphore presentCompleteSemaphore = nullptr;
-    vk::raii::Semaphore renderFinishedSemaphore = nullptr;
-    vk::raii::Fence drawFence = nullptr;
+    std::vector<vk::raii::CommandBuffer> commandBuffers;
+    std::vector<vk::raii::Semaphore> presentCompleteSemaphores;
+    std::vector<vk::raii::Semaphore> renderFinishedSemaphores;
+    std::vector<vk::raii::Fence> inFlightFences;
+    uint32_t frameIndex = 0;
 
     bool isInitialized = false;
 
@@ -66,13 +68,13 @@ class Engine {
     [[nodiscard]] vk::raii::ShaderModule createShaderModule(const std::vector<char> &code) const;
     void createGraphicsPipeline();
     void createCommandPool();
-    void createCommandBuffer();
+    void createCommandBuffers();
     void transition_image_layout(uint32_t imageIndex, vk::ImageLayout old_layout, vk::ImageLayout new_layout,
                                  vk::AccessFlags2 src_access_mask, vk::AccessFlags2 dst_access_mask,
                                  vk::PipelineStageFlags2 src_stage_mask, vk::PipelineStageFlags2 dst_stage_mask) const;
     void recordCommandBuffer(uint32_t imageIndex) const;
     void createSyncObjects();
-    void drawFrame() const;
+    void drawFrame();
 };
 
 #endif

@@ -391,13 +391,13 @@ void Engine::createCommandPool() {
     commandPool = vk::raii::CommandPool(device, poolInfo);
 }
 
-void Engine::createCommandBuffer() {
+void Engine::createCommandBuffers() {
     vk::CommandBufferAllocateInfo allocInfo{};
     allocInfo.commandPool = commandPool;
     allocInfo.level = vk::CommandBufferLevel::ePrimary;
-    allocInfo.commandBufferCount = 1;
+    allocInfo.commandBufferCount = MAX_FRAMES_IN_FLIGHT;
 
-    commandBuffer = std::move(vk::raii::CommandBuffers(device, allocInfo).front());
+    commandBuffers = vk::raii::CommandBuffers(device, allocInfo);
 }
 
 void Engine::transition_image_layout(const uint32_t imageIndex, const vk::ImageLayout old_layout,
@@ -428,14 +428,14 @@ void Engine::transition_image_layout(const uint32_t imageIndex, const vk::ImageL
     dependencyInfo.imageMemoryBarrierCount = 1;
     dependencyInfo.pImageMemoryBarriers = &barrier;
 
-    commandBuffer.pipelineBarrier2(dependencyInfo);
+    commandBuffers[frameIndex].pipelineBarrier2(dependencyInfo);
 }
 
 void Engine::recordCommandBuffer(const uint32_t imageIndex) const {
     using enum vk::ImageLayout;
     using enum vk::PipelineStageFlagBits2;
 
-    commandBuffer.begin({});
+    commandBuffers[frameIndex].begin({});
     transition_image_layout(imageIndex, eUndefined, eColorAttachmentOptimal, {}, vk::AccessFlagBits2::eColorAttachmentWrite,
                             eColorAttachmentOutput, eColorAttachmentOutput);
 
@@ -457,37 +457,46 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) const {
     renderingInfo.colorAttachmentCount = 1;
     renderingInfo.pColorAttachments = &attachmentInfo;
 
-    commandBuffer.beginRendering(renderingInfo);
-    commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *graphicsPipeline);
-    commandBuffer.setViewport(0, vk::Viewport(0.0f, 0.0f, static_cast<float>(swapChainExtent.width),
-                                              static_cast<float>(swapChainExtent.height), 0.0f, 1.0f));
-    commandBuffer.setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainExtent));
-    commandBuffer.draw(3, 1, 0, 0);
-    commandBuffer.endRendering();
+    commandBuffers[frameIndex].beginRendering(renderingInfo);
+    commandBuffers[frameIndex].bindPipeline(vk::PipelineBindPoint::eGraphics, *graphicsPipeline);
+    commandBuffers[frameIndex].setViewport(0, vk::Viewport(0.0f, 0.0f, static_cast<float>(swapChainExtent.width),
+                                                           static_cast<float>(swapChainExtent.height), 0.0f, 1.0f));
+    commandBuffers[frameIndex].setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainExtent));
+    commandBuffers[frameIndex].draw(6, 1, 0, 0);
+    commandBuffers[frameIndex].endRendering();
 
     transition_image_layout(imageIndex, eColorAttachmentOptimal, ePresentSrcKHR, vk::AccessFlagBits2::eColorAttachmentWrite, {},
                             eColorAttachmentOutput, eBottomOfPipe);
-    commandBuffer.end();
+    commandBuffers[frameIndex].end();
 }
 
 void Engine::createSyncObjects() {
-    presentCompleteSemaphore = vk::raii::Semaphore(device, vk::SemaphoreCreateInfo());
-    renderFinishedSemaphore = vk::raii::Semaphore(device, vk::SemaphoreCreateInfo());
+    assert(presentCompleteSemaphores.empty() && renderFinishedSemaphores.empty() && inFlightFences.empty());
 
-    vk::FenceCreateInfo fenceCreateInfo = {};
-    fenceCreateInfo.flags = vk::FenceCreateFlagBits::eSignaled;
+    for (auto _ : swapChainImages) {
+        renderFinishedSemaphores.emplace_back(device, vk::SemaphoreCreateInfo());
+    }
 
-    drawFence = vk::raii::Fence(device, fenceCreateInfo);
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        presentCompleteSemaphores.emplace_back(device, vk::SemaphoreCreateInfo());
+
+        vk::FenceCreateInfo fenceInfo{};
+        fenceInfo.flags = vk::FenceCreateFlagBits::eSignaled;
+
+        inFlightFences.emplace_back(device, fenceInfo);
+    }
 }
 
-void Engine::drawFrame() const {
-    if (const auto fenceResult = device.waitForFences(*drawFence, vk::True, UINT64_MAX); fenceResult != vk::Result::eSuccess) {
+void Engine::drawFrame() {
+    if (auto const fenceResult = device.waitForFences(*inFlightFences[frameIndex], vk::True, UINT64_MAX);
+        fenceResult != vk::Result::eSuccess) {
         throw EngineExceptions::Render("Failed to wait for fence");
     }
-    device.resetFences(*drawFence);
+    device.resetFences(*inFlightFences[frameIndex]);
 
-    auto [result, imageIndex] = swapChain.acquireNextImage(UINT64_MAX, *presentCompleteSemaphore, nullptr);
+    auto [result, imageIndex] = swapChain.acquireNextImage(UINT64_MAX, *presentCompleteSemaphores[frameIndex], nullptr);
 
+    commandBuffers[frameIndex].reset();
     recordCommandBuffer(imageIndex);
 
     queue.waitIdle();
@@ -495,14 +504,14 @@ void Engine::drawFrame() const {
     constexpr vk::PipelineStageFlags waitDestinationStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput);
     vk::SubmitInfo submitInfo{};
     submitInfo.waitSemaphoreCount = 1;
-    submitInfo.pWaitSemaphores = &*presentCompleteSemaphore;
+    submitInfo.pWaitSemaphores = &*presentCompleteSemaphores[frameIndex];
     submitInfo.pWaitDstStageMask = &waitDestinationStageMask;
     submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &*commandBuffer;
+    submitInfo.pCommandBuffers = &*commandBuffers[frameIndex];
     submitInfo.signalSemaphoreCount = 1;
-    submitInfo.pSignalSemaphores = &*renderFinishedSemaphore;
+    submitInfo.pSignalSemaphores = &*renderFinishedSemaphores[imageIndex];
 
-    queue.submit(submitInfo, *drawFence);
+    queue.submit(submitInfo, *inFlightFences[frameIndex]);
 
     vk::SubpassDependency dependency{};
     dependency.srcSubpass = vk::SubpassExternal;
@@ -514,12 +523,14 @@ void Engine::drawFrame() const {
 
     vk::PresentInfoKHR presentInfoKHR{};
     presentInfoKHR.waitSemaphoreCount = 1;
-    presentInfoKHR.pWaitSemaphores = &*renderFinishedSemaphore;
+    presentInfoKHR.pWaitSemaphores = &*renderFinishedSemaphores[imageIndex];
     presentInfoKHR.swapchainCount = 1;
     presentInfoKHR.pSwapchains = &*swapChain;
     presentInfoKHR.pImageIndices = &imageIndex;
 
     result = queue.presentKHR(presentInfoKHR);
+
+    frameIndex = (frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
 }
 
 void Engine::init() {
@@ -536,13 +547,13 @@ void Engine::init() {
     createImageViews();
     createGraphicsPipeline();
     createCommandPool();
-    createCommandBuffer();
+    createCommandBuffers();
     createSyncObjects();
 
     isInitialized = true;
 }
 
-void Engine::run() const {
+void Engine::run() {
     if (!isInitialized) {
         throw EngineExceptions::NotInitialized("Failed to run Engine : Engine is not initialized");
     }
