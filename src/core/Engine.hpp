@@ -49,6 +49,8 @@ class Engine {
     uint32_t frameIndex = 0;
     vk::raii::Buffer vertexBuffer = nullptr;
     vk::raii::DeviceMemory vertexBufferMemory = nullptr;
+    vk::raii::Buffer indexBuffer = nullptr;
+    vk::raii::DeviceMemory indexBufferMemory = nullptr;
 
     bool isInitialized = false;
     bool framebufferResized = false;
@@ -90,18 +92,18 @@ class Engine {
         static std::array<vk::VertexInputAttributeDescription, 2> getAttributeDescriptions();
     };
     const std::vector<Vertex> vertices = {
-        {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}}, //
-        {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},  //
-        {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},  //
-        {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},  //
-        {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},  //
-        {{0.5f, 0.5f}, {0.0f, 1.0f, 1.0f}},   //
+        {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}}, // 0
+        {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},  // 1
+        {{0.5f, 0.5f}, {0.0f, 1.0f, 1.0f}},   // 2
+        {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}   // 3
     };
+    const std::vector<uint16_t> indices = {0, 1, 2, 2, 3, 0};
     [[nodiscard]] uint32_t findMemoryType(uint32_t typeFilter, vk::MemoryPropertyFlags properties) const;
     [[nodiscard]] std::pair<vk::raii::Buffer, vk::raii::DeviceMemory>
     createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags properties) const;
     void copyBuffer(const vk::raii::Buffer &srcBuffer, const vk::raii::Buffer &dstBuffer, vk::DeviceSize size) const;
     void createVertexBuffer();
+    void createIndexBuffer();
 };
 
 #endif

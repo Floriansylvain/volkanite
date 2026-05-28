@@ -472,7 +472,8 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) const {
     commandBuffers[frameIndex].setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainExtent));
 
     commandBuffers[frameIndex].bindVertexBuffers(0, *vertexBuffer, {0});
-    commandBuffers[frameIndex].draw(static_cast<uint32_t>(vertices.size()), 1, 0, 0);
+    commandBuffers[frameIndex].bindIndexBuffer(*indexBuffer, 0, vk::IndexType::eUint16);
+    commandBuffers[frameIndex].drawIndexed(static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 
     commandBuffers[frameIndex].endRendering();
 
@@ -672,6 +673,23 @@ void Engine::createVertexBuffer() {
     copyBuffer(stagingBuffer, vertexBuffer, bufferSize);
 }
 
+void Engine::createIndexBuffer() {
+    using enum vk::BufferUsageFlagBits;
+    using enum vk::MemoryPropertyFlagBits;
+
+    const vk::DeviceSize bufferSize = sizeof(indices[0]) * indices.size();
+
+    auto [stagingBuffer, stagingBufferMemory] = createBuffer(bufferSize, eTransferSrc, eHostVisible | eHostCoherent);
+
+    void *dataStaging = stagingBufferMemory.mapMemory(0, bufferSize);
+    memcpy(dataStaging, indices.data(), bufferSize);
+    stagingBufferMemory.unmapMemory();
+
+    std::tie(indexBuffer, indexBufferMemory) = createBuffer(bufferSize, eIndexBuffer | eTransferDst, eDeviceLocal);
+
+    copyBuffer(stagingBuffer, indexBuffer, bufferSize);
+}
+
 void Engine::init() {
     if (!window.isRunning()) {
         throw EngineExceptions::NotInitialized("Failed to run Engine : Window is not running");
@@ -689,6 +707,7 @@ void Engine::init() {
     createGraphicsPipeline();
     createCommandPool();
     createVertexBuffer();
+    createIndexBuffer();
     createCommandBuffers();
     createSyncObjects();
 
