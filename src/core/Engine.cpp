@@ -356,7 +356,14 @@ void Engine::createGraphicsPipeline() {
 
     pipelineLayout = vk::raii::PipelineLayout(device, pipelineLayoutInfo);
 
+    auto bindingDescription = Vertex::getBindingDescription();
+    auto attributeDescriptions = Vertex::getAttributeDescriptions();
+
     vk::PipelineVertexInputStateCreateInfo vertexInputInfo;
+    vertexInputInfo.vertexBindingDescriptionCount = 1;
+    vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
+    vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
+    vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
 
     vk::PipelineInputAssemblyStateCreateInfo inputAssembly{};
     inputAssembly.topology = vk::PrimitiveTopology::eTriangleList;
@@ -458,11 +465,15 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) const {
     renderingInfo.pColorAttachments = &attachmentInfo;
 
     commandBuffers[frameIndex].beginRendering(renderingInfo);
+
     commandBuffers[frameIndex].bindPipeline(vk::PipelineBindPoint::eGraphics, *graphicsPipeline);
     commandBuffers[frameIndex].setViewport(0, vk::Viewport(0.0f, 0.0f, static_cast<float>(swapChainExtent.width),
                                                            static_cast<float>(swapChainExtent.height), 0.0f, 1.0f));
     commandBuffers[frameIndex].setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainExtent));
-    commandBuffers[frameIndex].draw(6, 1, 0, 0);
+
+    commandBuffers[frameIndex].bindVertexBuffers(0, *vertexBuffer, {0});
+    commandBuffers[frameIndex].draw(static_cast<uint32_t>(vertices.size()), 1, 0, 0);
+
     commandBuffers[frameIndex].endRendering();
 
     transition_image_layout(imageIndex, eColorAttachmentOptimal, ePresentSrcKHR, vk::AccessFlagBits2::eColorAttachmentWrite, {},
@@ -556,13 +567,70 @@ void Engine::recreateSwapChain() {
     while (SDL_GetWindowFlags(window.getSDL_window()) & SDL_WINDOW_MINIMIZED) {
         window.waitEvents();
     }
-
-    cleanupSwapChain();
-
     device.waitIdle();
 
+    cleanupSwapChain();
     createSwapChain();
     createImageViews();
+}
+
+vk::VertexInputBindingDescription Engine::Vertex::getBindingDescription() {
+    vk::VertexInputBindingDescription bindingDescription = {};
+    bindingDescription.binding = 0;
+    bindingDescription.stride = sizeof(Vertex);
+    bindingDescription.inputRate = vk::VertexInputRate::eVertex;
+
+    return bindingDescription;
+}
+
+std::array<vk::VertexInputAttributeDescription, 2> Engine::Vertex::getAttributeDescriptions() {
+    vk::VertexInputAttributeDescription positionDescription = {};
+    positionDescription.location = 0;
+    positionDescription.binding = 0;
+    positionDescription.format = vk::Format::eR32G32Sfloat;
+    positionDescription.offset = offsetof(Vertex, pos);
+
+    vk::VertexInputAttributeDescription colorDescription = {};
+    colorDescription.location = 1;
+    colorDescription.binding = 0;
+    colorDescription.format = vk::Format::eR32G32B32Sfloat;
+    colorDescription.offset = offsetof(Vertex, color);
+
+    return {positionDescription, colorDescription};
+}
+
+uint32_t Engine::findMemoryType(const uint32_t typeFilter, const vk::MemoryPropertyFlags properties) const {
+    const vk::PhysicalDeviceMemoryProperties memProperties = physicalDevice.getMemoryProperties();
+
+    for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
+        if (typeFilter & 1 << i && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
+            return i;
+        }
+    }
+
+    throw EngineExceptions::Compatibility("Failed to find suitable memory type.");
+}
+
+void Engine::createVertexBuffer() {
+    vk::BufferCreateInfo bufferInfo = {};
+    bufferInfo.size = sizeof(vertices[0]) * vertices.size();
+    bufferInfo.usage = vk::BufferUsageFlagBits::eVertexBuffer;
+    bufferInfo.sharingMode = vk::SharingMode::eExclusive;
+
+    vertexBuffer = vk::raii::Buffer(device, bufferInfo);
+
+    using enum vk::MemoryPropertyFlagBits;
+    const vk::MemoryRequirements memRequirements = vertexBuffer.getMemoryRequirements();
+    vk::MemoryAllocateInfo memoryAllocateInfo{};
+    memoryAllocateInfo.allocationSize = memRequirements.size;
+    memoryAllocateInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, eHostVisible | eHostCoherent);
+    vertexBufferMemory = vk::raii::DeviceMemory(device, memoryAllocateInfo);
+
+    vertexBuffer.bindMemory(*vertexBufferMemory, 0);
+
+    void *data = vertexBufferMemory.mapMemory(0, bufferInfo.size);
+    memcpy(data, vertices.data(), bufferInfo.size);
+    vertexBufferMemory.unmapMemory();
 }
 
 void Engine::init() {
@@ -581,6 +649,7 @@ void Engine::init() {
     createImageViews();
     createGraphicsPipeline();
     createCommandPool();
+    createVertexBuffer();
     createCommandBuffers();
     createSyncObjects();
 

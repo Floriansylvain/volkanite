@@ -6,6 +6,7 @@ import vulkan_hpp;
 #endif
 
 #include "Window.hpp"
+#include <glm/glm.hpp>
 
 #ifndef ENGINE_HPP
 #define ENGINE_HPP
@@ -46,6 +47,8 @@ class Engine {
     std::vector<vk::raii::Semaphore> renderFinishedSemaphores;
     std::vector<vk::raii::Fence> inFlightFences;
     uint32_t frameIndex = 0;
+    vk::raii::Buffer vertexBuffer = nullptr;
+    vk::raii::DeviceMemory vertexBufferMemory = nullptr;
 
     bool isInitialized = false;
     bool framebufferResized = false;
@@ -78,6 +81,24 @@ class Engine {
     void drawFrame();
     void recreateSwapChain();
     void cleanupSwapChain();
+
+    struct Vertex {
+        glm::vec2 pos;
+        glm::vec3 color;
+
+        static vk::VertexInputBindingDescription getBindingDescription();
+        static std::array<vk::VertexInputAttributeDescription, 2> getAttributeDescriptions();
+    };
+    const std::vector<Vertex> vertices = {
+        {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}}, //
+        {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},  //
+        {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},  //
+        {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},  //
+        {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},  //
+        {{0.5f, 0.5f}, {0.0f, 1.0f, 1.0f}},   //
+    };
+    uint32_t findMemoryType(uint32_t typeFilter, vk::MemoryPropertyFlags properties) const;
+    void createVertexBuffer();
 };
 
 #endif
