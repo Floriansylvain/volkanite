@@ -97,7 +97,10 @@ class Engine {
         {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},  //
         {{0.5f, 0.5f}, {0.0f, 1.0f, 1.0f}},   //
     };
-    uint32_t findMemoryType(uint32_t typeFilter, vk::MemoryPropertyFlags properties) const;
+    [[nodiscard]] uint32_t findMemoryType(uint32_t typeFilter, vk::MemoryPropertyFlags properties) const;
+    [[nodiscard]] std::pair<vk::raii::Buffer, vk::raii::DeviceMemory>
+    createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags properties) const;
+    void copyBuffer(const vk::raii::Buffer &srcBuffer, const vk::raii::Buffer &dstBuffer, vk::DeviceSize size) const;
     void createVertexBuffer();
 };
 
