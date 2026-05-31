@@ -471,8 +471,9 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) const {
                                                            static_cast<float>(swapChainExtent.height), 0.0f, 1.0f));
     commandBuffers[frameIndex].setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainExtent));
 
-    commandBuffers[frameIndex].bindVertexBuffers(0, *vertexBuffer, {0});
-    commandBuffers[frameIndex].bindIndexBuffer(*indexBuffer, 0, vk::IndexType::eUint16);
+    const vk::DeviceSize indexDataOffset = vertices.size() * sizeof(Vertex);
+    commandBuffers[frameIndex].bindVertexBuffers(0, *unifiedBuffer, {0});
+    commandBuffers[frameIndex].bindIndexBuffer(*unifiedBuffer, indexDataOffset, vk::IndexType::eUint16);
     commandBuffers[frameIndex].drawIndexed(static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 
     commandBuffers[frameIndex].endRendering();
@@ -656,38 +657,28 @@ void Engine::copyBuffer(const vk::raii::Buffer &srcBuffer, const vk::raii::Buffe
     queue.waitIdle();
 }
 
-void Engine::createVertexBuffer() {
+void Engine::createGeometryBuffers() {
     using enum vk::BufferUsageFlagBits;
     using enum vk::MemoryPropertyFlagBits;
 
-    const vk::DeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
+    const vk::DeviceSize vertexSize = sizeof(vertices[0]) * vertices.size();
+    const vk::DeviceSize indexSize = sizeof(indices[0]) * indices.size();
+    const vk::DeviceSize totalBufferSize = vertexSize + indexSize;
 
-    auto [stagingBuffer, stagingBufferMemory] = createBuffer(bufferSize, eTransferSrc, eHostVisible | eHostCoherent);
+    auto [stagingBuffer, stagingBufferMemory] = createBuffer(totalBufferSize, eTransferSrc, eHostVisible | eHostCoherent);
 
-    void *dataStaging = stagingBufferMemory.mapMemory(0, bufferSize);
-    memcpy(dataStaging, vertices.data(), bufferSize);
+    auto *dataStaging = static_cast<uint8_t *>(stagingBufferMemory.mapMemory(0, totalBufferSize));
+
+    std::memcpy(dataStaging, vertices.data(), vertexSize);
+
+    std::memcpy(dataStaging + vertexSize, indices.data(), indexSize);
+
     stagingBufferMemory.unmapMemory();
 
-    std::tie(vertexBuffer, vertexBufferMemory) = createBuffer(bufferSize, eVertexBuffer | eTransferDst, eDeviceLocal);
+    std::tie(unifiedBuffer, unifiedBufferMemory) =
+        createBuffer(totalBufferSize, eVertexBuffer | eIndexBuffer | eTransferDst, eDeviceLocal);
 
-    copyBuffer(stagingBuffer, vertexBuffer, bufferSize);
-}
-
-void Engine::createIndexBuffer() {
-    using enum vk::BufferUsageFlagBits;
-    using enum vk::MemoryPropertyFlagBits;
-
-    const vk::DeviceSize bufferSize = sizeof(indices[0]) * indices.size();
-
-    auto [stagingBuffer, stagingBufferMemory] = createBuffer(bufferSize, eTransferSrc, eHostVisible | eHostCoherent);
-
-    void *dataStaging = stagingBufferMemory.mapMemory(0, bufferSize);
-    memcpy(dataStaging, indices.data(), bufferSize);
-    stagingBufferMemory.unmapMemory();
-
-    std::tie(indexBuffer, indexBufferMemory) = createBuffer(bufferSize, eIndexBuffer | eTransferDst, eDeviceLocal);
-
-    copyBuffer(stagingBuffer, indexBuffer, bufferSize);
+    copyBuffer(stagingBuffer, unifiedBuffer, totalBufferSize);
 }
 
 void Engine::init() {
@@ -706,8 +697,7 @@ void Engine::init() {
     createImageViews();
     createGraphicsPipeline();
     createCommandPool();
-    createVertexBuffer();
-    createIndexBuffer();
+    createGeometryBuffers();
     createCommandBuffers();
     createSyncObjects();
 

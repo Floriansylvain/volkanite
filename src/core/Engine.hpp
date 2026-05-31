@@ -47,10 +47,8 @@ class Engine {
     std::vector<vk::raii::Semaphore> renderFinishedSemaphores;
     std::vector<vk::raii::Fence> inFlightFences;
     uint32_t frameIndex = 0;
-    vk::raii::Buffer vertexBuffer = nullptr;
-    vk::raii::DeviceMemory vertexBufferMemory = nullptr;
-    vk::raii::Buffer indexBuffer = nullptr;
-    vk::raii::DeviceMemory indexBufferMemory = nullptr;
+    vk::raii::Buffer unifiedBuffer = nullptr;
+    vk::raii::DeviceMemory unifiedBufferMemory = nullptr;
 
     bool isInitialized = false;
     bool framebufferResized = false;
@@ -102,8 +100,7 @@ class Engine {
     [[nodiscard]] std::pair<vk::raii::Buffer, vk::raii::DeviceMemory>
     createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags properties) const;
     void copyBuffer(const vk::raii::Buffer &srcBuffer, const vk::raii::Buffer &dstBuffer, vk::DeviceSize size) const;
-    void createVertexBuffer();
-    void createIndexBuffer();
+    void createGeometryBuffers();
 };
 
 #endif
