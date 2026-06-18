@@ -70,6 +70,13 @@ std::vector<const char *> Window::getInstanceExtensions([[maybe_unused]] uint32_
 
 bool Window::getSizeInPixels(int *w, int *h) const { return SDL_GetWindowSizeInPixels(SDL_Window, w, h); }
 
+Window::Action Window::action_user_should_take(const SDL_Event *e) {
+    if (e->type == SDL_EVENT_KEY_DOWN && e->key.scancode == SDL_SCANCODE_W) {
+        return ACTION_WIREFRAME;
+    }
+    return ACTION_NONE;
+}
+
 void Window::pollEvents() {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
@@ -77,6 +84,10 @@ void Window::pollEvents() {
             running = false;
         } else if ((event.type == SDL_EVENT_WINDOW_RESIZED || event.type == SDL_EVENT_WINDOW_MINIMIZED) && onChange) {
             onChange();
+        }
+
+        if (const auto action = action_user_should_take(&event); onWireframeToggle && action == ACTION_WIREFRAME) {
+            onWireframeToggle();
         }
     }
 }

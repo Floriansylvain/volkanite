@@ -21,14 +21,19 @@ class Window {
     void pollEvents();
     void waitEvents();
     void setChangeCallback(const std::function<void()> &callback) { onChange = callback; }
+    void setWireframeCallback(const std::function<void()> &callback) { onWireframeToggle = callback; }
 
   private:
     SDL_Window *SDL_Window = nullptr;
+
+    enum Action { ACTION_NONE, ACTION_WIREFRAME };
+    static Action action_user_should_take(const SDL_Event *e);
 
     bool running = false;
     bool isInitialized = false;
     bool isWindowCreated = false;
     std::function<void()> onChange;
+    std::function<void()> onWireframeToggle;
 };
 
 #endif

@@ -41,7 +41,8 @@ class Engine {
     std::vector<vk::raii::ImageView> swapChainImageViews;
     vk::raii::DescriptorSetLayout descriptorSetLayout = nullptr;
     vk::raii::PipelineLayout pipelineLayout = nullptr;
-    vk::raii::Pipeline graphicsPipeline = nullptr;
+    vk::raii::Pipeline solidGraphicsPipeline = nullptr;
+    vk::raii::Pipeline wireframeGraphicsPipeline = nullptr;
     vk::raii::CommandPool commandPool = nullptr;
     std::vector<vk::raii::CommandBuffer> commandBuffers;
     std::vector<vk::raii::Semaphore> presentCompleteSemaphores;
@@ -58,6 +59,7 @@ class Engine {
 
     bool isInitialized = false;
     bool framebufferResized = false;
+    bool isWireframe = false;
 
     void createInstance();
     void setupDebugMessenger();

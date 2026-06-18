@@ -142,6 +142,7 @@ void Engine::createLogicalDevice() {
     }
 
     vk::PhysicalDeviceFeatures2 features2{};
+    features2.features.fillModeNonSolid = true;
 
     vk::PhysicalDeviceVulkan11Features features11{};
     features11.shaderDrawParameters = true;
@@ -391,7 +392,12 @@ void Engine::createGraphicsPipeline() {
 
     vk::StructureChain pipelineCreateInfoChain = {graphicsPipelineCreateInfo, pipelineRenderingCreateInfo};
 
-    graphicsPipeline = vk::raii::Pipeline(device, nullptr, pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>());
+    solidGraphicsPipeline = vk::raii::Pipeline(device, nullptr, pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>());
+
+    rasterizer.polygonMode = vk::PolygonMode::eLine;
+
+    wireframeGraphicsPipeline =
+        vk::raii::Pipeline(device, nullptr, pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>());
 }
 
 void Engine::createCommandPool() {
@@ -470,7 +476,11 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) const {
 
     commandBuffers[frameIndex].beginRendering(renderingInfo);
 
-    commandBuffers[frameIndex].bindPipeline(vk::PipelineBindPoint::eGraphics, *graphicsPipeline);
+    if (isWireframe) {
+        commandBuffers[frameIndex].bindPipeline(vk::PipelineBindPoint::eGraphics, *wireframeGraphicsPipeline);
+    } else {
+        commandBuffers[frameIndex].bindPipeline(vk::PipelineBindPoint::eGraphics, *solidGraphicsPipeline);
+    }
     commandBuffers[frameIndex].setViewport(0, vk::Viewport(0.0f, 0.0f, static_cast<float>(swapChainExtent.width),
                                                            static_cast<float>(swapChainExtent.height), 0.0f, 1.0f));
     commandBuffers[frameIndex].setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainExtent));
@@ -779,6 +789,7 @@ void Engine::init() {
     }
 
     window.setChangeCallback([this] { framebufferResized = true; });
+    window.setWireframeCallback([this] { isWireframe = !isWireframe; });
 
     createInstance();
     setupDebugMessenger();
