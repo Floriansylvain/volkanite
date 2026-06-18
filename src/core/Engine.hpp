@@ -39,6 +39,7 @@ class Engine {
     vk::SurfaceFormatKHR swapChainSurfaceFormat;
     vk::Extent2D swapChainExtent;
     std::vector<vk::raii::ImageView> swapChainImageViews;
+    vk::raii::DescriptorSetLayout descriptorSetLayout = nullptr;
     vk::raii::PipelineLayout pipelineLayout = nullptr;
     vk::raii::Pipeline graphicsPipeline = nullptr;
     vk::raii::CommandPool commandPool = nullptr;
@@ -49,6 +50,11 @@ class Engine {
     uint32_t frameIndex = 0;
     vk::raii::Buffer unifiedBuffer = nullptr;
     vk::raii::DeviceMemory unifiedBufferMemory = nullptr;
+    std::vector<vk::raii::Buffer> uniformBuffers;
+    std::vector<vk::raii::DeviceMemory> uniformBuffersMemory;
+    std::vector<void *> uniformBuffersMapped;
+    vk::raii::DescriptorPool descriptorPool = nullptr;
+    std::vector<vk::raii::DescriptorSet> descriptorSets;
 
     bool isInitialized = false;
     bool framebufferResized = false;
@@ -101,6 +107,17 @@ class Engine {
     createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags properties) const;
     void copyBuffer(const vk::raii::Buffer &srcBuffer, const vk::raii::Buffer &dstBuffer, vk::DeviceSize size) const;
     void createGeometryBuffers();
+
+    struct UniformBufferObject {
+        alignas(16) glm::mat4 model;
+        alignas(16) glm::mat4 view;
+        alignas(16) glm::mat4 proj;
+    };
+    void createDescriptorSetLayout();
+    void createUniformBuffers();
+    void updateUniformBuffer(uint32_t currentImage) const;
+    void createDescriptorPool();
+    void createDescriptorSets();
 };
 
 #endif

@@ -2,7 +2,10 @@
 #include "Constants.hpp"
 #include "Exceptions.hpp"
 
+#include <chrono>
 #include <fstream>
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <iostream>
 
 Engine::Engine(Window *_window) : window(*_window) {};
@@ -325,7 +328,7 @@ void Engine::createGraphicsPipeline() {
     rasterizer.rasterizerDiscardEnable = vk::False;
     rasterizer.polygonMode = vk::PolygonMode::eFill;
     rasterizer.cullMode = vk::CullModeFlagBits::eBack;
-    rasterizer.frontFace = vk::FrontFace::eClockwise;
+    rasterizer.frontFace = vk::FrontFace::eCounterClockwise;
     rasterizer.depthBiasEnable = vk::False;
     rasterizer.lineWidth = 1.0f;
 
@@ -351,7 +354,8 @@ void Engine::createGraphicsPipeline() {
     colorBlending.pAttachments = &colorBlendAttachment;
 
     vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
-    pipelineLayoutInfo.setLayoutCount = 0;
+    pipelineLayoutInfo.setLayoutCount = 1;
+    pipelineLayoutInfo.pSetLayouts = &*descriptorSetLayout;
     pipelineLayoutInfo.pushConstantRangeCount = 0;
 
     pipelineLayout = vk::raii::PipelineLayout(device, pipelineLayoutInfo);
@@ -474,6 +478,8 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) const {
     const vk::DeviceSize indexDataOffset = vertices.size() * sizeof(Vertex);
     commandBuffers[frameIndex].bindVertexBuffers(0, *unifiedBuffer, {0});
     commandBuffers[frameIndex].bindIndexBuffer(*unifiedBuffer, indexDataOffset, vk::IndexType::eUint16);
+    commandBuffers[frameIndex].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0,
+                                                  *descriptorSets[frameIndex], nullptr);
     commandBuffers[frameIndex].drawIndexed(static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
 
     commandBuffers[frameIndex].endRendering();
@@ -522,6 +528,8 @@ void Engine::drawFrame() {
     commandBuffers[frameIndex].reset();
     recordCommandBuffer(imageIndex);
     queue.waitIdle();
+
+    updateUniformBuffer(frameIndex);
 
     constexpr vk::PipelineStageFlags waitDestinationStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput);
     vk::SubmitInfo submitInfo{};
@@ -681,6 +689,90 @@ void Engine::createGeometryBuffers() {
     copyBuffer(stagingBuffer, unifiedBuffer, totalBufferSize);
 }
 
+void Engine::createDescriptorSetLayout() {
+    vk::DescriptorSetLayoutBinding uboLayoutBinding{};
+    uboLayoutBinding.binding = 0;
+    uboLayoutBinding.descriptorType = vk::DescriptorType::eUniformBuffer;
+    uboLayoutBinding.descriptorCount = 1;
+    uboLayoutBinding.stageFlags = vk::ShaderStageFlagBits::eVertex;
+
+    vk::DescriptorSetLayoutCreateInfo layoutInfo{};
+    layoutInfo.bindingCount = 1;
+    layoutInfo.pBindings = &uboLayoutBinding;
+
+    descriptorSetLayout = vk::raii::DescriptorSetLayout(device, layoutInfo);
+}
+
+void Engine::createUniformBuffers() {
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        constexpr vk::DeviceSize bufferSize = sizeof(UniformBufferObject);
+        auto [buffer, bufferMem] =
+            createBuffer(bufferSize, vk::BufferUsageFlagBits::eUniformBuffer,
+                         vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+        uniformBuffers.emplace_back(std::move(buffer));
+        uniformBuffersMemory.emplace_back(std::move(bufferMem));
+        uniformBuffersMapped.emplace_back(uniformBuffersMemory.back().mapMemory(0, bufferSize));
+    }
+}
+
+void Engine::updateUniformBuffer(const uint32_t currentImage) const {
+    static auto startTime = std::chrono::high_resolution_clock::now();
+
+    const auto currentTime = std::chrono::high_resolution_clock::now();
+    const float time = std::chrono::duration<float>(currentTime - startTime).count();
+
+    UniformBufferObject ubo{};
+    ubo.model = rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    ubo.view = lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    ubo.proj =
+        glm::perspective(glm::radians(45.0f),
+                         static_cast<float>(swapChainExtent.width) / static_cast<float>(swapChainExtent.height), 0.1f, 10.0f);
+    ubo.proj[1][1] *= -1;
+
+    memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
+}
+
+void Engine::createDescriptorPool() {
+    vk::DescriptorPoolSize poolSize{};
+    poolSize.type = vk::DescriptorType::eUniformBuffer;
+    poolSize.descriptorCount = MAX_FRAMES_IN_FLIGHT;
+
+    vk::DescriptorPoolCreateInfo poolInfo{};
+    poolInfo.flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet;
+    poolInfo.maxSets = MAX_FRAMES_IN_FLIGHT;
+    poolInfo.poolSizeCount = 1;
+    poolInfo.pPoolSizes = &poolSize;
+
+    descriptorPool = vk::raii::DescriptorPool(device, poolInfo);
+}
+
+void Engine::createDescriptorSets() {
+    const std::vector layouts(MAX_FRAMES_IN_FLIGHT, *descriptorSetLayout);
+    vk::DescriptorSetAllocateInfo allocInfo{};
+    allocInfo.descriptorPool = descriptorPool;
+    allocInfo.descriptorSetCount = static_cast<uint32_t>(layouts.size());
+    allocInfo.pSetLayouts = layouts.data();
+
+    descriptorSets = device.allocateDescriptorSets(allocInfo);
+
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        vk::DescriptorBufferInfo bufferInfo{};
+        bufferInfo.buffer = uniformBuffers[i];
+        bufferInfo.offset = 0;
+        bufferInfo.range = sizeof(UniformBufferObject);
+
+        vk::WriteDescriptorSet descriptorWrite{};
+        descriptorWrite.dstSet = descriptorSets[i];
+        descriptorWrite.dstBinding = 0;
+        descriptorWrite.dstArrayElement = 0;
+        descriptorWrite.descriptorCount = 1;
+        descriptorWrite.descriptorType = vk::DescriptorType::eUniformBuffer;
+        descriptorWrite.pBufferInfo = &bufferInfo;
+
+        device.updateDescriptorSets(descriptorWrite, {});
+    }
+}
+
 void Engine::init() {
     if (!window.isRunning()) {
         throw EngineExceptions::NotInitialized("Failed to run Engine : Window is not running");
@@ -695,9 +787,13 @@ void Engine::init() {
     createLogicalDevice();
     createSwapChain();
     createImageViews();
+    createDescriptorSetLayout();
     createGraphicsPipeline();
     createCommandPool();
     createGeometryBuffers();
+    createUniformBuffers();
+    createDescriptorPool();
+    createDescriptorSets();
     createCommandBuffers();
     createSyncObjects();
 
