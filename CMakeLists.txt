@@ -7,6 +7,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(Vulkan REQUIRED)
 find_package(SDL3 REQUIRED)
+find_package(SDL3_image REQUIRED)
 find_package(glm CONFIG REQUIRED)
 
 find_program(SLANGC slangc REQUIRED)
@@ -37,9 +38,17 @@ target_include_directories(${PROJECT_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/
 
 add_dependencies(${PROJECT_NAME} generate_shaders)
 
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/textures"
+        "$<TARGET_FILE_DIR:${PROJECT_NAME}>/textures"
+        COMMENT "Copying textures to build directory..."
+)
+
 target_link_libraries(${PROJECT_NAME} PRIVATE
         Vulkan::Vulkan
         SDL3::SDL3-shared
+        SDL3_image::SDL3_image-shared
         glm::glm
 )
 

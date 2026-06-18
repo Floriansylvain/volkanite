@@ -56,6 +56,10 @@ class Engine {
     std::vector<void *> uniformBuffersMapped;
     vk::raii::DescriptorPool descriptorPool = nullptr;
     std::vector<vk::raii::DescriptorSet> descriptorSets;
+    vk::raii::Image textureImage = nullptr;
+    vk::raii::DeviceMemory textureImageMemory = nullptr;
+    vk::raii::ImageView textureImageView = nullptr;
+    vk::raii::Sampler textureSampler = nullptr;
 
     bool isInitialized = false;
     bool framebufferResized = false;
@@ -93,33 +97,48 @@ class Engine {
     struct Vertex {
         glm::vec2 pos;
         glm::vec3 color;
+        glm::vec2 texCoord;
 
         static vk::VertexInputBindingDescription getBindingDescription();
-        static std::array<vk::VertexInputAttributeDescription, 2> getAttributeDescriptions();
+        static std::array<vk::VertexInputAttributeDescription, 3> getAttributeDescriptions();
     };
-    const std::vector<Vertex> vertices = {
-        {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}}, // 0
-        {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},  // 1
-        {{0.5f, 0.5f}, {0.0f, 1.0f, 1.0f}},   // 2
-        {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}}   // 3
-    };
+    const std::vector<Vertex> vertices = {{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
+                                          {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
+                                          {{0.5f, 0.5f}, {0.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
+                                          {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}}};
+
     const std::vector<uint16_t> indices = {0, 1, 2, 2, 3, 0};
     [[nodiscard]] uint32_t findMemoryType(uint32_t typeFilter, vk::MemoryPropertyFlags properties) const;
     [[nodiscard]] std::pair<vk::raii::Buffer, vk::raii::DeviceMemory>
     createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags properties) const;
+    [[nodiscard]] vk::raii::CommandBuffer beginSingleTimeCommands() const;
+    void endSingleTimeCommands(vk::raii::CommandBuffer &&commandBuffer) const;
+
     void copyBuffer(const vk::raii::Buffer &srcBuffer, const vk::raii::Buffer &dstBuffer, vk::DeviceSize size) const;
     void createGeometryBuffers();
 
     struct UniformBufferObject {
-        alignas(16) glm::mat4 model;
-        alignas(16) glm::mat4 view;
-        alignas(16) glm::mat4 proj;
+        glm::mat4 model;
+        glm::mat4 view;
+        glm::mat4 proj;
     };
     void createDescriptorSetLayout();
     void createUniformBuffers();
     void updateUniformBuffer(uint32_t currentImage) const;
     void createDescriptorPool();
     void createDescriptorSets();
+    [[nodiscard]] std::pair<vk::raii::Image, vk::raii::DeviceMemory> createImage(uint32_t width, uint32_t height,
+                                                                                 vk::Format format, vk::ImageTiling tiling,
+                                                                                 vk::ImageUsageFlags usage,
+                                                                                 vk::MemoryPropertyFlags properties) const;
+    void createTextureImage();
+    static void transitionImageLayout(const vk::raii::CommandBuffer &commandBuffer, const vk::raii::Image &image,
+                                      vk::ImageLayout oldLayout, vk::ImageLayout newLayout);
+    static void copyBufferToImage(const vk::raii::CommandBuffer &commandBuffer, const vk::raii::Buffer &buffer,
+                                  const vk::raii::Image &image, uint32_t width, uint32_t height);
+    vk::raii::ImageView createImageView(vk::Image const &image, vk::Format format);
+    void createTextureImageView();
+    void createTextureSampler();
 };
 
 #endif
