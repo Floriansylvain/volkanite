@@ -254,9 +254,9 @@ void Engine::createSwapChain() {
     swapChainImages = swapChain.getImages();
 }
 
-vk::raii::ImageView Engine::createImageView(vk::Image const &image, vk::Format format) {
+vk::raii::ImageView Engine::createImageView(vk::Image const &image, vk::Format format, vk::ImageAspectFlags aspectFlags) {
     vk::ImageSubresourceRange subresourceRange = {};
-    subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
+    subresourceRange.aspectMask = aspectFlags;
     subresourceRange.baseMipLevel = 0;
     subresourceRange.levelCount = 1;
     subresourceRange.baseArrayLayer = 0;
@@ -276,7 +276,8 @@ void Engine::createImageViews() {
 
     swapChainImageViews.reserve(swapChainImages.size());
     for (auto const &image : swapChainImages) {
-        swapChainImageViews.emplace_back(createImageView(image, swapChainSurfaceFormat.format));
+        swapChainImageViews.emplace_back(
+            createImageView(image, swapChainSurfaceFormat.format, vk::ImageAspectFlagBits::eColor));
     }
 }
 
@@ -384,6 +385,13 @@ void Engine::createGraphicsPipeline() {
     vk::PipelineInputAssemblyStateCreateInfo inputAssembly{};
     inputAssembly.topology = vk::PrimitiveTopology::eTriangleList;
 
+    vk::PipelineDepthStencilStateCreateInfo depthStencil{};
+    depthStencil.depthTestEnable = vk::True;
+    depthStencil.depthWriteEnable = vk::True;
+    depthStencil.depthCompareOp = vk::CompareOp::eLess;
+    depthStencil.depthBoundsTestEnable = vk::False;
+    depthStencil.stencilTestEnable = vk::False;
+
     vk::GraphicsPipelineCreateInfo graphicsPipelineCreateInfo{};
     graphicsPipelineCreateInfo.stageCount = 2;
     graphicsPipelineCreateInfo.pStages = shaderStages.data();
@@ -396,10 +404,14 @@ void Engine::createGraphicsPipeline() {
     graphicsPipelineCreateInfo.pDynamicState = &dynamicState;
     graphicsPipelineCreateInfo.layout = pipelineLayout;
     graphicsPipelineCreateInfo.renderPass = nullptr;
+    graphicsPipelineCreateInfo.pDepthStencilState = &depthStencil;
+
+    vk::Format depthFormat = findDepthFormat();
 
     vk::PipelineRenderingCreateInfo pipelineRenderingCreateInfo{};
     pipelineRenderingCreateInfo.colorAttachmentCount = 1;
     pipelineRenderingCreateInfo.pColorAttachmentFormats = &swapChainSurfaceFormat.format;
+    pipelineRenderingCreateInfo.depthAttachmentFormat = depthFormat;
 
     vk::StructureChain pipelineCreateInfoChain = {graphicsPipelineCreateInfo, pipelineRenderingCreateInfo};
 
@@ -428,12 +440,12 @@ void Engine::createCommandBuffers() {
     commandBuffers = vk::raii::CommandBuffers(device, allocInfo);
 }
 
-void Engine::transition_image_layout(const uint32_t imageIndex, const vk::ImageLayout old_layout,
-                                     const vk::ImageLayout new_layout, const vk::AccessFlags2 src_access_mask,
-                                     const vk::AccessFlags2 dst_access_mask, const vk::PipelineStageFlags2 src_stage_mask,
-                                     const vk::PipelineStageFlags2 dst_stage_mask) const {
+void Engine::transition_image_layout(const vk::Image image, const vk::ImageLayout old_layout, const vk::ImageLayout new_layout,
+                                     const vk::AccessFlags2 src_access_mask, const vk::AccessFlags2 dst_access_mask,
+                                     const vk::PipelineStageFlags2 src_stage_mask, const vk::PipelineStageFlags2 dst_stage_mask,
+                                     const vk::ImageAspectFlags image_aspect_flags) const {
     vk::ImageSubresourceRange subresourceRange = {};
-    subresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
+    subresourceRange.aspectMask = image_aspect_flags;
     subresourceRange.baseMipLevel = 0;
     subresourceRange.levelCount = 1;
     subresourceRange.baseArrayLayer = 0;
@@ -448,7 +460,7 @@ void Engine::transition_image_layout(const uint32_t imageIndex, const vk::ImageL
     barrier.newLayout = new_layout;
     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = swapChainImages[imageIndex];
+    barrier.image = image;
     barrier.subresourceRange = subresourceRange;
 
     vk::DependencyInfo dependencyInfo{};
@@ -464,8 +476,13 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) const {
     using enum vk::PipelineStageFlagBits2;
 
     commandBuffers[frameIndex].begin({});
-    transition_image_layout(imageIndex, eUndefined, eColorAttachmentOptimal, {}, vk::AccessFlagBits2::eColorAttachmentWrite,
-                            eColorAttachmentOutput, eColorAttachmentOutput);
+    transition_image_layout(swapChainImages[imageIndex], eUndefined, eColorAttachmentOptimal, {},
+                            vk::AccessFlagBits2::eColorAttachmentWrite, eColorAttachmentOutput, eColorAttachmentOutput,
+                            vk::ImageAspectFlagBits::eColor);
+
+    transition_image_layout(*depthImage, eUndefined, eDepthAttachmentOptimal, vk::AccessFlagBits2::eDepthStencilAttachmentWrite,
+                            vk::AccessFlagBits2::eDepthStencilAttachmentWrite, eEarlyFragmentTests | eLateFragmentTests,
+                            eEarlyFragmentTests | eLateFragmentTests, vk::ImageAspectFlagBits::eDepth);
 
     constexpr vk::ClearValue clearColor = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 1.0f);
     vk::RenderingAttachmentInfo attachmentInfo = {};
@@ -474,6 +491,14 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) const {
     attachmentInfo.loadOp = vk::AttachmentLoadOp::eClear;
     attachmentInfo.storeOp = vk::AttachmentStoreOp::eStore;
     attachmentInfo.clearValue = clearColor;
+
+    constexpr vk::ClearValue clearDepth = vk::ClearDepthStencilValue(1.0f, 0);
+    vk::RenderingAttachmentInfo depthAttachmentInfo = {};
+    depthAttachmentInfo.imageView = depthImageView;
+    depthAttachmentInfo.imageLayout = eDepthAttachmentOptimal;
+    depthAttachmentInfo.loadOp = vk::AttachmentLoadOp::eClear;
+    depthAttachmentInfo.storeOp = vk::AttachmentStoreOp::eDontCare;
+    depthAttachmentInfo.clearValue = clearDepth;
 
     vk::Rect2D renderArea = {};
     renderArea.offset = vk::Offset2D{0, 0};
@@ -484,6 +509,7 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) const {
     renderingInfo.layerCount = 1;
     renderingInfo.colorAttachmentCount = 1;
     renderingInfo.pColorAttachments = &attachmentInfo;
+    renderingInfo.pDepthAttachment = &depthAttachmentInfo;
 
     commandBuffers[frameIndex].beginRendering(renderingInfo);
 
@@ -505,8 +531,9 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) const {
 
     commandBuffers[frameIndex].endRendering();
 
-    transition_image_layout(imageIndex, eColorAttachmentOptimal, ePresentSrcKHR, vk::AccessFlagBits2::eColorAttachmentWrite, {},
-                            eColorAttachmentOutput, eBottomOfPipe);
+    transition_image_layout(swapChainImages[imageIndex], eColorAttachmentOptimal, ePresentSrcKHR,
+                            vk::AccessFlagBits2::eColorAttachmentWrite, {}, eColorAttachmentOutput, eBottomOfPipe,
+                            vk::ImageAspectFlagBits::eColor);
     commandBuffers[frameIndex].end();
 }
 
@@ -603,6 +630,7 @@ void Engine::recreateSwapChain() {
     cleanupSwapChain();
     createSwapChain();
     createImageViews();
+    createDepthResources();
 }
 
 vk::VertexInputBindingDescription Engine::Vertex::getBindingDescription() {
@@ -618,7 +646,7 @@ std::array<vk::VertexInputAttributeDescription, 3> Engine::Vertex::getAttributeD
     vk::VertexInputAttributeDescription positionDescription = {};
     positionDescription.location = 0;
     positionDescription.binding = 0;
-    positionDescription.format = vk::Format::eR32G32Sfloat;
+    positionDescription.format = vk::Format::eR32G32B32Sfloat;
     positionDescription.offset = offsetof(Vertex, pos);
 
     vk::VertexInputAttributeDescription colorDescription = {};
@@ -968,7 +996,9 @@ void Engine::transitionImageLayout(const vk::raii::CommandBuffer &commandBuffer,
     commandBuffer.pipelineBarrier(sourceStage, destinationStage, {}, {}, {}, barrier);
 }
 
-void Engine::createTextureImageView() { textureImageView = createImageView(*textureImage, vk::Format::eR8G8B8A8Srgb); }
+void Engine::createTextureImageView() {
+    textureImageView = createImageView(*textureImage, vk::Format::eR8G8B8A8Srgb, vk::ImageAspectFlagBits::eColor);
+}
 
 void Engine::createTextureSampler() {
     using enum vk::SamplerAddressMode;
@@ -989,6 +1019,79 @@ void Engine::createTextureSampler() {
     textureSampler = vk::raii::Sampler(device, samplerInfo);
 }
 
+vk::Format Engine::findSupportedFormat(const std::vector<vk::Format> &candidates, vk::ImageTiling tiling,
+                                       const vk::FormatFeatureFlags features) {
+    for (const auto format : candidates) {
+
+        if (const vk::FormatProperties props = physicalDevice.getFormatProperties(format);
+            (tiling == vk::ImageTiling::eLinear && (props.linearTilingFeatures & features) == features) ||
+            (tiling == vk::ImageTiling::eOptimal && (props.optimalTilingFeatures & features) == features)) {
+            return format;
+        }
+    }
+
+    throw EngineExceptions::Compatibility("failed to find supported format!");
+}
+
+vk::Format Engine::findDepthFormat() {
+    using enum vk::Format;
+    return findSupportedFormat({eD32Sfloat, eD32SfloatS8Uint, eD24UnormS8Uint}, vk::ImageTiling::eOptimal,
+                               vk::FormatFeatureFlagBits::eDepthStencilAttachment);
+}
+
+void Engine::createDepthResources() {
+    vk::Format depthFormat = findDepthFormat();
+    std::tie(depthImage, depthImageMemory) =
+        createImage(swapChainExtent.width, swapChainExtent.height, depthFormat, vk::ImageTiling::eOptimal,
+                    vk::ImageUsageFlagBits::eDepthStencilAttachment, vk::MemoryPropertyFlagBits::eDeviceLocal);
+    depthImageView = createImageView(depthImage, depthFormat, vk::ImageAspectFlagBits::eDepth);
+}
+
+void Engine::generateCubeData(const float size) {
+    float half = size / 2.0f;
+
+    vertices.clear();
+    indices.clear();
+    vertices.reserve(24);
+    indices.reserve(36);
+
+    struct FaceDef {
+        glm::vec3 normal;
+        glm::vec3 color;
+        glm::vec3 v0;
+        glm::vec3 v1;
+        glm::vec3 v2;
+        glm::vec3 v3;
+    };
+
+    const std::array<FaceDef, 6> faces = {
+        {{{0, 0, 1}, {1, 0, 0}, {-half, -half, half}, {half, -half, half}, {half, half, half}, {-half, half, half}},
+         {{0, 0, -1}, {0, 1, 0}, {half, -half, -half}, {-half, -half, -half}, {-half, half, -half}, {half, half, -half}},
+         {{0, 1, 0}, {0, 0, 1}, {-half, half, half}, {half, half, half}, {half, half, -half}, {-half, half, -half}},
+         {{0, -1, 0}, {1, 1, 0}, {-half, -half, -half}, {half, -half, -half}, {half, -half, half}, {-half, -half, half}},
+         {{1, 0, 0}, {0, 1, 1}, {half, -half, half}, {half, -half, -half}, {half, half, -half}, {half, half, half}},
+         {{-1, 0, 0}, {1, 0, 1}, {-half, -half, -half}, {-half, -half, half}, {-half, half, half}, {-half, half, -half}}}};
+
+    uint16_t vertexOffset = 0;
+
+    for (const auto &face : faces) {
+        vertices.push_back({face.v0, face.color, {0.0f, 0.0f}});
+        vertices.push_back({face.v1, face.color, {1.0f, 0.0f}});
+        vertices.push_back({face.v2, face.color, {1.0f, 1.0f}});
+        vertices.push_back({face.v3, face.color, {0.0f, 1.0f}});
+
+        indices.push_back(vertexOffset + 0);
+        indices.push_back(vertexOffset + 1);
+        indices.push_back(vertexOffset + 2);
+
+        indices.push_back(vertexOffset + 2);
+        indices.push_back(vertexOffset + 3);
+        indices.push_back(vertexOffset + 0);
+
+        vertexOffset += 4;
+    }
+}
+
 void Engine::init() {
     if (!window.isRunning()) {
         throw EngineExceptions::NotInitialized("Failed to run Engine : Window is not running");
@@ -1007,9 +1110,11 @@ void Engine::init() {
     createDescriptorSetLayout();
     createGraphicsPipeline();
     createCommandPool();
+    createDepthResources();
     createTextureImage();
     createTextureImageView();
     createTextureSampler();
+    generateCubeData(1);
     createGeometryBuffers();
     createUniformBuffers();
     createDescriptorPool();

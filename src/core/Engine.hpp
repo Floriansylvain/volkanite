@@ -60,6 +60,9 @@ class Engine {
     vk::raii::DeviceMemory textureImageMemory = nullptr;
     vk::raii::ImageView textureImageView = nullptr;
     vk::raii::Sampler textureSampler = nullptr;
+    vk::raii::Image depthImage = nullptr;
+    vk::raii::DeviceMemory depthImageMemory = nullptr;
+    vk::raii::ImageView depthImageView = nullptr;
 
     bool isInitialized = false;
     bool framebufferResized = false;
@@ -85,9 +88,10 @@ class Engine {
     void createGraphicsPipeline();
     void createCommandPool();
     void createCommandBuffers();
-    void transition_image_layout(uint32_t imageIndex, vk::ImageLayout old_layout, vk::ImageLayout new_layout,
+    void transition_image_layout(vk::Image image, vk::ImageLayout old_layout, vk::ImageLayout new_layout,
                                  vk::AccessFlags2 src_access_mask, vk::AccessFlags2 dst_access_mask,
-                                 vk::PipelineStageFlags2 src_stage_mask, vk::PipelineStageFlags2 dst_stage_mask) const;
+                                 vk::PipelineStageFlags2 src_stage_mask, vk::PipelineStageFlags2 dst_stage_mask,
+                                 vk::ImageAspectFlags image_aspect_flags) const;
     void recordCommandBuffer(uint32_t imageIndex) const;
     void createSyncObjects();
     void drawFrame();
@@ -95,19 +99,16 @@ class Engine {
     void cleanupSwapChain();
 
     struct Vertex {
-        glm::vec2 pos;
+        glm::vec3 pos;
         glm::vec3 color;
         glm::vec2 texCoord;
 
         static vk::VertexInputBindingDescription getBindingDescription();
         static std::array<vk::VertexInputAttributeDescription, 3> getAttributeDescriptions();
     };
-    const std::vector<Vertex> vertices = {{{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {1.0f, 0.0f}},
-                                          {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-                                          {{0.5f, 0.5f}, {0.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
-                                          {{-0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}}};
+    std::vector<Vertex> vertices;
+    std::vector<uint16_t> indices;
 
-    const std::vector<uint16_t> indices = {0, 1, 2, 2, 3, 0};
     [[nodiscard]] uint32_t findMemoryType(uint32_t typeFilter, vk::MemoryPropertyFlags properties) const;
     [[nodiscard]] std::pair<vk::raii::Buffer, vk::raii::DeviceMemory>
     createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags properties) const;
@@ -136,9 +137,14 @@ class Engine {
                                       vk::ImageLayout oldLayout, vk::ImageLayout newLayout);
     static void copyBufferToImage(const vk::raii::CommandBuffer &commandBuffer, const vk::raii::Buffer &buffer,
                                   const vk::raii::Image &image, uint32_t width, uint32_t height);
-    vk::raii::ImageView createImageView(vk::Image const &image, vk::Format format);
+    vk::raii::ImageView createImageView(vk::Image const &image, vk::Format format, vk::ImageAspectFlags aspectFlags);
     void createTextureImageView();
     void createTextureSampler();
+    vk::Format findSupportedFormat(const std::vector<vk::Format> &candidates, vk::ImageTiling tiling,
+                                   vk::FormatFeatureFlags features);
+    vk::Format findDepthFormat();
+    void createDepthResources();
+    void generateCubeData(float size);
 };
 
 #endif
