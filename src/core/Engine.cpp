@@ -1,6 +1,7 @@
 #include "Engine.hpp"
 #include "Constants.hpp"
 #include "Exceptions.hpp"
+#include "VulkanUtils.hpp"
 
 #include <SDL3_image/SDL_image.h>
 #include <chrono>
@@ -9,101 +10,9 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <iostream>
 
-Engine::Engine(Window *_window, VulkanContext *_vkCtx) : window(*_window), vkCtx(*_vkCtx) {};
+Engine::Engine(Window *_window, VulkanContext *_vkCtx) : window(*_window), vkCtx(*_vkCtx), swapChainHandler(vkCtx, window) {};
 
 Engine::~Engine() = default;
-
-vk::SurfaceFormatKHR Engine::chooseSwapSurfaceFormat(const std::vector<vk::SurfaceFormatKHR> &availableFormats) {
-    const auto formatIt = std::ranges::find_if(availableFormats, [](const auto &format) {
-        return format.format == vk::Format::eB8G8R8A8Srgb && format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear;
-    });
-    return formatIt != availableFormats.end() ? *formatIt : availableFormats[0];
-}
-
-vk::PresentModeKHR Engine::chooseSwapPresentMode(std::vector<vk::PresentModeKHR> const &availablePresentModes) {
-    assert(
-        std::ranges::any_of(availablePresentModes, [](auto presentMode) { return presentMode == vk::PresentModeKHR::eFifo; }));
-    return std::ranges::any_of(availablePresentModes,
-                               [](const vk::PresentModeKHR value) { return vk::PresentModeKHR::eMailbox == value; })
-               ? vk::PresentModeKHR::eMailbox
-               : vk::PresentModeKHR::eFifo;
-}
-
-vk::Extent2D Engine::chooseSwapExtent(vk::SurfaceCapabilitiesKHR const &capabilities) const {
-    if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
-        return capabilities.currentExtent;
-    }
-    int width;
-    int height;
-    window.getSizeInPixels(&width, &height);
-
-    return {std::clamp<uint32_t>(width, capabilities.minImageExtent.width, capabilities.maxImageExtent.width),
-            std::clamp<uint32_t>(height, capabilities.minImageExtent.height, capabilities.maxImageExtent.height)};
-}
-
-uint32_t Engine::chooseSwapMinImageCount(vk::SurfaceCapabilitiesKHR const &surfaceCapabilities) {
-    auto minImageCount = std::max(3u, surfaceCapabilities.minImageCount);
-    if ((0 < surfaceCapabilities.maxImageCount) && (surfaceCapabilities.maxImageCount < minImageCount)) {
-        minImageCount = surfaceCapabilities.maxImageCount;
-    }
-    return minImageCount;
-}
-
-void Engine::createSwapChain() {
-    const vk::SurfaceCapabilitiesKHR surfaceCapabilities = vkCtx.physicalDevice.getSurfaceCapabilitiesKHR(*vkCtx.surface);
-    swapChainExtent = chooseSwapExtent(surfaceCapabilities);
-    const uint32_t minImageCount = chooseSwapMinImageCount(surfaceCapabilities);
-
-    const std::vector<vk::SurfaceFormatKHR> availableFormats = vkCtx.physicalDevice.getSurfaceFormatsKHR(*vkCtx.surface);
-    swapChainSurfaceFormat = chooseSwapSurfaceFormat(availableFormats);
-
-    const std::vector<vk::PresentModeKHR> availablePresentModes = vkCtx.physicalDevice.getSurfacePresentModesKHR(vkCtx.surface);
-
-    vk::SwapchainCreateInfoKHR swapChainCreateInfo{};
-    swapChainCreateInfo.surface = *vkCtx.surface;
-    swapChainCreateInfo.minImageCount = minImageCount;
-    swapChainCreateInfo.imageFormat = swapChainSurfaceFormat.format;
-    swapChainCreateInfo.imageColorSpace = swapChainSurfaceFormat.colorSpace;
-    swapChainCreateInfo.imageExtent = swapChainExtent;
-    swapChainCreateInfo.imageArrayLayers = 1;
-    swapChainCreateInfo.imageUsage = vk::ImageUsageFlagBits::eColorAttachment;
-    swapChainCreateInfo.imageSharingMode = vk::SharingMode::eExclusive;
-    swapChainCreateInfo.preTransform = surfaceCapabilities.currentTransform;
-    swapChainCreateInfo.compositeAlpha = vk::CompositeAlphaFlagBitsKHR::eOpaque;
-    swapChainCreateInfo.presentMode = chooseSwapPresentMode(availablePresentModes);
-    swapChainCreateInfo.clipped = true;
-
-    swapChain = vk::raii::SwapchainKHR(vkCtx.device, swapChainCreateInfo);
-    swapChainImages = swapChain.getImages();
-}
-
-vk::raii::ImageView Engine::createImageView(vk::Image const &image, const vk::Format format,
-                                            const vk::ImageAspectFlags aspectFlags) const {
-    vk::ImageSubresourceRange subresourceRange = {};
-    subresourceRange.aspectMask = aspectFlags;
-    subresourceRange.baseMipLevel = 0;
-    subresourceRange.levelCount = 1;
-    subresourceRange.baseArrayLayer = 0;
-    subresourceRange.layerCount = 1;
-
-    vk::ImageViewCreateInfo viewInfo{};
-    viewInfo.image = image;
-    viewInfo.viewType = vk::ImageViewType::e2D;
-    viewInfo.format = format;
-    viewInfo.subresourceRange = subresourceRange;
-
-    return {vkCtx.device, viewInfo};
-}
-
-void Engine::createImageViews() {
-    assert(swapChainImageViews.empty());
-
-    swapChainImageViews.reserve(swapChainImages.size());
-    for (auto const &image : swapChainImages) {
-        swapChainImageViews.emplace_back(
-            createImageView(image, swapChainSurfaceFormat.format, vk::ImageAspectFlagBits::eColor));
-    }
-}
 
 std::vector<char> Engine::readFile(const std::string &filename) {
     std::ifstream file(filename, std::ios::ate | std::ios::binary);
@@ -230,11 +139,11 @@ void Engine::createGraphicsPipeline() {
     graphicsPipelineCreateInfo.renderPass = nullptr;
     graphicsPipelineCreateInfo.pDepthStencilState = &depthStencil;
 
-    vk::Format depthFormat = findDepthFormat();
+    vk::Format depthFormat = swapChainHandler.findDepthFormat();
 
     vk::PipelineRenderingCreateInfo pipelineRenderingCreateInfo{};
     pipelineRenderingCreateInfo.colorAttachmentCount = 1;
-    pipelineRenderingCreateInfo.pColorAttachmentFormats = &swapChainSurfaceFormat.format;
+    pipelineRenderingCreateInfo.pColorAttachmentFormats = &swapChainHandler.swapChainSurfaceFormat.format;
     pipelineRenderingCreateInfo.depthAttachmentFormat = depthFormat;
 
     vk::StructureChain pipelineCreateInfoChain = {graphicsPipelineCreateInfo, pipelineRenderingCreateInfo};
@@ -301,7 +210,7 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) const {
 
     transitionImageLayoutCommand transitionCmd = {};
 
-    transitionCmd.image = swapChainImages[imageIndex];
+    transitionCmd.image = swapChainHandler.swapChainImages[imageIndex];
     transitionCmd.old_layout = eUndefined;
     transitionCmd.new_layout = eColorAttachmentOptimal;
     transitionCmd.src_access_mask = {};
@@ -312,7 +221,7 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) const {
 
     transition_image_layout(transitionCmd);
 
-    transitionCmd.image = *depthImage;
+    transitionCmd.image = *swapChainHandler.depthImage;
     transitionCmd.new_layout = eDepthAttachmentOptimal;
     transitionCmd.src_access_mask = vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
     transitionCmd.dst_access_mask = vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
@@ -324,7 +233,7 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) const {
 
     constexpr vk::ClearValue clearColor = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 1.0f);
     vk::RenderingAttachmentInfo attachmentInfo = {};
-    attachmentInfo.imageView = swapChainImageViews[imageIndex];
+    attachmentInfo.imageView = swapChainHandler.swapChainImageViews[imageIndex];
     attachmentInfo.imageLayout = eColorAttachmentOptimal;
     attachmentInfo.loadOp = vk::AttachmentLoadOp::eClear;
     attachmentInfo.storeOp = vk::AttachmentStoreOp::eStore;
@@ -332,7 +241,7 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) const {
 
     constexpr vk::ClearValue clearDepth = vk::ClearDepthStencilValue(1.0f, 0);
     vk::RenderingAttachmentInfo depthAttachmentInfo = {};
-    depthAttachmentInfo.imageView = depthImageView;
+    depthAttachmentInfo.imageView = swapChainHandler.depthImageView;
     depthAttachmentInfo.imageLayout = eDepthAttachmentOptimal;
     depthAttachmentInfo.loadOp = vk::AttachmentLoadOp::eClear;
     depthAttachmentInfo.storeOp = vk::AttachmentStoreOp::eDontCare;
@@ -340,7 +249,7 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) const {
 
     vk::Rect2D renderArea = {};
     renderArea.offset = vk::Offset2D{0, 0};
-    renderArea.extent = swapChainExtent;
+    renderArea.extent = swapChainHandler.swapChainExtent;
 
     vk::RenderingInfo renderingInfo = {};
     renderingInfo.renderArea = renderArea;
@@ -356,9 +265,10 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) const {
     } else {
         commandBuffers[frameIndex].bindPipeline(vk::PipelineBindPoint::eGraphics, *solidGraphicsPipeline);
     }
-    commandBuffers[frameIndex].setViewport(0, vk::Viewport(0.0f, 0.0f, static_cast<float>(swapChainExtent.width),
-                                                           static_cast<float>(swapChainExtent.height), 0.0f, 1.0f));
-    commandBuffers[frameIndex].setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainExtent));
+    commandBuffers[frameIndex].setViewport(
+        0, vk::Viewport(0.0f, 0.0f, static_cast<float>(swapChainHandler.swapChainExtent.width),
+                        static_cast<float>(swapChainHandler.swapChainExtent.height), 0.0f, 1.0f));
+    commandBuffers[frameIndex].setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainHandler.swapChainExtent));
 
     const vk::DeviceSize indexDataOffset = vertices.size() * sizeof(Vertex);
     commandBuffers[frameIndex].bindVertexBuffers(0, *unifiedBuffer, {0});
@@ -369,7 +279,7 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) const {
 
     commandBuffers[frameIndex].endRendering();
 
-    transitionCmd.image = swapChainImages[imageIndex];
+    transitionCmd.image = swapChainHandler.swapChainImages[imageIndex];
     transitionCmd.old_layout = eColorAttachmentOptimal;
     transitionCmd.new_layout = ePresentSrcKHR;
     transitionCmd.src_access_mask = vk::AccessFlagBits2::eColorAttachmentWrite;
@@ -385,7 +295,7 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) const {
 void Engine::createSyncObjects() {
     assert(presentCompleteSemaphores.empty() && renderFinishedSemaphores.empty() && inFlightFences.empty());
 
-    for (auto _ : swapChainImages) {
+    for (auto _ : swapChainHandler.swapChainImages) {
         renderFinishedSemaphores.emplace_back(vkCtx.device, vk::SemaphoreCreateInfo());
     }
 
@@ -405,10 +315,11 @@ void Engine::drawFrame() {
         throw EngineExceptions::Render("Failed to wait for fence");
     }
 
-    auto [result, imageIndex] = swapChain.acquireNextImage(UINT64_MAX, *presentCompleteSemaphores[frameIndex], nullptr);
+    auto [result, imageIndex] =
+        swapChainHandler.swapChain.acquireNextImage(UINT64_MAX, *presentCompleteSemaphores[frameIndex], nullptr);
 
     if (result == vk::Result::eErrorOutOfDateKHR) {
-        recreateSwapChain();
+        swapChainHandler.recreate();
         return;
     }
     if (result != vk::Result::eSuccess && result != vk::Result::eSuboptimalKHR) {
@@ -448,34 +359,17 @@ void Engine::drawFrame() {
     presentInfoKHR.waitSemaphoreCount = 1;
     presentInfoKHR.pWaitSemaphores = &*renderFinishedSemaphores[imageIndex];
     presentInfoKHR.swapchainCount = 1;
-    presentInfoKHR.pSwapchains = &*swapChain;
+    presentInfoKHR.pSwapchains = &*swapChainHandler.swapChain;
     presentInfoKHR.pImageIndices = &imageIndex;
 
     result = vkCtx.queue.presentKHR(presentInfoKHR);
     if (result == vk::Result::eSuboptimalKHR || result == vk::Result::eErrorOutOfDateKHR || framebufferResized) {
         framebufferResized = false;
-        recreateSwapChain();
+        swapChainHandler.recreate();
     } else {
         assert(result == vk::Result::eSuccess);
     }
     frameIndex = (frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
-}
-
-void Engine::cleanupSwapChain() {
-    swapChainImageViews.clear();
-    swapChain = nullptr;
-}
-
-void Engine::recreateSwapChain() {
-    while (SDL_GetWindowFlags(window.getSDL_window()) & SDL_WINDOW_MINIMIZED) {
-        window.waitEvents();
-    }
-    vkCtx.device.waitIdle();
-
-    cleanupSwapChain();
-    createSwapChain();
-    createImageViews();
-    createDepthResources();
 }
 
 vk::VertexInputBindingDescription Engine::Vertex::getBindingDescription() {
@@ -509,18 +403,6 @@ std::array<vk::VertexInputAttributeDescription, 3> Engine::Vertex::getAttributeD
     return {positionDescription, colorDescription, texCoordDescription};
 }
 
-uint32_t Engine::findMemoryType(const uint32_t typeFilter, const vk::MemoryPropertyFlags properties) const {
-    const vk::PhysicalDeviceMemoryProperties memProperties = vkCtx.physicalDevice.getMemoryProperties();
-
-    for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++) {
-        if (typeFilter & 1 << i && (memProperties.memoryTypes[i].propertyFlags & properties) == properties) {
-            return i;
-        }
-    }
-
-    throw EngineExceptions::Compatibility("Failed to find suitable memory type.");
-}
-
 std::pair<vk::raii::Buffer, vk::raii::DeviceMemory> Engine::createBuffer(const vk::DeviceSize size,
                                                                          const vk::BufferUsageFlags usage,
                                                                          const vk::MemoryPropertyFlags properties) const {
@@ -534,7 +416,7 @@ std::pair<vk::raii::Buffer, vk::raii::DeviceMemory> Engine::createBuffer(const v
     const vk::MemoryRequirements memRequirements = buffer.getMemoryRequirements();
     vk::MemoryAllocateInfo allocInfo{};
     allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties);
+    allocInfo.memoryTypeIndex = VulkanUtils::findMemoryType(vkCtx, memRequirements.memoryTypeBits, properties);
 
     auto bufferMemory = vk::raii::DeviceMemory(vkCtx.device, allocInfo);
 
@@ -643,9 +525,10 @@ void Engine::updateUniformBuffer(const uint32_t currentImage) const {
     UniformBufferObject ubo{};
     ubo.model = rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
     ubo.view = lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-    ubo.proj =
-        glm::perspective(glm::radians(45.0f),
-                         static_cast<float>(swapChainExtent.width) / static_cast<float>(swapChainExtent.height), 0.1f, 10.0f);
+    ubo.proj = glm::perspective(glm::radians(45.0f),
+                                static_cast<float>(swapChainHandler.swapChainExtent.width) /
+                                    static_cast<float>(swapChainHandler.swapChainExtent.height),
+                                0.1f, 10.0f);
     ubo.proj[1][1] *= -1;
 
     memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
@@ -713,34 +596,6 @@ void Engine::createDescriptorSets() {
     }
 }
 
-std::pair<vk::raii::Image, vk::raii::DeviceMemory> Engine::createImage(const uint32_t width, const uint32_t height,
-                                                                       vk::Format format, vk::ImageTiling tiling,
-                                                                       const vk::ImageUsageFlags usage,
-                                                                       const vk::MemoryPropertyFlags properties) const {
-    vk::ImageCreateInfo imageInfo{};
-    imageInfo.imageType = vk::ImageType::e2D;
-    imageInfo.format = format;
-    imageInfo.extent = vk::Extent3D{width, height, 1};
-    imageInfo.mipLevels = 1;
-    imageInfo.arrayLayers = 1;
-    imageInfo.samples = vk::SampleCountFlagBits::e1;
-    imageInfo.tiling = tiling;
-    imageInfo.usage = usage;
-    imageInfo.sharingMode = vk::SharingMode::eExclusive;
-
-    auto image = vk::raii::Image(vkCtx.device, imageInfo);
-
-    const vk::MemoryRequirements memRequirements = image.getMemoryRequirements();
-    vk::MemoryAllocateInfo allocInfo{};
-    allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = findMemoryType(memRequirements.memoryTypeBits, properties);
-
-    auto imageMemory = vk::raii::DeviceMemory(vkCtx.device, allocInfo);
-    image.bindMemory(imageMemory, 0);
-
-    return {std::move(image), std::move(imageMemory)};
-}
-
 void Engine::createTextureImage() {
     SDL_Surface *imgSurface = IMG_Load("textures/bricks.jpg");
     if (!imgSurface) {
@@ -771,8 +626,8 @@ void Engine::createTextureImage() {
 
     SDL_DestroySurface(imgSurface);
 
-    std::tie(textureImage, textureImageMemory) = createImage(
-        texWidth, texHeight, vk::Format::eR8G8B8A8Srgb, vk::ImageTiling::eOptimal,
+    std::tie(textureImage, textureImageMemory) = VulkanUtils::createImage(
+        vkCtx, texWidth, texHeight, vk::Format::eR8G8B8A8Srgb, vk::ImageTiling::eOptimal,
         vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled, vk::MemoryPropertyFlagBits::eDeviceLocal);
 
     vk::raii::CommandBuffer commandBuffer = beginSingleTimeCommands();
@@ -842,7 +697,8 @@ void Engine::transitionImageLayout(const vk::raii::CommandBuffer &commandBuffer,
 }
 
 void Engine::createTextureImageView() {
-    textureImageView = createImageView(*textureImage, vk::Format::eR8G8B8A8Srgb, vk::ImageAspectFlagBits::eColor);
+    textureImageView =
+        VulkanUtils::createImageView(vkCtx, *textureImage, vk::Format::eR8G8B8A8Srgb, vk::ImageAspectFlagBits::eColor);
 }
 
 void Engine::createTextureSampler() {
@@ -862,34 +718,6 @@ void Engine::createTextureSampler() {
     samplerInfo.compareOp = vk::CompareOp::eAlways;
 
     textureSampler = vk::raii::Sampler(vkCtx.device, samplerInfo);
-}
-
-vk::Format Engine::findSupportedFormat(const std::vector<vk::Format> &candidates, vk::ImageTiling tiling,
-                                       const vk::FormatFeatureFlags features) const {
-    for (const auto format : candidates) {
-
-        if (const vk::FormatProperties props = vkCtx.physicalDevice.getFormatProperties(format);
-            (tiling == vk::ImageTiling::eLinear && (props.linearTilingFeatures & features) == features) ||
-            (tiling == vk::ImageTiling::eOptimal && (props.optimalTilingFeatures & features) == features)) {
-            return format;
-        }
-    }
-
-    throw EngineExceptions::Compatibility("failed to find supported format!");
-}
-
-vk::Format Engine::findDepthFormat() const {
-    using enum vk::Format;
-    return findSupportedFormat({eD32Sfloat, eD32SfloatS8Uint, eD24UnormS8Uint}, vk::ImageTiling::eOptimal,
-                               vk::FormatFeatureFlagBits::eDepthStencilAttachment);
-}
-
-void Engine::createDepthResources() {
-    const vk::Format depthFormat = findDepthFormat();
-    std::tie(depthImage, depthImageMemory) =
-        createImage(swapChainExtent.width, swapChainExtent.height, depthFormat, vk::ImageTiling::eOptimal,
-                    vk::ImageUsageFlagBits::eDepthStencilAttachment, vk::MemoryPropertyFlagBits::eDeviceLocal);
-    depthImageView = createImageView(depthImage, depthFormat, vk::ImageAspectFlagBits::eDepth);
 }
 
 void Engine::generateCubeData(const float size) {
@@ -946,12 +774,12 @@ void Engine::init() {
     window.setWireframeCallback([this] { isWireframe = !isWireframe; });
 
     vkCtx.init(window);
-    createSwapChain();
-    createImageViews();
+    swapChainHandler.create();
+    swapChainHandler.createImageViews();
     createDescriptorSetLayout();
     createGraphicsPipeline();
     createCommandPool();
-    createDepthResources();
+    swapChainHandler.createDepthResources();
     createTextureImage();
     createTextureImageView();
     createTextureSampler();
@@ -979,4 +807,4 @@ void Engine::run() {
     vkCtx.device.waitIdle();
 }
 
-void Engine::cleanup() { cleanupSwapChain(); }
+void Engine::cleanup() { swapChainHandler.cleanup(); }

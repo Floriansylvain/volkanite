@@ -1,3 +1,6 @@
+#ifndef VULKAN_CONTEXT_HPP
+#define VULKAN_CONTEXT_HPP
+
 #pragma once
 
 #if defined(__INTELLISENSE__) || !defined(USE_CPP20_MODULES)
@@ -14,7 +17,6 @@ struct VulkanContext {
     vk::raii::Context context;
 
     vk::raii::Instance instance = nullptr;
-    vk::raii::DebugUtilsMessengerEXT debugMessenger = nullptr;
     vk::raii::SurfaceKHR surface = nullptr;
     vk::raii::PhysicalDevice physicalDevice = nullptr;
     vk::raii::Device device = nullptr;
@@ -27,6 +29,8 @@ struct VulkanContext {
   private:
     std::vector<const char *> requiredDeviceExtensions = {"VK_KHR_swapchain"};
 
+    vk::raii::DebugUtilsMessengerEXT debugMessenger = nullptr;
+
     void createInstance();
     void setupDebugMessenger();
     void createSurface(const Window &window);
@@ -35,3 +39,5 @@ struct VulkanContext {
 
     bool isDeviceSuitable(const vk::raii::PhysicalDevice &device);
 };
+
+#endif
