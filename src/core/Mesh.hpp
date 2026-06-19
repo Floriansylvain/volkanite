@@ -31,7 +31,7 @@ class Mesh {
     vk::raii::DeviceMemory unifiedBufferMemory = nullptr;
 
     std::vector<Vertex> vertices;
-    std::vector<uint16_t> indices;
+    std::vector<uint32_t> indices;
 
   private:
     const VulkanContext &vkCtx;

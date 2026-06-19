@@ -274,7 +274,7 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) const {
 
     const vk::DeviceSize indexDataOffset = mesh.vertices.size() * sizeof(Mesh::Vertex);
     commandBuffers[frameIndex].bindVertexBuffers(0, *mesh.unifiedBuffer, {0});
-    commandBuffers[frameIndex].bindIndexBuffer(*mesh.unifiedBuffer, indexDataOffset, vk::IndexType::eUint16);
+    commandBuffers[frameIndex].bindIndexBuffer(*mesh.unifiedBuffer, indexDataOffset, vk::IndexType::eUint32);
     commandBuffers[frameIndex].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0,
                                                   *descriptorSets[frameIndex], nullptr);
     commandBuffers[frameIndex].drawIndexed(static_cast<uint32_t>(mesh.indices.size()), 1, 0, 0, 0);
