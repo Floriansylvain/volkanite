@@ -19,6 +19,15 @@ vk::raii::ImageView createImageView(const VulkanContext &vkCtx, const vk::Image 
 
 BufferAllocation createBuffer(const VulkanContext &vkCtx, vk::DeviceSize size, vk::BufferUsageFlags usage,
                               vk::MemoryPropertyFlags properties);
+
+void copyBuffer(const VulkanContext &vkCtx, const vk::raii::Buffer &srcBuffer, const vk::raii::Buffer &dstBuffer,
+                vk::DeviceSize size, const vk::raii::CommandPool &commandPool);
+
+[[nodiscard]] vk::raii::CommandBuffer beginSingleTimeCommands(const VulkanContext &vkCtx,
+                                                              const vk::raii::CommandPool &commandPool);
+
+void endSingleTimeCommands(const VulkanContext &vkCtx, vk::raii::CommandBuffer &&commandBuffer);
+
 } // namespace VulkanUtils
 
 #endif

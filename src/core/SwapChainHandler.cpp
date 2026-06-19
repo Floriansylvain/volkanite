@@ -94,7 +94,7 @@ vk::Format SwapChainHandler::findSupportedFormat(const std::vector<vk::Format> &
         }
     }
 
-    throw EngineExceptions::Compatibility("failed to find supported format!");
+    throw EngineExceptions::Compatibility("Failed to find supported format.");
 }
 
 vk::Format SwapChainHandler::findDepthFormat() const {

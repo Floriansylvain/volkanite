@@ -10,7 +10,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <iostream>
 
-Engine::Engine(Window *_window, VulkanContext *_vkCtx) : window(*_window), vkCtx(*_vkCtx), swapChainHandler(vkCtx, window) {};
+Engine::Engine(Window *_window, VulkanContext *_vkCtx)
+    : window(*_window), vkCtx(*_vkCtx), swapChainHandler(vkCtx, window), mesh(vkCtx) {};
 
 Engine::~Engine() = default;
 
@@ -106,8 +107,8 @@ void Engine::createGraphicsPipeline() {
 
     pipelineLayout = vk::raii::PipelineLayout(vkCtx.device, pipelineLayoutInfo);
 
-    auto bindingDescription = Vertex::getBindingDescription();
-    auto attributeDescriptions = Vertex::getAttributeDescriptions();
+    auto bindingDescription = Mesh::Vertex::getBindingDescription();
+    auto attributeDescriptions = Mesh::Vertex::getAttributeDescriptions();
 
     vk::PipelineVertexInputStateCreateInfo vertexInputInfo;
     vertexInputInfo.vertexBindingDescriptionCount = 1;
@@ -270,12 +271,12 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) const {
                         static_cast<float>(swapChainHandler.swapChainExtent.height), 0.0f, 1.0f));
     commandBuffers[frameIndex].setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainHandler.swapChainExtent));
 
-    const vk::DeviceSize indexDataOffset = vertices.size() * sizeof(Vertex);
-    commandBuffers[frameIndex].bindVertexBuffers(0, *unifiedBuffer, {0});
-    commandBuffers[frameIndex].bindIndexBuffer(*unifiedBuffer, indexDataOffset, vk::IndexType::eUint16);
+    const vk::DeviceSize indexDataOffset = mesh.vertices.size() * sizeof(Mesh::Vertex);
+    commandBuffers[frameIndex].bindVertexBuffers(0, *mesh.unifiedBuffer, {0});
+    commandBuffers[frameIndex].bindIndexBuffer(*mesh.unifiedBuffer, indexDataOffset, vk::IndexType::eUint16);
     commandBuffers[frameIndex].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0,
                                                   *descriptorSets[frameIndex], nullptr);
-    commandBuffers[frameIndex].drawIndexed(static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+    commandBuffers[frameIndex].drawIndexed(static_cast<uint32_t>(mesh.indices.size()), 1, 0, 0, 0);
 
     commandBuffers[frameIndex].endRendering();
 
@@ -372,7 +373,7 @@ void Engine::drawFrame() {
     frameIndex = (frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
 }
 
-vk::VertexInputBindingDescription Engine::Vertex::getBindingDescription() {
+vk::VertexInputBindingDescription Mesh::Vertex::getBindingDescription() {
     vk::VertexInputBindingDescription bindingDescription = {};
     bindingDescription.binding = 0;
     bindingDescription.stride = sizeof(Vertex);
@@ -381,7 +382,7 @@ vk::VertexInputBindingDescription Engine::Vertex::getBindingDescription() {
     return bindingDescription;
 }
 
-std::array<vk::VertexInputAttributeDescription, 3> Engine::Vertex::getAttributeDescriptions() {
+std::array<vk::VertexInputAttributeDescription, 3> Mesh::Vertex::getAttributeDescriptions() {
     vk::VertexInputAttributeDescription positionDescription = {};
     positionDescription.location = 0;
     positionDescription.binding = 0;
@@ -401,85 +402,6 @@ std::array<vk::VertexInputAttributeDescription, 3> Engine::Vertex::getAttributeD
     texCoordDescription.offset = offsetof(Vertex, texCoord);
 
     return {positionDescription, colorDescription, texCoordDescription};
-}
-
-std::pair<vk::raii::Buffer, vk::raii::DeviceMemory> Engine::createBuffer(const vk::DeviceSize size,
-                                                                         const vk::BufferUsageFlags usage,
-                                                                         const vk::MemoryPropertyFlags properties) const {
-    vk::BufferCreateInfo bufferInfo{};
-    bufferInfo.size = size;
-    bufferInfo.usage = usage;
-    bufferInfo.sharingMode = vk::SharingMode::eExclusive;
-
-    auto buffer = vk::raii::Buffer(vkCtx.device, bufferInfo);
-
-    const vk::MemoryRequirements memRequirements = buffer.getMemoryRequirements();
-    vk::MemoryAllocateInfo allocInfo{};
-    allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = VulkanUtils::findMemoryType(vkCtx, memRequirements.memoryTypeBits, properties);
-
-    auto bufferMemory = vk::raii::DeviceMemory(vkCtx.device, allocInfo);
-
-    buffer.bindMemory(*bufferMemory, 0);
-
-    return {std::move(buffer), std::move(bufferMemory)};
-}
-
-vk::raii::CommandBuffer Engine::beginSingleTimeCommands() const {
-    vk::CommandBufferAllocateInfo allocInfo{};
-    allocInfo.commandPool = commandPool;
-    allocInfo.level = vk::CommandBufferLevel::ePrimary;
-    allocInfo.commandBufferCount = 1;
-
-    vk::raii::CommandBuffer commandBuffer = std::move(vk::raii::CommandBuffers(vkCtx.device, allocInfo).front());
-
-    vk::CommandBufferBeginInfo beginInfo{};
-    beginInfo.flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit;
-
-    commandBuffer.begin(beginInfo);
-
-    return std::move(commandBuffer);
-}
-
-void Engine::endSingleTimeCommands(vk::raii::CommandBuffer &&commandBuffer) const {
-    commandBuffer.end();
-
-    vk::SubmitInfo submitInfo{};
-    submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &*commandBuffer;
-
-    vkCtx.queue.submit(submitInfo, nullptr);
-    vkCtx.queue.waitIdle();
-}
-
-void Engine::copyBuffer(const vk::raii::Buffer &srcBuffer, const vk::raii::Buffer &dstBuffer, const vk::DeviceSize size) const {
-    vk::raii::CommandBuffer commandCopyBuffer = beginSingleTimeCommands();
-    commandCopyBuffer.copyBuffer(*srcBuffer, *dstBuffer, vk::BufferCopy(0, 0, size));
-    endSingleTimeCommands(std::move(commandCopyBuffer));
-}
-
-void Engine::createGeometryBuffers() {
-    using enum vk::BufferUsageFlagBits;
-    using enum vk::MemoryPropertyFlagBits;
-
-    const vk::DeviceSize vertexSize = sizeof(vertices[0]) * vertices.size();
-    const vk::DeviceSize indexSize = sizeof(indices[0]) * indices.size();
-    const vk::DeviceSize totalBufferSize = vertexSize + indexSize;
-
-    auto [stagingBuffer, stagingBufferMemory] = createBuffer(totalBufferSize, eTransferSrc, eHostVisible | eHostCoherent);
-
-    auto *dataStaging = static_cast<uint8_t *>(stagingBufferMemory.mapMemory(0, totalBufferSize));
-
-    std::memcpy(dataStaging, vertices.data(), vertexSize);
-
-    std::memcpy(dataStaging + vertexSize, indices.data(), indexSize);
-
-    stagingBufferMemory.unmapMemory();
-
-    std::tie(unifiedBuffer, unifiedBufferMemory) =
-        createBuffer(totalBufferSize, eVertexBuffer | eIndexBuffer | eTransferDst, eDeviceLocal);
-
-    copyBuffer(stagingBuffer, unifiedBuffer, totalBufferSize);
 }
 
 void Engine::createDescriptorSetLayout() {
@@ -508,8 +430,8 @@ void Engine::createUniformBuffers() {
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         constexpr vk::DeviceSize bufferSize = sizeof(UniformBufferObject);
         auto [buffer, bufferMem] =
-            createBuffer(bufferSize, vk::BufferUsageFlagBits::eUniformBuffer,
-                         vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+            VulkanUtils::createBuffer(vkCtx, bufferSize, vk::BufferUsageFlagBits::eUniformBuffer,
+                                      vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
         uniformBuffers.emplace_back(std::move(buffer));
         uniformBuffersMemory.emplace_back(std::move(bufferMem));
         uniformBuffersMapped.emplace_back(uniformBuffersMemory.back().mapMemory(0, bufferSize));
@@ -599,7 +521,7 @@ void Engine::createDescriptorSets() {
 void Engine::createTextureImage() {
     SDL_Surface *imgSurface = IMG_Load("textures/bricks.jpg");
     if (!imgSurface) {
-        throw EngineExceptions::Compatibility("failed to load texture image!");
+        throw EngineExceptions::Compatibility("Failed to load texture image (createTextureImage).");
     }
 
     if (imgSurface->format != SDL_PIXELFORMAT_RGBA32) {
@@ -607,7 +529,7 @@ void Engine::createTextureImage() {
         SDL_DestroySurface(imgSurface);
         imgSurface = converted;
         if (!imgSurface) {
-            throw EngineExceptions::Compatibility("failed to convert texture image format!");
+            throw EngineExceptions::Compatibility("Failed to convert texture image format.");
         }
     }
 
@@ -617,8 +539,8 @@ void Engine::createTextureImage() {
     void const *pixels = imgSurface->pixels;
 
     auto [stagingBuffer, stagingBufferMemory] =
-        createBuffer(imageSize, vk::BufferUsageFlagBits::eTransferSrc,
-                     vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+        VulkanUtils::createBuffer(vkCtx, imageSize, vk::BufferUsageFlagBits::eTransferSrc,
+                                  vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
 
     void *data = stagingBufferMemory.mapMemory(0, imageSize);
     memcpy(data, pixels, imageSize);
@@ -630,14 +552,14 @@ void Engine::createTextureImage() {
         vkCtx, texWidth, texHeight, vk::Format::eR8G8B8A8Srgb, vk::ImageTiling::eOptimal,
         vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled, vk::MemoryPropertyFlagBits::eDeviceLocal);
 
-    vk::raii::CommandBuffer commandBuffer = beginSingleTimeCommands();
+    vk::raii::CommandBuffer commandBuffer = VulkanUtils::beginSingleTimeCommands(vkCtx, commandPool);
     transitionImageLayout(commandBuffer, textureImage, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal);
 
     copyBufferToImage(commandBuffer, stagingBuffer, textureImage, texWidth, texHeight);
 
     transitionImageLayout(commandBuffer, textureImage, vk::ImageLayout::eTransferDstOptimal,
                           vk::ImageLayout::eShaderReadOnlyOptimal);
-    endSingleTimeCommands(std::move(commandBuffer));
+    VulkanUtils::endSingleTimeCommands(vkCtx, std::move(commandBuffer));
 }
 
 void Engine::copyBufferToImage(const vk::raii::CommandBuffer &commandBuffer, const vk::raii::Buffer &buffer,
@@ -690,7 +612,7 @@ void Engine::transitionImageLayout(const vk::raii::CommandBuffer &commandBuffer,
         sourceStage = vk::PipelineStageFlagBits::eTransfer;
         destinationStage = vk::PipelineStageFlagBits::eFragmentShader;
     } else {
-        throw EngineExceptions::Compatibility("unsupported layout transition!");
+        throw EngineExceptions::Compatibility("Unsupported layout transition.");
     }
 
     commandBuffer.pipelineBarrier(sourceStage, destinationStage, {}, {}, {}, barrier);
@@ -720,51 +642,6 @@ void Engine::createTextureSampler() {
     textureSampler = vk::raii::Sampler(vkCtx.device, samplerInfo);
 }
 
-void Engine::generateCubeData(const float size) {
-    float half = size / 2.0f;
-
-    vertices.clear();
-    indices.clear();
-    vertices.reserve(24);
-    indices.reserve(36);
-
-    struct FaceDef {
-        glm::vec3 normal;
-        glm::vec3 color;
-        glm::vec3 v0;
-        glm::vec3 v1;
-        glm::vec3 v2;
-        glm::vec3 v3;
-    };
-
-    const std::array<FaceDef, 6> faces = {
-        {{{0, 0, 1}, {1, 0, 0}, {-half, -half, half}, {half, -half, half}, {half, half, half}, {-half, half, half}},
-         {{0, 0, -1}, {0, 1, 0}, {half, -half, -half}, {-half, -half, -half}, {-half, half, -half}, {half, half, -half}},
-         {{0, 1, 0}, {0, 0, 1}, {-half, half, half}, {half, half, half}, {half, half, -half}, {-half, half, -half}},
-         {{0, -1, 0}, {1, 1, 0}, {-half, -half, -half}, {half, -half, -half}, {half, -half, half}, {-half, -half, half}},
-         {{1, 0, 0}, {0, 1, 1}, {half, -half, half}, {half, -half, -half}, {half, half, -half}, {half, half, half}},
-         {{-1, 0, 0}, {1, 0, 1}, {-half, -half, -half}, {-half, -half, half}, {-half, half, half}, {-half, half, -half}}}};
-
-    uint16_t vertexOffset = 0;
-
-    for (const auto &face : faces) {
-        vertices.push_back({face.v0, face.color, {0.0f, 0.0f}});
-        vertices.push_back({face.v1, face.color, {1.0f, 0.0f}});
-        vertices.push_back({face.v2, face.color, {1.0f, 1.0f}});
-        vertices.push_back({face.v3, face.color, {0.0f, 1.0f}});
-
-        indices.push_back(vertexOffset + 0);
-        indices.push_back(vertexOffset + 1);
-        indices.push_back(vertexOffset + 2);
-
-        indices.push_back(vertexOffset + 2);
-        indices.push_back(vertexOffset + 3);
-        indices.push_back(vertexOffset + 0);
-
-        vertexOffset += 4;
-    }
-}
-
 void Engine::init() {
     if (!window.isRunning()) {
         throw EngineExceptions::NotInitialized("Failed to run Engine : Window is not running");
@@ -783,8 +660,8 @@ void Engine::init() {
     createTextureImage();
     createTextureImageView();
     createTextureSampler();
-    generateCubeData(1);
-    createGeometryBuffers();
+    mesh.generateCube(1);
+    mesh.createGeometryBuffers(commandPool);
     createUniformBuffers();
     createDescriptorPool();
     createDescriptorSets();

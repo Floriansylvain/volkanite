@@ -2,6 +2,7 @@
 #define ENGINE_HPP
 
 #pragma once
+#include "Mesh.hpp"
 #include "SwapChainHandler.hpp"
 #include "VulkanContext.hpp"
 #include "Window.hpp"
@@ -28,6 +29,7 @@ class Engine {
     Window &window;
     VulkanContext &vkCtx;
     SwapChainHandler swapChainHandler;
+    Mesh mesh;
 
     vk::raii::DescriptorSetLayout descriptorSetLayout = nullptr;
     vk::raii::PipelineLayout pipelineLayout = nullptr;
@@ -39,8 +41,6 @@ class Engine {
     std::vector<vk::raii::Semaphore> renderFinishedSemaphores;
     std::vector<vk::raii::Fence> inFlightFences;
     uint32_t frameIndex = 0;
-    vk::raii::Buffer unifiedBuffer = nullptr;
-    vk::raii::DeviceMemory unifiedBufferMemory = nullptr;
     std::vector<vk::raii::Buffer> uniformBuffers;
     std::vector<vk::raii::DeviceMemory> uniformBuffersMemory;
     std::vector<void *> uniformBuffersMapped;
@@ -75,25 +75,6 @@ class Engine {
     void createSyncObjects();
     void drawFrame();
 
-    struct Vertex {
-        glm::vec3 pos;
-        glm::vec3 color;
-        glm::vec2 texCoord;
-
-        static vk::VertexInputBindingDescription getBindingDescription();
-        static std::array<vk::VertexInputAttributeDescription, 3> getAttributeDescriptions();
-    };
-    std::vector<Vertex> vertices;
-    std::vector<uint16_t> indices;
-
-    [[nodiscard]] std::pair<vk::raii::Buffer, vk::raii::DeviceMemory>
-    createBuffer(vk::DeviceSize size, vk::BufferUsageFlags usage, vk::MemoryPropertyFlags properties) const;
-    [[nodiscard]] vk::raii::CommandBuffer beginSingleTimeCommands() const;
-    void endSingleTimeCommands(vk::raii::CommandBuffer &&commandBuffer) const;
-
-    void copyBuffer(const vk::raii::Buffer &srcBuffer, const vk::raii::Buffer &dstBuffer, vk::DeviceSize size) const;
-    void createGeometryBuffers();
-
     struct UniformBufferObject {
         glm::mat4 model;
         glm::mat4 view;
@@ -111,7 +92,6 @@ class Engine {
                                   const vk::raii::Image &image, uint32_t width, uint32_t height);
     void createTextureImageView();
     void createTextureSampler();
-    void generateCubeData(float size);
 };
 
 #endif
