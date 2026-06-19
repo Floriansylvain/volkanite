@@ -1,4 +1,5 @@
 #pragma once
+#include "VulkanContext.hpp"
 #if defined(__INTELLISENSE__) || !defined(USE_CPP20_MODULES)
 #include <vulkan/vulkan_raii.hpp>
 #else
@@ -13,7 +14,7 @@ import vulkan_hpp;
 
 class Engine {
   public:
-    explicit Engine(Window *_window);
+    explicit Engine(Window *_window, VulkanContext *_vkCtx);
     ~Engine();
 
     void init();
@@ -22,18 +23,10 @@ class Engine {
 
   private:
     constexpr static int MAX_FRAMES_IN_FLIGHT = 2;
-    std::vector<const char *> requiredDeviceExtension = {vk::KHRSwapchainExtensionName};
 
     Window &window;
+    VulkanContext &vkCtx;
 
-    vk::raii::Context context;
-    vk::raii::Instance instance = nullptr;
-    vk::raii::DebugUtilsMessengerEXT debugMessenger = nullptr;
-    vk::raii::PhysicalDevice physicalDevice = nullptr;
-    vk::raii::Device device = nullptr;
-    uint32_t queueIndex = ~0;
-    vk::raii::Queue queue = nullptr;
-    vk::raii::SurfaceKHR surface = nullptr;
     vk::raii::SwapchainKHR swapChain = nullptr;
     std::vector<vk::Image> swapChainImages;
     vk::SurfaceFormatKHR swapChainSurfaceFormat;
@@ -68,14 +61,6 @@ class Engine {
     bool framebufferResized = false;
     bool isWireframe = false;
 
-    void createInstance();
-    void setupDebugMessenger();
-
-    bool isDeviceSuitable(vk::raii::PhysicalDevice const &_physicalDevice);
-    void pickPhysicalDevice();
-    void createLogicalDevice();
-    void createSurface();
-
     static vk::SurfaceFormatKHR chooseSwapSurfaceFormat(const std::vector<vk::SurfaceFormatKHR> &availableFormats);
     static vk::PresentModeKHR chooseSwapPresentMode(std::vector<vk::PresentModeKHR> const &availablePresentModes);
     [[nodiscard]] vk::Extent2D chooseSwapExtent(vk::SurfaceCapabilitiesKHR const &capabilities) const;
@@ -88,10 +73,17 @@ class Engine {
     void createGraphicsPipeline();
     void createCommandPool();
     void createCommandBuffers();
-    void transition_image_layout(vk::Image image, vk::ImageLayout old_layout, vk::ImageLayout new_layout,
-                                 vk::AccessFlags2 src_access_mask, vk::AccessFlags2 dst_access_mask,
-                                 vk::PipelineStageFlags2 src_stage_mask, vk::PipelineStageFlags2 dst_stage_mask,
-                                 vk::ImageAspectFlags image_aspect_flags) const;
+    struct transitionImageLayoutCommand {
+        vk::Image image;
+        vk::ImageLayout old_layout;
+        vk::ImageLayout new_layout;
+        vk::AccessFlags2 src_access_mask;
+        vk::AccessFlags2 dst_access_mask;
+        vk::PipelineStageFlags2 src_stage_mask;
+        vk::PipelineStageFlags2 dst_stage_mask;
+        vk::ImageAspectFlags image_aspect_flags;
+    };
+    void transition_image_layout(transitionImageLayoutCommand const &command) const;
     void recordCommandBuffer(uint32_t imageIndex) const;
     void createSyncObjects();
     void drawFrame();
@@ -137,12 +129,13 @@ class Engine {
                                       vk::ImageLayout oldLayout, vk::ImageLayout newLayout);
     static void copyBufferToImage(const vk::raii::CommandBuffer &commandBuffer, const vk::raii::Buffer &buffer,
                                   const vk::raii::Image &image, uint32_t width, uint32_t height);
-    vk::raii::ImageView createImageView(vk::Image const &image, vk::Format format, vk::ImageAspectFlags aspectFlags);
+    [[nodiscard]] vk::raii::ImageView createImageView(vk::Image const &image, vk::Format format,
+                                                      vk::ImageAspectFlags aspectFlags) const;
     void createTextureImageView();
     void createTextureSampler();
-    vk::Format findSupportedFormat(const std::vector<vk::Format> &candidates, vk::ImageTiling tiling,
-                                   vk::FormatFeatureFlags features);
-    vk::Format findDepthFormat();
+    [[nodiscard]] vk::Format findSupportedFormat(const std::vector<vk::Format> &candidates, vk::ImageTiling tiling,
+                                                 vk::FormatFeatureFlags features) const;
+    [[nodiscard]] vk::Format findDepthFormat() const;
     void createDepthResources();
     void generateCubeData(float size);
 };

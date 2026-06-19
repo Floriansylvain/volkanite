@@ -5,7 +5,8 @@
 
 int main() {
     Window window;
-    Engine engine(&window);
+    VulkanContext vkCtx{};
+    Engine engine(&window, &vkCtx);
 
     try {
         window.init("volkanite", 800, 600);
