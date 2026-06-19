@@ -21,6 +21,9 @@ class Mesh {
     explicit Mesh(const VulkanContext &context);
     ~Mesh() = default;
 
+    Mesh(const Mesh &) = delete;
+    Mesh &operator=(const Mesh &) = delete;
+
     void generateCube(float size);
     void createGeometryBuffers(const vk::raii::CommandPool &commandPool);
 

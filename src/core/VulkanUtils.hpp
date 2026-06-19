@@ -28,6 +28,11 @@ void copyBuffer(const VulkanContext &vkCtx, const vk::raii::Buffer &srcBuffer, c
 
 void endSingleTimeCommands(const VulkanContext &vkCtx, vk::raii::CommandBuffer &&commandBuffer);
 
+void transitionImageLayout(const vk::raii::CommandBuffer &commandBuffer, const vk::raii::Image &image,
+                           vk::ImageLayout oldLayout, vk::ImageLayout newLayout);
+void copyBufferToImage(const vk::raii::CommandBuffer &commandBuffer, const vk::raii::Buffer &buffer,
+                       const vk::raii::Image &image, uint32_t width, uint32_t height);
+
 } // namespace VulkanUtils
 
 #endif

@@ -2,6 +2,7 @@
 #include "Constants.hpp"
 #include "Exceptions.hpp"
 #include "VulkanUtils.hpp"
+#include "Window.hpp"
 
 #include <SDL3_image/SDL_image.h>
 #include <chrono>
@@ -11,7 +12,7 @@
 #include <iostream>
 
 Engine::Engine(Window *_window, VulkanContext *_vkCtx)
-    : window(*_window), vkCtx(*_vkCtx), swapChainHandler(vkCtx, window), mesh(vkCtx) {};
+    : window(*_window), vkCtx(*_vkCtx), swapChainHandler(vkCtx, window), mesh(vkCtx), texture(vkCtx) {};
 
 Engine::~Engine() = default;
 
@@ -492,8 +493,8 @@ void Engine::createDescriptorSets() {
         bufferInfo.range = sizeof(UniformBufferObject);
 
         vk::DescriptorImageInfo imageInfo{};
-        imageInfo.sampler = textureSampler;
-        imageInfo.imageView = textureImageView;
+        imageInfo.sampler = texture.textureSampler;
+        imageInfo.imageView = texture.textureImageView;
         imageInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
 
         vk::WriteDescriptorSet uboDescriptorWrite{};
@@ -518,129 +519,7 @@ void Engine::createDescriptorSets() {
     }
 }
 
-void Engine::createTextureImage() {
-    SDL_Surface *imgSurface = IMG_Load("textures/bricks.jpg");
-    if (!imgSurface) {
-        throw EngineExceptions::Compatibility("Failed to load texture image (createTextureImage).");
-    }
-
-    if (imgSurface->format != SDL_PIXELFORMAT_RGBA32) {
-        SDL_Surface *converted = SDL_ConvertSurface(imgSurface, SDL_PIXELFORMAT_RGBA32);
-        SDL_DestroySurface(imgSurface);
-        imgSurface = converted;
-        if (!imgSurface) {
-            throw EngineExceptions::Compatibility("Failed to convert texture image format.");
-        }
-    }
-
-    const unsigned int texWidth = imgSurface->w;
-    const unsigned int texHeight = imgSurface->h;
-    const vk::DeviceSize imageSize = imgSurface->pitch * imgSurface->h;
-    void const *pixels = imgSurface->pixels;
-
-    auto [stagingBuffer, stagingBufferMemory] =
-        VulkanUtils::createBuffer(vkCtx, imageSize, vk::BufferUsageFlagBits::eTransferSrc,
-                                  vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
-
-    void *data = stagingBufferMemory.mapMemory(0, imageSize);
-    memcpy(data, pixels, imageSize);
-    stagingBufferMemory.unmapMemory();
-
-    SDL_DestroySurface(imgSurface);
-
-    std::tie(textureImage, textureImageMemory) = VulkanUtils::createImage(
-        vkCtx, texWidth, texHeight, vk::Format::eR8G8B8A8Srgb, vk::ImageTiling::eOptimal,
-        vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled, vk::MemoryPropertyFlagBits::eDeviceLocal);
-
-    vk::raii::CommandBuffer commandBuffer = VulkanUtils::beginSingleTimeCommands(vkCtx, commandPool);
-    transitionImageLayout(commandBuffer, textureImage, vk::ImageLayout::eUndefined, vk::ImageLayout::eTransferDstOptimal);
-
-    copyBufferToImage(commandBuffer, stagingBuffer, textureImage, texWidth, texHeight);
-
-    transitionImageLayout(commandBuffer, textureImage, vk::ImageLayout::eTransferDstOptimal,
-                          vk::ImageLayout::eShaderReadOnlyOptimal);
-    VulkanUtils::endSingleTimeCommands(vkCtx, std::move(commandBuffer));
-}
-
-void Engine::copyBufferToImage(const vk::raii::CommandBuffer &commandBuffer, const vk::raii::Buffer &buffer,
-                               const vk::raii::Image &image, const uint32_t width, const uint32_t height) {
-    vk::ImageSubresourceLayers imageSubresourceLayers = {};
-    imageSubresourceLayers.aspectMask = vk::ImageAspectFlagBits::eColor;
-    imageSubresourceLayers.mipLevel = 0;
-    imageSubresourceLayers.baseArrayLayer = 0;
-    imageSubresourceLayers.layerCount = 1;
-
-    vk::BufferImageCopy region{};
-    region.bufferOffset = 0;
-    region.bufferRowLength = 0;
-    region.bufferImageHeight = 0;
-    region.imageSubresource = imageSubresourceLayers;
-    region.imageOffset = vk::Offset3D(0, 0, 0);
-    region.imageExtent = vk::Extent3D(width, height, 1);
-
-    commandBuffer.copyBufferToImage(buffer, image, vk::ImageLayout::eTransferDstOptimal, region);
-}
-
-void Engine::transitionImageLayout(const vk::raii::CommandBuffer &commandBuffer, const vk::raii::Image &image,
-                                   const vk::ImageLayout oldLayout, const vk::ImageLayout newLayout) {
-    vk::ImageSubresourceRange imageSubresourceRange = {};
-    imageSubresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
-    imageSubresourceRange.levelCount = 1;
-    imageSubresourceRange.layerCount = 1;
-
-    vk::ImageMemoryBarrier barrier{};
-    barrier.oldLayout = oldLayout;
-    barrier.newLayout = newLayout;
-    barrier.srcQueueFamilyIndex = vk::QueueFamilyIgnored;
-    barrier.dstQueueFamilyIndex = vk::QueueFamilyIgnored;
-    barrier.image = image;
-    barrier.subresourceRange = imageSubresourceRange;
-
-    vk::PipelineStageFlags sourceStage;
-    vk::PipelineStageFlags destinationStage;
-
-    if (oldLayout == vk::ImageLayout::eUndefined && newLayout == vk::ImageLayout::eTransferDstOptimal) {
-        barrier.srcAccessMask = {};
-        barrier.dstAccessMask = vk::AccessFlagBits::eTransferWrite;
-
-        sourceStage = vk::PipelineStageFlagBits::eTopOfPipe;
-        destinationStage = vk::PipelineStageFlagBits::eTransfer;
-    } else if (oldLayout == vk::ImageLayout::eTransferDstOptimal && newLayout == vk::ImageLayout::eShaderReadOnlyOptimal) {
-        barrier.srcAccessMask = vk::AccessFlagBits::eTransferWrite;
-        barrier.dstAccessMask = vk::AccessFlagBits::eShaderRead;
-
-        sourceStage = vk::PipelineStageFlagBits::eTransfer;
-        destinationStage = vk::PipelineStageFlagBits::eFragmentShader;
-    } else {
-        throw EngineExceptions::Compatibility("Unsupported layout transition.");
-    }
-
-    commandBuffer.pipelineBarrier(sourceStage, destinationStage, {}, {}, {}, barrier);
-}
-
-void Engine::createTextureImageView() {
-    textureImageView =
-        VulkanUtils::createImageView(vkCtx, *textureImage, vk::Format::eR8G8B8A8Srgb, vk::ImageAspectFlagBits::eColor);
-}
-
-void Engine::createTextureSampler() {
-    using enum vk::SamplerAddressMode;
-    const vk::PhysicalDeviceProperties properties = vkCtx.physicalDevice.getProperties();
-
-    vk::SamplerCreateInfo samplerInfo = {};
-    samplerInfo.magFilter = vk::Filter::eLinear;
-    samplerInfo.minFilter = vk::Filter::eLinear;
-    samplerInfo.mipmapMode = vk::SamplerMipmapMode::eLinear;
-    samplerInfo.addressModeU = eRepeat;
-    samplerInfo.addressModeV = eRepeat;
-    samplerInfo.addressModeW = eRepeat;
-    samplerInfo.anisotropyEnable = vk::True;
-    samplerInfo.maxAnisotropy = properties.limits.maxSamplerAnisotropy;
-    samplerInfo.compareEnable = vk::False;
-    samplerInfo.compareOp = vk::CompareOp::eAlways;
-
-    textureSampler = vk::raii::Sampler(vkCtx.device, samplerInfo);
-}
+void Engine::createTextureImage() { texture.loadFromFile("textures/bricks.jpg", commandPool); }
 
 void Engine::init() {
     if (!window.isRunning()) {
@@ -658,8 +537,6 @@ void Engine::init() {
     createCommandPool();
     swapChainHandler.createDepthResources();
     createTextureImage();
-    createTextureImageView();
-    createTextureSampler();
     mesh.generateCube(1);
     mesh.createGeometryBuffers(commandPool);
     createUniformBuffers();

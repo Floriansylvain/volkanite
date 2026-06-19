@@ -4,8 +4,8 @@
 #pragma once
 #include "Mesh.hpp"
 #include "SwapChainHandler.hpp"
+#include "Texture.hpp"
 #include "VulkanContext.hpp"
-#include "Window.hpp"
 #include <glm/glm.hpp>
 
 #if defined(__INTELLISENSE__) || !defined(USE_CPP20_MODULES)
@@ -30,6 +30,7 @@ class Engine {
     VulkanContext &vkCtx;
     SwapChainHandler swapChainHandler;
     Mesh mesh;
+    Texture texture;
 
     vk::raii::DescriptorSetLayout descriptorSetLayout = nullptr;
     vk::raii::PipelineLayout pipelineLayout = nullptr;
@@ -46,10 +47,6 @@ class Engine {
     std::vector<void *> uniformBuffersMapped;
     vk::raii::DescriptorPool descriptorPool = nullptr;
     std::vector<vk::raii::DescriptorSet> descriptorSets;
-    vk::raii::Image textureImage = nullptr;
-    vk::raii::DeviceMemory textureImageMemory = nullptr;
-    vk::raii::ImageView textureImageView = nullptr;
-    vk::raii::Sampler textureSampler = nullptr;
 
     bool isInitialized = false;
     bool framebufferResized = false;
@@ -86,12 +83,6 @@ class Engine {
     void createDescriptorPool();
     void createDescriptorSets();
     void createTextureImage();
-    static void transitionImageLayout(const vk::raii::CommandBuffer &commandBuffer, const vk::raii::Image &image,
-                                      vk::ImageLayout oldLayout, vk::ImageLayout newLayout);
-    static void copyBufferToImage(const vk::raii::CommandBuffer &commandBuffer, const vk::raii::Buffer &buffer,
-                                  const vk::raii::Image &image, uint32_t width, uint32_t height);
-    void createTextureImageView();
-    void createTextureSampler();
 };
 
 #endif
