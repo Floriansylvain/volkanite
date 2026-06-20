@@ -1,48 +1,113 @@
 #include "Window.hpp"
-#include "SDL3/SDL.h"
+#include "Constants.hpp"
+#include "Exceptions.hpp"
 #include "SDL3/SDL_vulkan.h"
 
 #include <iostream>
+#include <vulkan/vulkan.hpp>
+#include <vulkan/vulkan_core.h>
 
-Window::Window(const char *title, int width, int height) : running(true) { initSDL3(title, width, height); };
+Window::Window() = default;
 
 Window::~Window() {
-    SDL_DestroyWindow(_SDL_Window);
-    SDL_Quit();
-};
-
-void Window::initSDL3(const char *title, int width, int height) {
-    if (SDL_Init(SDL_INIT_VIDEO) == false) {
-        SDL_Log("Erreur SDL_Init : %s", SDL_GetError());
-        throw std::runtime_error("Failed to initialize SDL");
+    if (isWindowCreated) {
+        SDL_DestroyWindow(SDL_Window);
     }
 
-    _SDL_Window = SDL_CreateWindow(title, width, height, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
-    if (!_SDL_Window) {
-        std::cerr << "Erreur création fenêtre : " << SDL_GetError() << std::endl;
-        throw std::runtime_error("Failed to create window");
+    if (isInitialized) {
+        SDL_Quit();
     }
 }
 
-SDL_Window *Window::getSDL_window() { return _SDL_Window; };
+void Window::init(const char *title, const int width, const int height) {
+    if (!isInitialized) {
+        if (SDL_Init(SDL_INIT_VIDEO) == false) {
+            throw EngineExceptions::Compatibility(std::string("Failed to initialize SDL : ") + SDL_GetError());
+        }
+        isInitialized = true;
+    }
 
-const char *const *Window::getInstanceExtensions(uint32_t *count) { return SDL_Vulkan_GetInstanceExtensions(count); };
+    if (!isWindowCreated) {
+        SDL_Window = SDL_CreateWindow(title, width, height, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
+        if (!SDL_Window) {
+            throw EngineExceptions::Compatibility(std::string("Failed to create window : ") + SDL_GetError());
+        }
+        isWindowCreated = true;
+    }
 
-bool Window::getSizeInPixels(int *w, int *h) { return SDL_GetWindowSizeInPixels(_SDL_Window, w, h); }
+    SDL_SetWindowRelativeMouseMode(SDL_Window, true);
+
+    running = true;
+}
+
+SDL_Window *Window::getSDL_window() const { return SDL_Window; }
+
+void Window::createSurface(const VkInstance instance, const VkAllocationCallbacks *allocator, VkSurfaceKHR *surface) const {
+    if (!SDL_Vulkan_CreateSurface(SDL_Window, instance, allocator, surface)) {
+        throw EngineExceptions::Compatibility(std::string("Failed to create vulkan surface : ") + SDL_GetError());
+    }
+}
+
+std::vector<const char *> Window::getInstanceExtensions([[maybe_unused]] uint32_t *count) {
+    uint32_t sdlCount = 0;
+    const auto sdlExtensions = SDL_Vulkan_GetInstanceExtensions(&sdlCount);
+
+    static std::vector<const char *> extendedExtensions;
+    extendedExtensions.clear();
+
+    for (uint32_t i = 0; i < sdlCount; ++i) {
+        extendedExtensions.push_back(sdlExtensions[i]);
+    }
+
+    if (enableValidationLayers) {
+        extendedExtensions.push_back(vk::EXTDebugUtilsExtensionName);
+    }
+
+#if defined(__APPLE__) || defined(__MACH__)
+    extendedExtensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+#endif
+
+    return extendedExtensions;
+}
+
+bool Window::getSizeInPixels(int *w, int *h) const { return SDL_GetWindowSizeInPixels(SDL_Window, w, h); }
+
+Window::Action Window::action_user_should_take(const SDL_Event *e) {
+    if (e->type == SDL_EVENT_KEY_DOWN && e->key.scancode == SDL_SCANCODE_T) {
+        return ACTION_WIREFRAME;
+    }
+    return ACTION_NONE;
+}
 
 void Window::pollEvents() {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
         if (event.type == SDL_EVENT_QUIT) {
             running = false;
-        } else if (event.type == SDL_EVENT_WINDOW_RESIZED || event.type == SDL_EVENT_WINDOW_MINIMIZED) {
-            if (onChange) {
-                onChange(event.window.data1, event.window.data2);
-            }
+        } else if ((event.type == SDL_EVENT_WINDOW_RESIZED || event.type == SDL_EVENT_WINDOW_MINIMIZED) && onChange) {
+            onChange();
+        }
+
+        if (const auto action = action_user_should_take(&event); onWireframeToggle && action == ACTION_WIREFRAME) {
+            onWireframeToggle();
         }
     }
 }
 
-void Window::waitEvents() { SDL_WaitEvent(nullptr); }
+void Window::waitEvents() {
+    SDL_Event event;
+    if (const bool success = SDL_WaitEvent(&event); !success) {
+        throw EngineExceptions::Render(std::string("Failed to wait for SDL event : ") + SDL_GetError());
+    }
+    if (event.type == SDL_EVENT_QUIT) {
+        running = false;
+    } else if ((event.type == SDL_EVENT_WINDOW_RESIZED || event.type == SDL_EVENT_WINDOW_MINIMIZED) && onChange) {
+        onChange();
+    }
+}
 
-bool Window::isRunning() { return running; }
+bool Window::isMinimized() const { return SDL_GetWindowFlags(SDL_Window) & SDL_WINDOW_MINIMIZED; }
+
+bool Window::isRunning() const { return running; }
+
+void Window::setWindowTitle(const std::string &title) const { SDL_SetWindowTitle(SDL_Window, title.c_str()); }

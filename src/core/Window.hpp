@@ -1,35 +1,41 @@
 #ifndef WINDOW_HPP
 #define WINDOW_HPP
 
-struct SDL_Window;
-
-#include <cstdint>
+#include "SDL3/SDL.h"
 #include <functional>
+#include <vulkan/vulkan_core.h>
 
-// OS Abstraction
 class Window {
   public:
-    Window(const char *title, int width, int height);
+    Window();
     ~Window();
-    Window(const Window &) = delete;
-    Window &operator=(const Window &) = delete;
 
-    SDL_Window *getSDL_window();
-    const char *const *getInstanceExtensions(uint32_t *count);
-    bool getSizeInPixels(int *w, int *h);
+    [[nodiscard]] SDL_Window *getSDL_window() const;
+    void createSurface(VkInstance instance, const VkAllocationCallbacks *allocator, VkSurfaceKHR *surface) const;
+    static std::vector<const char *> getInstanceExtensions(uint32_t *count);
+    bool getSizeInPixels(int *w, int *h) const;
 
-    bool isRunning();
+    void init(const char *title, int width, int height);
+    [[nodiscard]] bool isRunning() const;
+    [[nodiscard]] bool isMinimized() const;
     void pollEvents();
-    void setChangeCallback(std::function<void(int, int)> callback) { onChange = callback; }
     void waitEvents();
+    void setChangeCallback(const std::function<void()> &callback) { onChange = callback; }
+    void setWireframeCallback(const std::function<void()> &callback) { onWireframeToggle = callback; }
+
+    void setWindowTitle(const std::string &title) const;
 
   private:
-    SDL_Window *_SDL_Window = nullptr;
+    SDL_Window *SDL_Window = nullptr;
 
-    bool running;
-    std::function<void(int, int)> onChange;
+    enum Action { ACTION_NONE, ACTION_WIREFRAME };
+    static Action action_user_should_take(const SDL_Event *e);
 
-    void initSDL3(const char *title, int width, int height);
+    bool running = false;
+    bool isInitialized = false;
+    bool isWindowCreated = false;
+    std::function<void()> onChange;
+    std::function<void()> onWireframeToggle;
 };
 
 #endif

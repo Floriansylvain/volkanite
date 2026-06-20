@@ -1,32 +1,21 @@
-#include <core/Device.hpp>
-#include <core/Instance.hpp>
-#include <core/Pipeline.hpp>
-#include <core/Renderer.hpp>
-#include <core/SwapChain.hpp>
-#include <core/Window.hpp>
+#include "core/Engine.hpp"
 
-#ifdef NDEBUG
-const bool enableValidationLayers = false;
-#else
-const bool enableValidationLayers = true;
-#endif
+#include <core/Window.hpp>
+#include <iostream>
 
 int main() {
-    Window window("volkanite", 800, 600);
-    Instance instance(window, enableValidationLayers);
-    Device device(instance);
-    SwapChain swapChain(window, instance, device);
-    Pipeline pipeline(device, swapChain);
-    Renderer renderer(device, swapChain, pipeline);
+    Window window;
+    VulkanContext vkCtx{};
+    Engine engine(&window, &vkCtx);
 
-    window.setChangeCallback([&](int w, int h) { renderer.setFramebufferResized(); });
+    try {
+        window.init("volkanite", 1920, 1080);
+        engine.init();
+        engine.run();
+    } catch (const std::exception &e) {
+        std::cerr << e.what() << std::endl;
+        return EXIT_FAILURE;
+    }
 
-    while (window.isRunning()) {
-        window.pollEvents();
-        renderer.render();
-    };
-
-    device.getLogicalDevice().waitIdle();
-
-    return 0;
+    return EXIT_SUCCESS;
 }
