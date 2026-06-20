@@ -13,11 +13,11 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
-Engine::Engine(Window *_window, VulkanContext *_vkCtx) : window(*_window), vkCtx(*_vkCtx), swapChainHandler(vkCtx, window) {};
+Engine::Engine(Window *_window, VulkanContext *_vkCtx)
+    : window(*_window), vkCtx(*_vkCtx), swapChainHandler(vkCtx, window), instanceRenderer(vkCtx, MAX_FRAMES_IN_FLIGHT) {}
 
 Engine::~Engine() = default;
 
-// TODO: Move InstanceBatch, InstanceData, buildInstanceBatches and updateInstanceBuffers OUT OF THERE
 void Engine::createGraphicsPipeline() {
     const vk::raii::ShaderModule shaderModule =
         ShaderUtils::createShaderModule(vkCtx, ShaderUtils::readFile("shaders/shader.spv"));
@@ -131,53 +131,13 @@ void Engine::createGraphicsPipeline() {
     solidGraphicsPipeline =
         vk::raii::Pipeline(vkCtx.device, nullptr, pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>());
 
-    vk::VertexInputBindingDescription instanceBindingDescription{};
-    instanceBindingDescription.binding = 1;
-    instanceBindingDescription.stride = sizeof(InstanceData);
-    instanceBindingDescription.inputRate = vk::VertexInputRate::eInstance;
-
-    vk::VertexInputAttributeDescription instancePosDescription{};
-    instancePosDescription.location = 3;
-    instancePosDescription.binding = 1;
-    instancePosDescription.format = vk::Format::eR32G32B32Sfloat;
-    instancePosDescription.offset = offsetof(InstanceData, position);
-
-    vk::VertexInputAttributeDescription instanceRotationDescription{};
-    instanceRotationDescription.location = 4;
-    instanceRotationDescription.binding = 1;
-    instanceRotationDescription.format = vk::Format::eR32Sfloat;
-    instanceRotationDescription.offset = offsetof(InstanceData, rotation);
-
-    const std::array instancedBindings = {bindingDescription, instanceBindingDescription};
-    std::vector instancedAttributes(attributeDescriptions.begin(), attributeDescriptions.end());
-    instancedAttributes.push_back(instancePosDescription);
-    instancedAttributes.push_back(instanceRotationDescription);
-
-    vk::PipelineVertexInputStateCreateInfo instancedVertexInputInfo;
-    instancedVertexInputInfo.vertexBindingDescriptionCount = static_cast<uint32_t>(instancedBindings.size());
-    instancedVertexInputInfo.pVertexBindingDescriptions = instancedBindings.data();
-    instancedVertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(instancedAttributes.size());
-    instancedVertexInputInfo.pVertexAttributeDescriptions = instancedAttributes.data();
-
-    vk::PipelineShaderStageCreateInfo instancedVertShaderStageInfo = vertShaderStageInfo;
-    instancedVertShaderStageInfo.pName = "vertMainInstanced";
-    const std::vector instancedShaderStages = {instancedVertShaderStageInfo, fragShaderStageInfo};
-
-    vk::GraphicsPipelineCreateInfo instancedPipelineCreateInfo = graphicsPipelineCreateInfo;
-    instancedPipelineCreateInfo.pStages = instancedShaderStages.data();
-    instancedPipelineCreateInfo.pVertexInputState = &instancedVertexInputInfo;
-
-    vk::StructureChain instancedChain = {instancedPipelineCreateInfo, pipelineRenderingCreateInfo};
-    solidInstancedGraphicsPipeline =
-        vk::raii::Pipeline(vkCtx.device, nullptr, instancedChain.get<vk::GraphicsPipelineCreateInfo>());
+    instanceRenderer.createPipelines(vertShaderStageInfo, fragShaderStageInfo, graphicsPipelineCreateInfo,
+                                     pipelineRenderingCreateInfo, rasterizer);
 
     rasterizer.polygonMode = vk::PolygonMode::eLine;
 
     wireframeGraphicsPipeline =
         vk::raii::Pipeline(vkCtx.device, nullptr, pipelineCreateInfoChain.get<vk::GraphicsPipelineCreateInfo>());
-
-    wireframeInstancedGraphicsPipeline =
-        vk::raii::Pipeline(vkCtx.device, nullptr, instancedChain.get<vk::GraphicsPipelineCreateInfo>());
 }
 
 void Engine::createCommandPool() {
@@ -299,7 +259,7 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
     const float time = std::chrono::duration<float>(std::chrono::high_resolution_clock::now() - startTime).count();
 
     for (const auto &[position, mesh, texture, isInstanced, isVisible, rotation] : renderObjects) {
-        if (isInstanced || !isVisible)
+        if (!isVisible)
             continue;
 
         const auto &sets = textureDescriptorSets.at(texture);
@@ -326,32 +286,8 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
         vertexCount += mesh->indices.size();
     }
 
-    if (isWireframe) {
-        commandBuffers[frameIndex].bindPipeline(vk::PipelineBindPoint::eGraphics, *wireframeInstancedGraphicsPipeline);
-    } else {
-        commandBuffers[frameIndex].bindPipeline(vk::PipelineBindPoint::eGraphics, *solidInstancedGraphicsPipeline);
-    }
-
-    for (const auto &batch : instanceBatches) {
-        if (batch.visibleInstanceCount == 0)
-            continue;
-
-        const auto &sets = textureDescriptorSets.at(batch.texture);
-        commandBuffers[frameIndex].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *pipelineLayout, 0, *sets[frameIndex],
-                                                      nullptr);
-
-        std::vector<vk::DeviceSize> vertexOffsets = {0};
-        commandBuffers[frameIndex].bindVertexBuffers(0, *batch.mesh->unifiedBuffer, vertexOffsets);
-        std::vector<vk::DeviceSize> instanceOffsets = {0};
-        commandBuffers[frameIndex].bindVertexBuffers(1, *batch.buffers[frameIndex], instanceOffsets);
-        const vk::DeviceSize vertexSizeOffset = sizeof(Mesh::Vertex) * batch.mesh->vertices.size();
-        commandBuffers[frameIndex].bindIndexBuffer(*batch.mesh->unifiedBuffer, vertexSizeOffset, vk::IndexType::eUint32);
-
-        commandBuffers[frameIndex].drawIndexed(static_cast<uint32_t>(batch.mesh->indices.size()), batch.visibleInstanceCount, 0,
-                                               0, 0);
-        drawCallCount++;
-        vertexCount += static_cast<uint64_t>(batch.mesh->indices.size()) * batch.visibleInstanceCount;
-    }
+    instanceRenderer.draw(commandBuffers[frameIndex], frameIndex, *pipelineLayout, textureDescriptorSets, isWireframe,
+                          drawCallCount, vertexCount);
 
     commandBuffers[frameIndex].endRendering();
 
@@ -571,82 +507,24 @@ void Engine::registerTexture(const std::shared_ptr<Texture> &texture) {
 
 void Engine::addRenderObject(RenderObject object) {
     registerTexture(object.texture);
-    renderObjects.push_back(std::move(object));
-}
-
-void Engine::buildInstanceBatches() {
-    std::vector<InstanceBatch> batches;
-
-    for (size_t i = 0; i < renderObjects.size(); i++) {
-        const auto &obj = renderObjects[i];
-        if (!obj.isInstanced)
-            continue;
-
-        if (auto it =
-                std::ranges::find_if(batches, [&](const auto &b) { return b.mesh == obj.mesh && b.texture == obj.texture; });
-            it == batches.end()) {
-            InstanceBatch batch;
-            batch.mesh = obj.mesh;
-            batch.texture = obj.texture;
-            batch.objectIndices.push_back(i);
-            batches.push_back(std::move(batch));
-        } else {
-            it->objectIndices.push_back(i);
-        }
+    if (object.isInstanced) {
+        instanceRenderer.addObject(std::move(object));
+    } else {
+        renderObjects.push_back(std::move(object));
     }
-
-    for (auto &batch : batches) {
-        batch.instanceCount = static_cast<uint32_t>(batch.objectIndices.size());
-        batch.boundingRadius = batch.mesh->boundingRadius;
-
-        const vk::DeviceSize bufferSize = sizeof(InstanceData) * batch.instanceCount;
-
-        for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-            auto [buffer, memory] =
-                VulkanUtils::createBuffer(vkCtx, bufferSize, vk::BufferUsageFlagBits::eVertexBuffer,
-                                          vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
-            batch.buffers.push_back(std::move(buffer));
-            batch.buffersMemory.push_back(std::move(memory));
-            batch.buffersMapped.push_back(batch.buffersMemory[i].mapMemory(0, bufferSize));
-        }
-    }
-
-    instanceBatches = std::move(batches);
 }
 
 void Engine::updateInstanceBuffers(const uint32_t currentImage) {
-    static auto startTime = std::chrono::high_resolution_clock::now();
-    const float time = std::chrono::duration<float>(std::chrono::high_resolution_clock::now() - startTime).count();
-
     const float aspect =
         static_cast<float>(swapChainHandler.extent2D.width) / static_cast<float>(swapChainHandler.extent2D.height);
-
     constexpr float cullFovMargin = 8.0f;
     const glm::mat4 cullProj = Camera::projMatrix(aspect, 55.0f + cullFovMargin);
-
     const CullingUtils::Frustum frustum = CullingUtils::extractFrustum(cullProj * camera.viewMatrix());
 
-    for (auto &batch : instanceBatches) {
-        auto *dst = static_cast<InstanceData *>(batch.buffersMapped[currentImage]);
-        uint32_t visibleCount = 0;
-
-        for (const size_t i : batch.objectIndices) {
-            const auto &obj = renderObjects[i];
-            if (!sphereInFrustum(frustum, obj.position, batch.boundingRadius))
-                continue;
-
-            dst[visibleCount].position = obj.position;
-            dst[visibleCount].rotation = time * obj.rotationSpeed;
-            visibleCount++;
-        }
-
-        batch.visibleInstanceCount = visibleCount;
-    }
+    instanceRenderer.update(currentImage, frustum);
 
     for (auto &obj : renderObjects) {
-        if (obj.isInstanced)
-            continue;
-        obj.isVisible = sphereInFrustum(frustum, obj.position, obj.mesh->boundingRadius);
+        obj.isVisible = CullingUtils::sphereInFrustum(frustum, obj.position, obj.mesh->boundingRadius);
     }
 }
 
@@ -705,7 +583,7 @@ void Engine::init() {
     cube.rotationSpeed = 0.f;
     addRenderObject(std::move(cube));
 
-    buildInstanceBatches();
+    instanceRenderer.build();
     createCommandBuffers();
     createSyncObjects();
 

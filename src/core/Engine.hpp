@@ -3,6 +3,7 @@
 
 #pragma once
 #include "Camera.hpp"
+#include "InstanceRenderer.hpp"
 #include "Mesh.hpp"
 #include "RenderObject.hpp"
 #include "SwapChainHandler.hpp"
@@ -32,6 +33,7 @@ class Engine {
     VulkanContext &vkCtx;
     SwapChainHandler swapChainHandler;
     Camera camera;
+    InstanceRenderer instanceRenderer;
 
     float frameTimeAccumulator = 0.0f;
     uint32_t frameCountAccumulator = 0;
@@ -42,8 +44,6 @@ class Engine {
     vk::raii::PipelineLayout pipelineLayout = nullptr;
     vk::raii::Pipeline solidGraphicsPipeline = nullptr;
     vk::raii::Pipeline wireframeGraphicsPipeline = nullptr;
-    vk::raii::Pipeline solidInstancedGraphicsPipeline = nullptr;
-    vk::raii::Pipeline wireframeInstancedGraphicsPipeline = nullptr;
     vk::raii::CommandPool commandPool = nullptr;
     std::vector<vk::raii::CommandBuffer> commandBuffers;
     std::vector<vk::raii::Semaphore> presentCompleteSemaphores;
@@ -60,23 +60,6 @@ class Engine {
     std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>> textureDescriptorSets;
 
     std::vector<RenderObject> renderObjects;
-
-    struct InstanceBatch {
-        std::vector<vk::raii::Buffer> buffers;
-        std::vector<vk::raii::DeviceMemory> buffersMemory;
-        std::vector<void *> buffersMapped;
-        uint32_t instanceCount = 0;
-        uint32_t visibleInstanceCount = 0;
-        float boundingRadius = 0.0f;
-        std::shared_ptr<Mesh> mesh;
-        std::shared_ptr<Texture> texture;
-        std::vector<size_t> objectIndices;
-    };
-    struct InstanceData {
-        glm::vec3 position;
-        float rotation;
-    };
-    std::vector<InstanceBatch> instanceBatches;
 
     bool isInitialized = false;
     bool framebufferResized = false;
@@ -113,7 +96,6 @@ class Engine {
     void updateUniformBuffer(uint32_t currentImage) const;
     void createDescriptorPool();
     void addRenderObject(RenderObject object);
-    void buildInstanceBatches();
     void updateInstanceBuffers(uint32_t currentImage);
 
     void update();
