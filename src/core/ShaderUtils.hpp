@@ -1,5 +1,5 @@
-#ifndef SHADERUTILS_HPP
-#define SHADERUTILS_HPP
+#ifndef SHADER_UTILS_HPP
+#define SHADER_UTILS_HPP
 
 #pragma once
 #include "VulkanContext.hpp"
@@ -13,7 +13,7 @@ import vulkan_hpp;
 
 namespace ShaderUtils {
 
-static std::vector<char> readFile(const std::string &filename);
+std::vector<char> readFile(const std::string &filename);
 
 [[nodiscard]] vk::raii::ShaderModule createShaderModule(const VulkanContext &vkCtx, const std::vector<char> &code);
 

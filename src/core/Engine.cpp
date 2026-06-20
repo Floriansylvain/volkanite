@@ -676,7 +676,7 @@ void Engine::init() {
     MeshUtility::generateCube(*cubeMesh, 1.f);
     cubeMesh->createGeometryBuffers(commandPool);
 
-    constexpr int SIZE = 500;
+    constexpr int SIZE = 100;
     constexpr int OFFSET = 4;
     for (int x = -SIZE / 2; x < SIZE / 2; x += OFFSET) {
         for (int y = -SIZE / 2; y < SIZE / 2; y += OFFSET) {

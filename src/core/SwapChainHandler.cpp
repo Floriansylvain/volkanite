@@ -74,7 +74,7 @@ void SwapChainHandler::create() {
 }
 
 void SwapChainHandler::createImageViews() {
-    assert(swapChainImageViews.empty());
+    assert(imageViews.empty());
 
     imageViews.reserve(images.size());
     for (auto const &image : images) {
