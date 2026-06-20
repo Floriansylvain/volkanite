@@ -3,6 +3,7 @@
 #include "CullingUtils.hpp"
 #include "Exceptions.hpp"
 #include "MeshUtils.hpp"
+#include "ShaderUtils.hpp"
 #include "VulkanUtils.hpp"
 #include "Window.hpp"
 
@@ -11,46 +12,15 @@
 #include <fstream>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include <iostream>
 
 Engine::Engine(Window *_window, VulkanContext *_vkCtx) : window(*_window), vkCtx(*_vkCtx), swapChainHandler(vkCtx, window) {};
 
 Engine::~Engine() = default;
 
-std::vector<char> Engine::readFile(const std::string &filename) {
-    std::ifstream file(filename, std::ios::ate | std::ios::binary);
-    if (!file.is_open()) {
-        throw EngineExceptions::Shader("Failed to open file");
-    }
-
-    std::vector<char> buffer(file.tellg());
-    file.seekg(0, std::ios::beg);
-    file.read(buffer.data(), static_cast<std::streamsize>(buffer.size()));
-    file.close();
-
-    return buffer;
-}
-
-vk::raii::ShaderModule Engine::createShaderModule(const std::vector<char> &code) const {
-    if (code.size() % sizeof(uint32_t) != 0) {
-        throw EngineExceptions::Shader("SPIR-V code size must be a multiple of 4 bytes.");
-    }
-
-    std::vector<uint32_t> alignedCode(code.size() / sizeof(uint32_t));
-    std::memcpy(alignedCode.data(), code.data(), code.size());
-
-    vk::ShaderModuleCreateInfo createInfo{};
-    createInfo.codeSize = code.size();
-    createInfo.pCode = alignedCode.data();
-
-    vk::raii::ShaderModule shaderModule{vkCtx.device, createInfo};
-
-    return shaderModule;
-}
-
 // TODO: Move InstanceBatch, InstanceData, buildInstanceBatches and updateInstanceBuffers OUT OF THERE
 void Engine::createGraphicsPipeline() {
-    const vk::raii::ShaderModule shaderModule = createShaderModule(readFile("shaders/shader.spv"));
+    const vk::raii::ShaderModule shaderModule =
+        ShaderUtils::createShaderModule(vkCtx, ShaderUtils::readFile("shaders/shader.spv"));
 
     vk::PipelineShaderStageCreateInfo vertShaderStageInfo{};
     vertShaderStageInfo.stage = vk::ShaderStageFlagBits::eVertex;

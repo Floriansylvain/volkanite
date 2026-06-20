@@ -82,8 +82,6 @@ class Engine {
     bool framebufferResized = false;
     bool isWireframe = false;
 
-    static std::vector<char> readFile(const std::string &filename);
-    [[nodiscard]] vk::raii::ShaderModule createShaderModule(const std::vector<char> &code) const;
     void createGraphicsPipeline();
     void createCommandPool();
     void createCommandBuffers();
