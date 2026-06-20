@@ -24,7 +24,6 @@ class Mesh {
     Mesh(const Mesh &) = delete;
     Mesh &operator=(const Mesh &) = delete;
 
-    void generateCube(float size);
     void createGeometryBuffers(const vk::raii::CommandPool &commandPool);
 
     vk::raii::Buffer unifiedBuffer = nullptr;
@@ -32,6 +31,8 @@ class Mesh {
 
     std::vector<Vertex> vertices;
     std::vector<uint32_t> indices;
+
+    float boundingRadius = 0.0f;
 
   private:
     const VulkanContext &vkCtx;

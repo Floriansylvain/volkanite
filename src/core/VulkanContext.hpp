@@ -37,7 +37,7 @@ struct VulkanContext {
     void pickPhysicalDevice();
     void createLogicalDevice();
 
-    bool isDeviceSuitable(const vk::raii::PhysicalDevice &device);
+    bool isDeviceSuitable(const vk::raii::PhysicalDevice &_physicalDevice);
 };
 
 #endif

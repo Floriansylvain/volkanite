@@ -23,6 +23,8 @@ class Window {
     void setChangeCallback(const std::function<void()> &callback) { onChange = callback; }
     void setWireframeCallback(const std::function<void()> &callback) { onWireframeToggle = callback; }
 
+    void setWindowTitle(const std::string &title) const;
+
   private:
     SDL_Window *SDL_Window = nullptr;
 

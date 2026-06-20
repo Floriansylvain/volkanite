@@ -2,9 +2,10 @@
 #define ENGINE_HPP
 
 #pragma once
+#include "Camera.hpp"
 #include "Mesh.hpp"
+#include "RenderObject.hpp"
 #include "SwapChainHandler.hpp"
-#include "Texture.hpp"
 #include "VulkanContext.hpp"
 #include <glm/glm.hpp>
 
@@ -25,28 +26,57 @@ class Engine {
 
   private:
     constexpr static int MAX_FRAMES_IN_FLIGHT = 2;
+    constexpr static int MAX_TEXTURES = 16;
 
     Window &window;
     VulkanContext &vkCtx;
     SwapChainHandler swapChainHandler;
-    Mesh mesh;
-    Texture texture;
+    Camera camera;
+
+    float frameTimeAccumulator = 0.0f;
+    uint32_t frameCountAccumulator = 0;
+    uint32_t drawCallCount = 0;
+    uint64_t vertexCount = 0;
 
     vk::raii::DescriptorSetLayout descriptorSetLayout = nullptr;
     vk::raii::PipelineLayout pipelineLayout = nullptr;
     vk::raii::Pipeline solidGraphicsPipeline = nullptr;
     vk::raii::Pipeline wireframeGraphicsPipeline = nullptr;
+    vk::raii::Pipeline solidInstancedGraphicsPipeline = nullptr;
+    vk::raii::Pipeline wireframeInstancedGraphicsPipeline = nullptr;
     vk::raii::CommandPool commandPool = nullptr;
     std::vector<vk::raii::CommandBuffer> commandBuffers;
     std::vector<vk::raii::Semaphore> presentCompleteSemaphores;
     std::vector<vk::raii::Semaphore> renderFinishedSemaphores;
     std::vector<vk::raii::Fence> inFlightFences;
     uint32_t frameIndex = 0;
-    std::vector<vk::raii::Buffer> uniformBuffers;
-    std::vector<vk::raii::DeviceMemory> uniformBuffersMemory;
-    std::vector<void *> uniformBuffersMapped;
+
     vk::raii::DescriptorPool descriptorPool = nullptr;
-    std::vector<vk::raii::DescriptorSet> descriptorSets;
+
+    std::vector<vk::raii::Buffer> cameraUniformBuffers;
+    std::vector<vk::raii::DeviceMemory> cameraUniformBuffersMemory;
+    std::vector<void *> cameraUniformBuffersMapped;
+
+    std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>> textureDescriptorSets;
+
+    std::vector<RenderObject> renderObjects;
+
+    struct InstanceBatch {
+        std::vector<vk::raii::Buffer> buffers;
+        std::vector<vk::raii::DeviceMemory> buffersMemory;
+        std::vector<void *> buffersMapped;
+        uint32_t instanceCount = 0;
+        uint32_t visibleInstanceCount = 0;
+        float boundingRadius = 0.0f;
+        std::shared_ptr<Mesh> mesh;
+        std::shared_ptr<Texture> texture;
+        std::vector<size_t> objectIndices;
+    };
+    struct InstanceData {
+        glm::vec3 position;
+        float rotation;
+    };
+    std::vector<InstanceBatch> instanceBatches;
 
     bool isInitialized = false;
     bool framebufferResized = false;
@@ -68,21 +98,27 @@ class Engine {
         vk::ImageAspectFlags image_aspect_flags;
     };
     void transition_image_layout(transitionImageLayoutCommand const &command) const;
-    void recordCommandBuffer(uint32_t imageIndex) const;
+    void recordCommandBuffer(uint32_t imageIndex);
     void createSyncObjects();
     void drawFrame();
 
     struct UniformBufferObject {
-        glm::mat4 model;
         glm::mat4 view;
         glm::mat4 proj;
     };
+    struct ModelPushConstant {
+        glm::mat4 model;
+    };
     void createDescriptorSetLayout();
-    void createUniformBuffers();
+    void createCameraUniformBuffer();
+    void registerTexture(const std::shared_ptr<Texture> &texture);
     void updateUniformBuffer(uint32_t currentImage) const;
     void createDescriptorPool();
-    void createDescriptorSets();
-    void createTextureImage();
+    void addRenderObject(RenderObject object);
+    void buildInstanceBatches();
+    void updateInstanceBuffers(uint32_t currentImage);
+
+    void update();
 };
 
 #endif

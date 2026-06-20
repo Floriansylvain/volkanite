@@ -39,7 +39,7 @@ vk::Extent2D SwapChainHandler::chooseSwapExtent(vk::SurfaceCapabilitiesKHR const
 
 uint32_t SwapChainHandler::chooseSwapMinImageCount(vk::SurfaceCapabilitiesKHR const &surfaceCapabilities) {
     auto minImageCount = std::max(3u, surfaceCapabilities.minImageCount);
-    if ((0 < surfaceCapabilities.maxImageCount) && (surfaceCapabilities.maxImageCount < minImageCount)) {
+    if (0 < surfaceCapabilities.maxImageCount && surfaceCapabilities.maxImageCount < minImageCount) {
         minImageCount = surfaceCapabilities.maxImageCount;
     }
     return minImageCount;
@@ -47,20 +47,20 @@ uint32_t SwapChainHandler::chooseSwapMinImageCount(vk::SurfaceCapabilitiesKHR co
 
 void SwapChainHandler::create() {
     const vk::SurfaceCapabilitiesKHR surfaceCapabilities = vkCtx.physicalDevice.getSurfaceCapabilitiesKHR(*vkCtx.surface);
-    swapChainExtent = chooseSwapExtent(surfaceCapabilities);
+    extent2D = chooseSwapExtent(surfaceCapabilities);
     const uint32_t minImageCount = chooseSwapMinImageCount(surfaceCapabilities);
 
     const std::vector<vk::SurfaceFormatKHR> availableFormats = vkCtx.physicalDevice.getSurfaceFormatsKHR(*vkCtx.surface);
-    swapChainSurfaceFormat = chooseSwapSurfaceFormat(availableFormats);
+    surfaceFormat = chooseSwapSurfaceFormat(availableFormats);
 
     const std::vector<vk::PresentModeKHR> availablePresentModes = vkCtx.physicalDevice.getSurfacePresentModesKHR(vkCtx.surface);
 
     vk::SwapchainCreateInfoKHR swapChainCreateInfo{};
     swapChainCreateInfo.surface = *vkCtx.surface;
     swapChainCreateInfo.minImageCount = minImageCount;
-    swapChainCreateInfo.imageFormat = swapChainSurfaceFormat.format;
-    swapChainCreateInfo.imageColorSpace = swapChainSurfaceFormat.colorSpace;
-    swapChainCreateInfo.imageExtent = swapChainExtent;
+    swapChainCreateInfo.imageFormat = surfaceFormat.format;
+    swapChainCreateInfo.imageColorSpace = surfaceFormat.colorSpace;
+    swapChainCreateInfo.imageExtent = extent2D;
     swapChainCreateInfo.imageArrayLayers = 1;
     swapChainCreateInfo.imageUsage = vk::ImageUsageFlagBits::eColorAttachment;
     swapChainCreateInfo.imageSharingMode = vk::SharingMode::eExclusive;
@@ -69,17 +69,17 @@ void SwapChainHandler::create() {
     swapChainCreateInfo.presentMode = chooseSwapPresentMode(availablePresentModes);
     swapChainCreateInfo.clipped = true;
 
-    swapChain = vk::raii::SwapchainKHR(vkCtx.device, swapChainCreateInfo);
-    swapChainImages = swapChain.getImages();
+    swapChainKHR = vk::raii::SwapchainKHR(vkCtx.device, swapChainCreateInfo);
+    images = swapChainKHR.getImages();
 }
 
 void SwapChainHandler::createImageViews() {
     assert(swapChainImageViews.empty());
 
-    swapChainImageViews.reserve(swapChainImages.size());
-    for (auto const &image : swapChainImages) {
-        swapChainImageViews.emplace_back(
-            VulkanUtils::createImageView(vkCtx, image, swapChainSurfaceFormat.format, vk::ImageAspectFlagBits::eColor));
+    imageViews.reserve(images.size());
+    for (auto const &image : images) {
+        imageViews.emplace_back(
+            VulkanUtils::createImageView(vkCtx, image, surfaceFormat.format, vk::ImageAspectFlagBits::eColor));
     }
 }
 
@@ -106,7 +106,7 @@ vk::Format SwapChainHandler::findDepthFormat() const {
 void SwapChainHandler::createDepthResources() {
     const vk::Format depthFormat = findDepthFormat();
     std::tie(depthImage, depthImageMemory) =
-        VulkanUtils::createImage(vkCtx, swapChainExtent.width, swapChainExtent.height, depthFormat, vk::ImageTiling::eOptimal,
+        VulkanUtils::createImage(vkCtx, extent2D.width, extent2D.height, depthFormat, vk::ImageTiling::eOptimal,
                                  vk::ImageUsageFlagBits::eDepthStencilAttachment, vk::MemoryPropertyFlagBits::eDeviceLocal);
     depthImageView = VulkanUtils::createImageView(vkCtx, depthImage, depthFormat, vk::ImageAspectFlagBits::eDepth);
 }
@@ -124,6 +124,6 @@ void SwapChainHandler::recreate() {
 }
 
 void SwapChainHandler::cleanup() {
-    swapChainImageViews.clear();
-    swapChain = nullptr;
+    imageViews.clear();
+    swapChainKHR = nullptr;
 }

@@ -26,7 +26,7 @@ void copyBuffer(const VulkanContext &vkCtx, const vk::raii::Buffer &srcBuffer, c
 [[nodiscard]] vk::raii::CommandBuffer beginSingleTimeCommands(const VulkanContext &vkCtx,
                                                               const vk::raii::CommandPool &commandPool);
 
-void endSingleTimeCommands(const VulkanContext &vkCtx, vk::raii::CommandBuffer &&commandBuffer);
+void endSingleTimeCommands(const VulkanContext &vkCtx, const vk::raii::CommandBuffer &commandBuffer);
 
 void transitionImageLayout(const vk::raii::CommandBuffer &commandBuffer, const vk::raii::Image &image,
                            vk::ImageLayout oldLayout, vk::ImageLayout newLayout);

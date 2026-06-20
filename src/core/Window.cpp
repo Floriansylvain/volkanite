@@ -17,7 +17,7 @@ Window::~Window() {
     if (isInitialized) {
         SDL_Quit();
     }
-};
+}
 
 void Window::init(const char *title, const int width, const int height) {
     if (!isInitialized) {
@@ -35,12 +35,14 @@ void Window::init(const char *title, const int width, const int height) {
         isWindowCreated = true;
     }
 
+    SDL_SetWindowRelativeMouseMode(SDL_Window, true);
+
     running = true;
 }
 
 SDL_Window *Window::getSDL_window() const { return SDL_Window; }
 
-void Window::createSurface(VkInstance instance, const VkAllocationCallbacks *allocator, VkSurfaceKHR *surface) const {
+void Window::createSurface(const VkInstance instance, const VkAllocationCallbacks *allocator, VkSurfaceKHR *surface) const {
     if (!SDL_Vulkan_CreateSurface(SDL_Window, instance, allocator, surface)) {
         throw EngineExceptions::Compatibility(std::string("Failed to create vulkan surface : ") + SDL_GetError());
     }
@@ -71,7 +73,7 @@ std::vector<const char *> Window::getInstanceExtensions([[maybe_unused]] uint32_
 bool Window::getSizeInPixels(int *w, int *h) const { return SDL_GetWindowSizeInPixels(SDL_Window, w, h); }
 
 Window::Action Window::action_user_should_take(const SDL_Event *e) {
-    if (e->type == SDL_EVENT_KEY_DOWN && e->key.scancode == SDL_SCANCODE_W) {
+    if (e->type == SDL_EVENT_KEY_DOWN && e->key.scancode == SDL_SCANCODE_T) {
         return ACTION_WIREFRAME;
     }
     return ACTION_NONE;
@@ -107,3 +109,5 @@ void Window::waitEvents() {
 bool Window::isMinimized() const { return SDL_GetWindowFlags(SDL_Window) & SDL_WINDOW_MINIMIZED; }
 
 bool Window::isRunning() const { return running; }
+
+void Window::setWindowTitle(const std::string &title) const { SDL_SetWindowTitle(SDL_Window, title.c_str()); }

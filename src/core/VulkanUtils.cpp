@@ -32,9 +32,11 @@ uint32_t VulkanUtils::findMemoryType(VulkanContext const &vkCtx, const uint32_t 
     throw EngineExceptions::Compatibility("Failed to find suitable memory type.");
 }
 
-std::pair<vk::raii::Image, vk::raii::DeviceMemory>
-VulkanUtils::createImage(VulkanContext const &vkCtx, const uint32_t width, const uint32_t height, vk::Format format,
-                         vk::ImageTiling tiling, const vk::ImageUsageFlags usage, const vk::MemoryPropertyFlags properties) {
+std::pair<vk::raii::Image, vk::raii::DeviceMemory> VulkanUtils::createImage(VulkanContext const &vkCtx, const uint32_t width,
+                                                                            const uint32_t height, const vk::Format format,
+                                                                            const vk::ImageTiling tiling,
+                                                                            const vk::ImageUsageFlags usage,
+                                                                            const vk::MemoryPropertyFlags properties) {
     vk::ImageCreateInfo imageInfo{};
     imageInfo.imageType = vk::ImageType::e2D;
     imageInfo.format = format;
@@ -84,9 +86,9 @@ std::pair<vk::raii::Buffer, vk::raii::DeviceMemory> VulkanUtils::createBuffer(co
 
 void VulkanUtils::copyBuffer(const VulkanContext &vkCtx, const vk::raii::Buffer &srcBuffer, const vk::raii::Buffer &dstBuffer,
                              const vk::DeviceSize size, const vk::raii::CommandPool &commandPool) {
-    vk::raii::CommandBuffer commandCopyBuffer = beginSingleTimeCommands(vkCtx, commandPool);
+    const vk::raii::CommandBuffer commandCopyBuffer = beginSingleTimeCommands(vkCtx, commandPool);
     commandCopyBuffer.copyBuffer(*srcBuffer, *dstBuffer, vk::BufferCopy(0, 0, size));
-    endSingleTimeCommands(vkCtx, std::move(commandCopyBuffer));
+    endSingleTimeCommands(vkCtx, commandCopyBuffer);
 }
 
 vk::raii::CommandBuffer VulkanUtils::beginSingleTimeCommands(const VulkanContext &vkCtx,
@@ -103,10 +105,10 @@ vk::raii::CommandBuffer VulkanUtils::beginSingleTimeCommands(const VulkanContext
 
     commandBuffer.begin(beginInfo);
 
-    return std::move(commandBuffer);
+    return commandBuffer;
 }
 
-void VulkanUtils::endSingleTimeCommands(const VulkanContext &vkCtx, vk::raii::CommandBuffer &&commandBuffer) {
+void VulkanUtils::endSingleTimeCommands(const VulkanContext &vkCtx, const vk::raii::CommandBuffer &commandBuffer) {
     commandBuffer.end();
 
     vk::SubmitInfo submitInfo{};

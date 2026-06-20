@@ -9,7 +9,7 @@ int main() {
     Engine engine(&window, &vkCtx);
 
     try {
-        window.init("volkanite", 800, 600);
+        window.init("volkanite", 1920, 1080);
         engine.init();
         engine.run();
     } catch (const std::exception &e) {

@@ -19,11 +19,11 @@ class SwapChainHandler {
 
     [[nodiscard]] vk::Format findDepthFormat() const;
 
-    vk::SurfaceFormatKHR swapChainSurfaceFormat;
-    vk::raii::SwapchainKHR swapChain = nullptr;
-    vk::Extent2D swapChainExtent;
-    std::vector<vk::Image> swapChainImages;
-    std::vector<vk::raii::ImageView> swapChainImageViews;
+    vk::SurfaceFormatKHR surfaceFormat;
+    vk::raii::SwapchainKHR swapChainKHR = nullptr;
+    vk::Extent2D extent2D;
+    std::vector<vk::Image> images;
+    std::vector<vk::raii::ImageView> imageViews;
 
     vk::raii::Image depthImage = nullptr;
     vk::raii::DeviceMemory depthImageMemory = nullptr;
