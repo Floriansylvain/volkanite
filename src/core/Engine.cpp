@@ -327,10 +327,13 @@ void Engine::drawFrame() {
         throw EngineExceptions::Render("Failed to wait for fence");
     }
 
-    auto [result, imageIndex] =
-        swapChainHandler.swapChainKHR.acquireNextImage(UINT64_MAX, *presentCompleteSemaphores[frameIndex], nullptr);
+    vk::Result result;
+    uint32_t imageIndex;
 
-    if (result == vk::Result::eErrorOutOfDateKHR) {
+    try {
+        std::tie(result, imageIndex) =
+            swapChainHandler.swapChainKHR.acquireNextImage(UINT64_MAX, *presentCompleteSemaphores[frameIndex], nullptr);
+    } catch (const vk::OutOfDateKHRError &) {
         swapChainHandler.recreate();
         return;
     }
@@ -375,8 +378,16 @@ void Engine::drawFrame() {
     presentInfoKHR.pSwapchains = &*swapChainHandler.swapChainKHR;
     presentInfoKHR.pImageIndices = &imageIndex;
 
-    result = vkCtx.queue.presentKHR(presentInfoKHR);
-    if (result == vk::Result::eSuboptimalKHR || result == vk::Result::eErrorOutOfDateKHR || framebufferResized) {
+    try {
+        result = vkCtx.queue.presentKHR(presentInfoKHR);
+    } catch (const vk::OutOfDateKHRError &) {
+        framebufferResized = false;
+        swapChainHandler.recreate();
+        frameIndex = (frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
+        return;
+    }
+
+    if (result == vk::Result::eSuboptimalKHR || framebufferResized) {
         framebufferResized = false;
         swapChainHandler.recreate();
     } else {
