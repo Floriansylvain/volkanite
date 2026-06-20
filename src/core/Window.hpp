@@ -29,12 +29,13 @@ class Window {
   private:
     SDL_Window *SDL_Window = nullptr;
 
-    enum Action { ACTION_NONE, ACTION_WIREFRAME };
+    enum Action { ACTION_NONE, ACTION_WIREFRAME, ACTION_BLUR };
     static Action action_user_should_take(const SDL_Event *e);
 
     bool running = false;
     bool isInitialized = false;
     bool isWindowCreated = false;
+    bool focusToggle = true;
     std::function<void()> onChange;
     std::function<void()> onWireframeToggle;
 };

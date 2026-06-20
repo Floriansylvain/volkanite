@@ -35,7 +35,7 @@ void Window::init(const char *title, const int width, const int height) {
         isWindowCreated = true;
     }
 
-    SDL_SetWindowRelativeMouseMode(SDL_Window, true);
+    SDL_SetWindowRelativeMouseMode(SDL_Window, focusToggle);
 
     running = true;
 }
@@ -73,8 +73,14 @@ std::vector<const char *> Window::getInstanceExtensions([[maybe_unused]] uint32_
 bool Window::getSizeInPixels(int *w, int *h) const { return SDL_GetWindowSizeInPixels(SDL_Window, w, h); }
 
 Window::Action Window::action_user_should_take(const SDL_Event *e) {
-    if (e->type == SDL_EVENT_KEY_DOWN && e->key.scancode == SDL_SCANCODE_T) {
+    if (e->type != SDL_EVENT_KEY_DOWN)
+        return ACTION_NONE;
+
+    if (e->key.scancode == SDL_SCANCODE_T) {
         return ACTION_WIREFRAME;
+    }
+    if (e->key.scancode == SDL_SCANCODE_ESCAPE) {
+        return ACTION_BLUR;
     }
     return ACTION_NONE;
 }
@@ -88,8 +94,13 @@ void Window::pollEvents() {
             onChange();
         }
 
-        if (const auto action = action_user_should_take(&event); onWireframeToggle && action == ACTION_WIREFRAME) {
+        const auto action = action_user_should_take(&event);
+
+        if (onWireframeToggle && action == ACTION_WIREFRAME) {
             onWireframeToggle();
+        } else if (action == ACTION_BLUR) {
+            focusToggle = !focusToggle;
+            SDL_SetWindowRelativeMouseMode(SDL_Window, focusToggle);     
         }
     }
 }

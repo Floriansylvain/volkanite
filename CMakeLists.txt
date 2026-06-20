@@ -42,14 +42,14 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_CURRENT_BINARY_DIR}/shaders"
         "$<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders"
-        COMMENT "Copying shaders to build directory..."
+        COMMENT "Copying shaders to build directory...\n"
 )
 
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_CURRENT_SOURCE_DIR}/textures"
         "$<TARGET_FILE_DIR:${PROJECT_NAME}>/textures"
-        COMMENT "Copying textures to build directory..."
+        COMMENT "Copying textures to build directory...\n"
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
