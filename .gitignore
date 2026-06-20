@@ -1,6 +1,8 @@
 bin/
 build/
+out/
 
+.vs
 .vscode
 .idea
 

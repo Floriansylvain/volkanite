@@ -1,4 +1,5 @@
 #include "CullingUtils.hpp"
+#include <algorithm>
 
 CullingUtils::Frustum CullingUtils::extractFrustum(const glm::mat4 &viewProj) {
     const glm::vec4 row0(viewProj[0][0], viewProj[1][0], viewProj[2][0], viewProj[3][0]);

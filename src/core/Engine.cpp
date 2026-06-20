@@ -633,7 +633,7 @@ void Engine::update() {
         movement = glm::normalize(movement);
     }
 
-    constexpr float speed = 50.0f;
+    constexpr float speed = 75.0f;
     camera.x += movement.x * speed * deltaTime;
     camera.y += movement.y * speed * deltaTime;
     camera.z += input.z * speed * deltaTime;

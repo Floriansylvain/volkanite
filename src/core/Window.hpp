@@ -4,6 +4,7 @@
 #include "SDL3/SDL.h"
 #include <functional>
 #include <vulkan/vulkan_core.h>
+#include <string>
 
 class Window {
   public:

@@ -40,6 +40,13 @@ add_dependencies(${PROJECT_NAME} generate_shaders)
 
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_BINARY_DIR}/shaders"
+        "$<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders"
+        COMMENT "Copying shaders to build directory..."
+)
+
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_CURRENT_SOURCE_DIR}/textures"
         "$<TARGET_FILE_DIR:${PROJECT_NAME}>/textures"
         COMMENT "Copying textures to build directory..."
