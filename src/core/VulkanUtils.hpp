@@ -22,10 +22,25 @@ struct CreateImageCommand {
     vk::MemoryPropertyFlags properties;
 };
 
+struct ImageBarrierCommand {
+    vk::Image image;
+    vk::ImageLayout old_layout;
+    vk::ImageLayout new_layout;
+    vk::AccessFlags2 src_access_mask;
+    vk::AccessFlags2 dst_access_mask;
+    vk::PipelineStageFlags2 src_stage_mask;
+    vk::PipelineStageFlags2 dst_stage_mask;
+    vk::ImageAspectFlags image_aspect_flags;
+    uint32_t base_mip_level = 0;
+    uint32_t level_count = 1;
+};
+
+void imageBarriers(const vk::raii::CommandBuffer &commandBuffer, const std::vector<ImageBarrierCommand> &commands);
+
 ImageAllocation createImage(const VulkanContext &vkCtx, CreateImageCommand command);
 
 vk::raii::ImageView createImageView(const VulkanContext &vkCtx, const vk::Image &image, vk::Format format,
-                                    vk::ImageAspectFlags aspectFlags, uint32_t mipLevels);
+                                    vk::ImageAspectFlags aspectFlags, uint32_t mipLevels, uint32_t baseMipLevel = 0);
 
 BufferAllocation createBuffer(const VulkanContext &vkCtx, vk::DeviceSize size, vk::BufferUsageFlags usage,
                               vk::MemoryPropertyFlags properties);

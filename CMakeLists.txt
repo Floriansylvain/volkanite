@@ -17,7 +17,7 @@ file(GLOB_RECURSE SOURCES "src/*.cpp")
 set(SLANG_SHADER "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/shader.slang")
 set(SLANG_SPV "${CMAKE_CURRENT_BINARY_DIR}/shaders/shader.spv")
 
-set(SLANG_SHADER_NAMES shader text)
+set(SLANG_SHADER_NAMES shader text culling)
 
 set(SLANG_SPV_FILES "")
 foreach (SHADER_NAME ${SLANG_SHADER_NAMES})

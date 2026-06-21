@@ -5,6 +5,7 @@
 #include "Camera.hpp"
 #include "InstanceRenderer.hpp"
 #include "Mesh.hpp"
+#include "OcclusionCuller.hpp"
 #include "RenderObject.hpp"
 #include "SwapChainHandler.hpp"
 #include "TextRenderer.hpp"
@@ -37,6 +38,7 @@ class Engine {
     Camera camera;
     InstanceRenderer instanceRenderer;
     TextRenderer textRenderer;
+    OcclusionCuller occlusionCuller;
 
     std::vector<std::string> debugLines;
     float frameTimeAccumulator = 0.0f;
@@ -119,6 +121,9 @@ class Engine {
     };
     FBXModel createFBXModel(const std::string &fbxPath, const std::string &fileExtension);
     void placeFBXModel(const FBXModel &model, const glm::vec3 &position, bool instanced = false);
+
+    void recreateSwapChain();
+    void createOcclusionCuller();
 
     void update();
 };

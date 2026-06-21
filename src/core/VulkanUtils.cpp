@@ -1,12 +1,45 @@
 #include "VulkanUtils.hpp"
 #include "Exceptions.hpp"
 
+void VulkanUtils::imageBarriers(const vk::raii::CommandBuffer &commandBuffer,
+                                const std::vector<ImageBarrierCommand> &commands) {
+    std::vector<vk::ImageMemoryBarrier2> barriers;
+    barriers.reserve(commands.size());
+
+    for (const auto &command : commands) {
+        vk::ImageSubresourceRange subresourceRange{};
+        subresourceRange.aspectMask = command.image_aspect_flags;
+        subresourceRange.baseMipLevel = command.base_mip_level;
+        subresourceRange.levelCount = command.level_count;
+        subresourceRange.layerCount = 1;
+
+        vk::ImageMemoryBarrier2 barrier{};
+        barrier.srcStageMask = command.src_stage_mask;
+        barrier.srcAccessMask = command.src_access_mask;
+        barrier.dstStageMask = command.dst_stage_mask;
+        barrier.dstAccessMask = command.dst_access_mask;
+        barrier.oldLayout = command.old_layout;
+        barrier.newLayout = command.new_layout;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = command.image;
+        barrier.subresourceRange = subresourceRange;
+        barriers.push_back(barrier);
+    }
+
+    vk::DependencyInfo dependencyInfo{};
+    dependencyInfo.imageMemoryBarrierCount = static_cast<uint32_t>(barriers.size());
+    dependencyInfo.pImageMemoryBarriers = barriers.data();
+    commandBuffer.pipelineBarrier2(dependencyInfo);
+}
+
 vk::raii::ImageView VulkanUtils::createImageView(VulkanContext const &vkCtx, vk::Image const &image, const vk::Format format,
-                                                 const vk::ImageAspectFlags aspectFlags, uint32_t mipLevels) {
+                                                 const vk::ImageAspectFlags aspectFlags, uint32_t mipLevels,
+                                                 const uint32_t baseMipLevel) {
     vk::ImageSubresourceRange subresourceRange = {};
     subresourceRange.aspectMask = aspectFlags;
-    subresourceRange.baseMipLevel = 0;
-    subresourceRange.levelCount = 1;
+    subresourceRange.baseMipLevel = baseMipLevel;
+    subresourceRange.levelCount = mipLevels;
     subresourceRange.baseArrayLayer = 0;
     subresourceRange.layerCount = 1;
 
@@ -15,7 +48,6 @@ vk::raii::ImageView VulkanUtils::createImageView(VulkanContext const &vkCtx, vk:
     viewInfo.viewType = vk::ImageViewType::e2D;
     viewInfo.format = format;
     viewInfo.subresourceRange = subresourceRange;
-    viewInfo.subresourceRange.levelCount = mipLevels;
 
     return {vkCtx.device, viewInfo};
 }

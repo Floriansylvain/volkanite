@@ -16,7 +16,7 @@
 
 Engine::Engine(Window *_window, VulkanContext *_vkCtx)
     : window(*_window), vkCtx(*_vkCtx), swapChainHandler(vkCtx, window), instanceRenderer(vkCtx, MAX_FRAMES_IN_FLIGHT),
-      textRenderer(vkCtx, MAX_FRAMES_IN_FLIGHT) {}
+      textRenderer(vkCtx, MAX_FRAMES_IN_FLIGHT), occlusionCuller(vkCtx) {}
 
 Engine::~Engine() = default;
 
@@ -269,6 +269,7 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
     depthTransition.image_aspect_flags = vk::ImageAspectFlagBits::eDepth;
 
     transition_image_layouts({colorTransition, msaaColorTransition, depthTransition});
+    occlusionCuller.prepareDepthResolveTarget(commandBuffers[frameIndex]);
 
     constexpr vk::ClearValue clearColor = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 1.0f);
     vk::RenderingAttachmentInfo attachmentInfo = {};
@@ -285,6 +286,10 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
     vk::RenderingAttachmentInfo depthAttachmentInfo = {};
     depthAttachmentInfo.imageView = swapChainHandler.depthImageView;
     depthAttachmentInfo.imageLayout = eDepthAttachmentOptimal;
+    depthAttachmentInfo.resolveMode = vk::ResolveModeFlagBits::eMax;
+    depthAttachmentInfo.resolveImageView = occlusionCuller.resolvedDepthView();
+    depthAttachmentInfo.resolveImageLayout = vk::ImageLayout::eDepthAttachmentOptimal;
+
     depthAttachmentInfo.loadOp = vk::AttachmentLoadOp::eClear;
     depthAttachmentInfo.storeOp = vk::AttachmentStoreOp::eDontCare;
     depthAttachmentInfo.clearValue = clearDepth;
@@ -355,6 +360,8 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
 
     commandBuffers[frameIndex].endRendering();
 
+    occlusionCuller.buildPyramid(commandBuffers[frameIndex]);
+
     TransitionImageLayoutCommand presentTransition{};
     presentTransition.image = swapChainHandler.images[imageIndex], presentTransition.old_layout = eColorAttachmentOptimal;
     presentTransition.new_layout = ePresentSrcKHR;
@@ -385,6 +392,11 @@ void Engine::createSyncObjects() {
     }
 }
 
+void Engine::recreateSwapChain() {
+    swapChainHandler.recreate();
+    occlusionCuller.createResources(swapChainHandler.extent2D, swapChainHandler.findDepthFormat());
+}
+
 void Engine::drawFrame() {
     if (auto const fenceResult = vkCtx.device.waitForFences(*inFlightFences[frameIndex], vk::True, UINT64_MAX);
         fenceResult != vk::Result::eSuccess) {
@@ -398,7 +410,7 @@ void Engine::drawFrame() {
         std::tie(result, imageIndex) =
             swapChainHandler.swapChainKHR.acquireNextImage(UINT64_MAX, *presentCompleteSemaphores[frameIndex], nullptr);
     } catch (const vk::OutOfDateKHRError &) {
-        swapChainHandler.recreate();
+        recreateSwapChain();
         return;
     }
     if (result != vk::Result::eSuccess && result != vk::Result::eSuboptimalKHR) {
@@ -446,14 +458,14 @@ void Engine::drawFrame() {
         result = vkCtx.queue.presentKHR(presentInfoKHR);
     } catch (const vk::OutOfDateKHRError &) {
         framebufferResized = false;
-        swapChainHandler.recreate();
+        recreateSwapChain();
         frameIndex = (frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
         return;
     }
 
     if (result == vk::Result::eSuboptimalKHR || framebufferResized) {
         framebufferResized = false;
-        swapChainHandler.recreate();
+        recreateSwapChain();
     } else {
         assert(result == vk::Result::eSuccess);
     }
@@ -667,6 +679,25 @@ void Engine::placeFBXModel(const FBXModel &model, const glm::vec3 &position, con
     }
 }
 
+void Engine::createOcclusionCuller() {
+    occlusionCuller.createResources(swapChainHandler.extent2D, swapChainHandler.findDepthFormat());
+
+    const vk::raii::ShaderModule cullingShaderModule =
+        ShaderUtils::createShaderModule(vkCtx, ShaderUtils::readFile("shaders/culling.spv"));
+
+    vk::PipelineShaderStageCreateInfo mip0Stage{};
+    mip0Stage.stage = vk::ShaderStageFlagBits::eCompute;
+    mip0Stage.module = cullingShaderModule;
+    mip0Stage.pName = "csDepthToMip0";
+
+    vk::PipelineShaderStageCreateInfo downsampleStage{};
+    downsampleStage.stage = vk::ShaderStageFlagBits::eCompute;
+    downsampleStage.module = cullingShaderModule;
+    downsampleStage.pName = "csDownsample";
+
+    occlusionCuller.createPipelines(mip0Stage, downsampleStage);
+}
+
 void Engine::init() {
     if (!window.isRunning()) {
         throw EngineExceptions::NotInitialized("Failed to run Engine : Window is not running");
@@ -684,7 +715,7 @@ void Engine::init() {
     createCommandPool();
     swapChainHandler.createColorResources();
     swapChainHandler.createDepthResources();
-
+    createOcclusionCuller();
     createCameraUniformBuffer();
     createDescriptorPool();
 
@@ -717,7 +748,7 @@ void Engine::init() {
         }
     }
 
-    instanceRenderer.build();
+    instanceRenderer.build(commandPool);
     createCommandBuffers();
     createSyncObjects();
 

@@ -64,7 +64,7 @@ size_t InstanceRenderer::addObject(RenderObject object) {
     return objects.size() - 1;
 }
 
-void InstanceRenderer::build() {
+void InstanceRenderer::build(const vk::raii::CommandPool &commandPool) {
     std::vector<InstanceBatch> newBatches;
 
     for (size_t i = 0; i < objects.size(); i++) {
@@ -95,9 +95,35 @@ void InstanceRenderer::build() {
             batch.buffersMemory.push_back(std::move(memory));
             batch.buffersMapped.push_back(batch.buffersMemory[i].mapMemory(0, bufferSize));
         }
+
+        std::vector<glm::vec4> candidatePositions;
+        candidatePositions.reserve(batch.instanceCount);
+        for (const size_t idx : batch.objectIndices) {
+            candidatePositions.push_back(glm::vec4(objects[idx].position, 0.0f));
+        }
+
+        const vk::DeviceSize candidateBufferSize = sizeof(glm::vec4) * candidatePositions.size();
+
+        auto [stagingBuffer, stagingMemory] =
+            VulkanUtils::createBuffer(vkCtx, candidateBufferSize, vk::BufferUsageFlagBits::eTransferSrc,
+                                      vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+        void *data = stagingMemory.mapMemory(0, candidateBufferSize);
+        std::memcpy(data, candidatePositions.data(), candidateBufferSize);
+        stagingMemory.unmapMemory();
+
+        std::tie(batch.candidateBuffer, batch.candidateBufferMemory) = VulkanUtils::createBuffer(
+            vkCtx, candidateBufferSize, vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst,
+            vk::MemoryPropertyFlagBits::eDeviceLocal);
+
+        VulkanUtils::copyBuffer(vkCtx, stagingBuffer, batch.candidateBuffer, candidateBufferSize, commandPool);
     }
 
     batches = std::move(newBatches);
+}
+
+InstanceRenderer::BatchCullingInfo InstanceRenderer::getBatchCullingInfo(const size_t batchIndex) const {
+    const auto &batch = batches[batchIndex];
+    return {*batch.candidateBuffer, batch.instanceCount, batch.boundingRadius};
 }
 
 void InstanceRenderer::update(const uint32_t currentImage, const CullingUtils::Frustum &frustum) {

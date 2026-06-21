@@ -29,7 +29,15 @@ class InstanceRenderer {
     size_t addObject(RenderObject object);
     [[nodiscard]] RenderObject &getObject(const size_t index) { return objects[index]; }
 
-    void build();
+    struct BatchCullingInfo {
+        vk::Buffer candidateBuffer;
+        uint32_t instanceCount;
+        float boundingRadius;
+    };
+    [[nodiscard]] size_t batchCount() const { return batches.size(); }
+    [[nodiscard]] BatchCullingInfo getBatchCullingInfo(size_t batchIndex) const;
+
+    void build(const vk::raii::CommandPool &commandPool);
     void update(uint32_t currentImage, const CullingUtils::Frustum &frustum);
 
     void draw(const vk::raii::CommandBuffer &commandBuffer, uint32_t frameIndex, vk::PipelineLayout pipelineLayout,
@@ -52,6 +60,8 @@ class InstanceRenderer {
         std::shared_ptr<Mesh> mesh;
         std::shared_ptr<Texture> texture;
         std::vector<size_t> objectIndices;
+        vk::raii::Buffer candidateBuffer = nullptr;
+        vk::raii::DeviceMemory candidateBufferMemory = nullptr;
     };
 
     VulkanContext &vkCtx;
