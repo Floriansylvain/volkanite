@@ -15,7 +15,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 Engine::Engine(Window *_window, VulkanContext *_vkCtx)
-    : window(*_window), vkCtx(*_vkCtx), swapChainHandler(vkCtx, window), instanceRenderer(vkCtx, MAX_FRAMES_IN_FLIGHT) {}
+    : window(*_window), vkCtx(*_vkCtx), swapChainHandler(vkCtx, window), instanceRenderer(vkCtx, MAX_FRAMES_IN_FLIGHT),
+      textRenderer(vkCtx, MAX_FRAMES_IN_FLIGHT) {}
 
 Engine::~Engine() = default;
 
@@ -126,6 +127,18 @@ void Engine::createGraphicsPipeline() {
     pipelineRenderingCreateInfo.colorAttachmentCount = 1;
     pipelineRenderingCreateInfo.pColorAttachmentFormats = &swapChainHandler.surfaceFormat.format;
     pipelineRenderingCreateInfo.depthAttachmentFormat = depthFormat;
+
+    vk::PipelineShaderStageCreateInfo textVertStageInfo{};
+    textVertStageInfo.stage = vk::ShaderStageFlagBits::eVertex;
+    textVertStageInfo.module = shaderModule;
+    textVertStageInfo.pName = "vertMainText";
+
+    vk::PipelineShaderStageCreateInfo textFragStageInfo{};
+    textFragStageInfo.stage = vk::ShaderStageFlagBits::eFragment;
+    textFragStageInfo.module = shaderModule;
+    textFragStageInfo.pName = "fragMainText";
+
+    textRenderer.createPipeline(textVertStageInfo, textFragStageInfo, pipelineRenderingCreateInfo, vkCtx.msaaSamples);
 
     vk::StructureChain pipelineCreateInfoChain = {graphicsPipelineCreateInfo, pipelineRenderingCreateInfo};
 
@@ -304,6 +317,13 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
 
     instanceRenderer.draw(commandBuffers[frameIndex], frameIndex, *pipelineLayout, textureDescriptorSets, isWireframe,
                           drawCallCount, vertexCount);
+
+    float offset = 10.f;
+    for (size_t i = 0; i < debugLines.size(); i++) {
+        textRenderer.drawText(debugLines[i], 10.0f, i + offset, 64.0f, glm::vec3(1.0f, 1.0f, 1.0f), swapChainHandler.extent2D);
+        offset += 48.0f;
+    }
+    textRenderer.render(commandBuffers[frameIndex], frameIndex);
 
     commandBuffers[frameIndex].endRendering();
 
@@ -631,6 +651,7 @@ void Engine::init() {
     swapChainHandler.create();
     swapChainHandler.createImageViews();
     createDescriptorSetLayout();
+    textRenderer.createDescriptorSetLayout();
     createGraphicsPipeline();
     createCommandPool();
     swapChainHandler.createColorResources();
@@ -640,6 +661,8 @@ void Engine::init() {
     createDescriptorPool();
 
     const FBXModel house = createFBXModel("models/House_scene_01.fbx", ".png");
+
+    textRenderer.loadFont("textures/consolas.png", commandPool, 0.35, 0.2);
 
     // const auto brickTexture = std::make_shared<Texture>(vkCtx);
     // brickTexture->loadFromFile("textures/bricks.jpg", commandPool);
@@ -757,9 +780,10 @@ void Engine::run() {
             const float avgFrameTimeMs = frameTimeAccumulator / static_cast<float>(frameCountAccumulator);
             const float fps = 1000.0f / avgFrameTimeMs;
 
-            std::string title = std::format("volkanite | {:.2f}ms ({:.0f} fps) | {} draws | {} verts", avgFrameTimeMs, fps,
-                                            drawCallCount, vertexCount);
-            SDL_SetWindowTitle(window.getSDL_window(), title.c_str());
+            debugLines.clear();
+            debugLines.push_back(std::format("frametime: {:.2f}ms ({:.0f} fps)", avgFrameTimeMs, fps));
+            debugLines.push_back(std::format("draws: {}", drawCallCount));
+            debugLines.push_back(std::format("verts: {}", vertexCount));
 
             frameTimeAccumulator = 0.0f;
             frameCountAccumulator = 0;

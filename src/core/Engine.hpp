@@ -7,6 +7,7 @@
 #include "Mesh.hpp"
 #include "RenderObject.hpp"
 #include "SwapChainHandler.hpp"
+#include "TextRenderer.hpp"
 #include "VulkanContext.hpp"
 #include <glm/glm.hpp>
 
@@ -34,7 +35,9 @@ class Engine {
     SwapChainHandler swapChainHandler;
     Camera camera;
     InstanceRenderer instanceRenderer;
+    TextRenderer textRenderer;
 
+    std::vector<std::string> debugLines;
     float frameTimeAccumulator = 0.0f;
     uint32_t frameCountAccumulator = 0;
     uint32_t drawCallCount = 0;

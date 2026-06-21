@@ -16,6 +16,7 @@ struct CameraUniform {
     float4x4 view;
     float4x4 proj;
 };
+[[vk::binding(0, 0)]]
 ConstantBuffer<CameraUniform> ubo;
 
 struct PushConstants {
@@ -24,6 +25,18 @@ struct PushConstants {
 [[vk::push_constant]] ConstantBuffer<PushConstants> pc;
 
 struct VSOutput {
+    float4 pos : SV_Position;
+    float3 fragColor;
+    float2 fragTexCoord;
+};
+
+struct TextVSInput {
+    float2 inPos;
+    float3 inColor;
+    float2 inTexCoord;
+};
+
+struct TextVSOutput {
     float4 pos : SV_Position;
     float3 fragColor;
     float2 fragTexCoord;
@@ -41,6 +54,24 @@ float4x4 rotationMatrix(float3 axis, float angle) {
     m[2] = float4(oc*axis.z*axis.x - axis.y*s, oc*axis.y*axis.z + axis.x*s, oc*axis.z*axis.z + c,        0.0);
     m[3] = float4(0.0, 0.0, 0.0, 1.0);
     return m;
+}
+
+[shader("vertex")]
+TextVSOutput vertMainText(TextVSInput input) {
+    TextVSOutput output;
+    output.pos = float4(input.inPos, 0.0, 1.0);
+    output.fragColor = input.inColor;
+    output.fragTexCoord = input.inTexCoord;
+    return output;
+}
+
+[[vk::binding(2, 0)]]
+Sampler2D fontAtlas;
+
+[shader("fragment")]
+float4 fragMainText(TextVSOutput vertIn) : SV_TARGET {
+    float coverage = fontAtlas.Sample(vertIn.fragTexCoord).r;
+    return float4(vertIn.fragColor, coverage);
 }
 
 [shader("vertex")]
@@ -64,6 +95,7 @@ VSOutput vertMainInstanced(InstancedVSInput input) {
     return output;
 }
 
+[[vk::binding(1, 0)]]
 Sampler2D texture;
 
 [shader("fragment")]
