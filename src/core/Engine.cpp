@@ -9,6 +9,7 @@
 
 #include <SDL3_image/SDL_image.h>
 #include <chrono>
+#include <filesystem>
 #include <fstream>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -539,6 +540,68 @@ void Engine::updateInstanceBuffers(const uint32_t currentImage) {
     }
 }
 
+Engine::FBXModel Engine::createFBXModel(const std::string &fbxPath, const std::string &fileExtension) {
+    const auto subMeshes = MeshUtils::loadFBXModel(fbxPath);
+
+    struct MergedGroup {
+        std::vector<Mesh::Vertex> vertices;
+        std::vector<uint32_t> indices;
+    };
+    std::unordered_map<std::string, MergedGroup> merged;
+
+    for (const auto &sub : subMeshes) {
+        if (sub.vertices.empty() || sub.filename.empty())
+            continue;
+
+        auto &group = merged[sub.filename];
+        const auto vertexOffset = static_cast<uint32_t>(group.vertices.size());
+
+        group.vertices.insert(group.vertices.end(), sub.vertices.begin(), sub.vertices.end());
+        group.indices.reserve(group.indices.size() + sub.indices.size());
+        for (const uint32_t idx : sub.indices) {
+            group.indices.push_back(idx + vertexOffset);
+        }
+    }
+
+    FBXModel model;
+
+    for (auto &[filename, group] : merged) {
+        std::shared_ptr<Texture> texture;
+        if (const auto it = textureCache.find(filename); it != textureCache.end()) {
+            texture = it->second;
+        } else {
+            std::filesystem::path texPath = std::filesystem::path("textures") / filename;
+            texPath.replace_extension(fileExtension);
+
+            texture = std::make_shared<Texture>(vkCtx);
+            texture->loadFromFile(texPath.string(), commandPool);
+            textureCache.emplace(filename, texture);
+        }
+
+        auto mesh = std::make_shared<Mesh>(vkCtx);
+        mesh->vertices = std::move(group.vertices);
+        mesh->indices = std::move(group.indices);
+        mesh->createGeometryBuffers(commandPool);
+
+        model.meshes.push_back(mesh);
+        model.textures.push_back(texture);
+    }
+
+    return model;
+}
+
+void Engine::placeFBXModel(const FBXModel &model, const glm::vec3 &position, const bool instanced) {
+    for (size_t i = 0; i < model.meshes.size(); ++i) {
+        RenderObject object;
+        object.mesh = model.meshes[i];
+        object.texture = model.textures[i];
+        object.position = position;
+        object.isInstanced = instanced;
+        object.rotationSpeed = 0.f;
+        addRenderObject(std::move(object));
+    }
+}
+
 void Engine::init() {
     if (!window.isRunning()) {
         throw EngineExceptions::NotInitialized("Failed to run Engine : Window is not running");
@@ -558,41 +621,45 @@ void Engine::init() {
     createCameraUniformBuffer();
     createDescriptorPool();
 
-    const auto brickTexture = std::make_shared<Texture>(vkCtx);
-    brickTexture->loadFromFile("textures/bricks.jpg", commandPool);
+    const FBXModel house = createFBXModel("models/House_scene_01.fbx", ".png");
 
-    const auto cubeMesh = std::make_shared<Mesh>(vkCtx);
-    MeshUtility::generateCube(*cubeMesh, 1.f);
-    cubeMesh->createGeometryBuffers(commandPool);
+    // const auto brickTexture = std::make_shared<Texture>(vkCtx);
+    // brickTexture->loadFromFile("textures/bricks.jpg", commandPool);
 
-    constexpr int SIZE = 100;
-    constexpr int OFFSET = 4;
+    // const auto cubeMesh = std::make_shared<Mesh>(vkCtx);
+    // MeshUtils::generateCube(*cubeMesh, 1.f);
+    // cubeMesh->createGeometryBuffers(commandPool);
+
+    constexpr int SIZE = 300;
+    constexpr int OFFSET = 50;
     for (int x = -SIZE / 2; x < SIZE / 2; x += OFFSET) {
         for (int y = -SIZE / 2; y < SIZE / 2; y += OFFSET) {
             for (int z = -SIZE / 2; z < SIZE / 2; z += OFFSET) {
-                RenderObject cube;
-                cube.mesh = cubeMesh;
-                cube.texture = brickTexture;
-                cube.position = {x, y, z};
-                cube.isInstanced = true;
-                cube.rotationSpeed =
-                    glm::sin(static_cast<float>(x)) + glm::sin(static_cast<float>(y)) + glm::sin(static_cast<float>(z));
-                addRenderObject(std::move(cube));
+                // RenderObject cube;
+                // cube.mesh = cubeMesh;
+                // cube.texture = brickTexture;
+                // cube.position = {x, y, z};
+                // cube.isInstanced = true;
+                // cube.rotationSpeed =
+                //     glm::sin(static_cast<float>(x)) + glm::sin(static_cast<float>(y)) + glm::sin(static_cast<float>(z));
+                // addRenderObject(std::move(cube));
+
+                placeFBXModel(house, glm::vec3(x, y, z), true);
             }
         }
     }
 
-    const auto cubeMesh2 = std::make_shared<Mesh>(vkCtx);
-    MeshUtility::generateCube(*cubeMesh2, 100.f);
-    cubeMesh2->createGeometryBuffers(commandPool);
+    // const auto cubeMesh2 = std::make_shared<Mesh>(vkCtx);
+    // MeshUtils::generateCube(*cubeMesh2, 100.f);
+    // cubeMesh2->createGeometryBuffers(commandPool);
 
-    RenderObject cube;
-    cube.mesh = cubeMesh2;
-    cube.texture = brickTexture;
-    cube.position = {0.f, 0.f, -150.f};
-    cube.isInstanced = false;
-    cube.rotationSpeed = 0.f;
-    addRenderObject(std::move(cube));
+    // RenderObject cube;
+    // cube.mesh = cubeMesh2;
+    // cube.texture = brickTexture;
+    // cube.position = {0.f, 0.f, -150.f};
+    // cube.isInstanced = false;
+    // cube.rotationSpeed = 0.f;
+    // addRenderObject(std::move(cube));
 
     instanceRenderer.build();
     createCommandBuffers();

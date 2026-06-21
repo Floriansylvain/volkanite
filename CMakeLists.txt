@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(volkanite LANGUAGES CXX)
+project(volkanite LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -34,6 +34,9 @@ add_custom_target(generate_shaders DEPENDS "${SLANG_SPV}")
 
 add_executable(${PROJECT_NAME} ${SOURCES})
 
+
+add_library(ufbx STATIC external/ufbx/ufbx.c)
+target_include_directories(ufbx PUBLIC external/ufbx)
 target_include_directories(${PROJECT_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
 add_dependencies(${PROJECT_NAME} generate_shaders)
@@ -43,6 +46,13 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         "${CMAKE_CURRENT_BINARY_DIR}/shaders"
         "$<TARGET_FILE_DIR:${PROJECT_NAME}>/shaders"
         COMMENT "Copying shaders to build directory...\n"
+)
+
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/models"
+        "$<TARGET_FILE_DIR:${PROJECT_NAME}>/models"
+        COMMENT "Copying models to build directory...\n"
 )
 
 add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
@@ -57,6 +67,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
         SDL3::SDL3-shared
         SDL3_image::SDL3_image-shared
         glm::glm
+        ufbx
 )
 
 if (APPLE)

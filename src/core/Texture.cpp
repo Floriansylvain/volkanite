@@ -35,7 +35,7 @@ void Texture::createSampler() {
 void Texture::loadFromFile(const std::string &filepath, const vk::raii::CommandPool &commandPool) {
     SDL_Surface *imgSurface = IMG_Load(filepath.c_str());
     if (!imgSurface) {
-        throw EngineExceptions::Compatibility("Failed to load texture image (createTextureImage).");
+        throw EngineExceptions::Compatibility("Failed to load texture image '" + filepath + "': " + SDL_GetError());
     }
 
     if (imgSurface->format != SDL_PIXELFORMAT_RGBA32) {

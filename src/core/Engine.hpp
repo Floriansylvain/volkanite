@@ -60,6 +60,7 @@ class Engine {
     std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>> textureDescriptorSets;
 
     std::vector<RenderObject> renderObjects;
+    std::unordered_map<std::string, std::shared_ptr<Texture>> textureCache;
 
     bool isInitialized = false;
     bool framebufferResized = false;
@@ -97,6 +98,13 @@ class Engine {
     void createDescriptorPool();
     void addRenderObject(RenderObject object);
     void updateInstanceBuffers(uint32_t currentImage);
+
+    struct FBXModel {
+        std::vector<std::shared_ptr<Mesh>> meshes;
+        std::vector<std::shared_ptr<Texture>> textures;
+    };
+    FBXModel createFBXModel(const std::string &fbxPath, const std::string &fileExtension);
+    void placeFBXModel(const FBXModel &model, const glm::vec3 &position, bool instanced = false);
 
     void update();
 };

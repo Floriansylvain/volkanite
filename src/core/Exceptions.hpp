@@ -1,6 +1,7 @@
 #ifndef VOLKANITE_EXCEPTIONS_HPP
 #define VOLKANITE_EXCEPTIONS_HPP
 
+#include <stdexcept>
 #include <string>
 
 namespace EngineExceptions {
