@@ -121,7 +121,8 @@ std::vector<SubMesh> MeshUtils::loadFBXModel(const std::string &path) {
                         std::string raw = texture->relative_filename.length > 0 ? std::string(texture->relative_filename.data)
                                                                                 : std::string(texture->filename.data);
                         if (!raw.empty()) {
-                            sub.filename = std::filesystem::path(raw).filename().string();
+                            const size_t lastSep = raw.find_last_of("/\\");
+                            sub.filename = (lastSep == std::string::npos) ? raw : raw.substr(lastSep + 1);
                         }
                     }
                 }
