@@ -103,6 +103,49 @@ void OcclusionCuller::createDescriptorSetLayouts() {
     downsampleLayoutInfo.bindingCount = static_cast<uint32_t>(downsampleBindings.size());
     downsampleLayoutInfo.pBindings = downsampleBindings.data();
     downsampleSetLayout = vk::raii::DescriptorSetLayout(vkCtx.device, downsampleLayoutInfo);
+
+    vk::DescriptorSetLayoutBinding inputBinding{};
+    inputBinding.binding = 0;
+    inputBinding.descriptorType = vk::DescriptorType::eStorageBuffer;
+    inputBinding.descriptorCount = 1;
+    inputBinding.stageFlags = vk::ShaderStageFlagBits::eCompute;
+
+    vk::DescriptorSetLayoutBinding outputBinding{};
+    outputBinding.binding = 1;
+    outputBinding.descriptorType = vk::DescriptorType::eStorageBuffer;
+    outputBinding.descriptorCount = 1;
+    outputBinding.stageFlags = vk::ShaderStageFlagBits::eCompute;
+
+    vk::DescriptorSetLayoutBinding indirectBinding{};
+    indirectBinding.binding = 2;
+    indirectBinding.descriptorType = vk::DescriptorType::eStorageBuffer;
+    indirectBinding.descriptorCount = 1;
+    indirectBinding.stageFlags = vk::ShaderStageFlagBits::eCompute;
+
+    const std::array cullBindings{inputBinding, outputBinding, indirectBinding};
+    vk::DescriptorSetLayoutCreateInfo cullLayoutInfo{};
+    cullLayoutInfo.bindingCount = static_cast<uint32_t>(cullBindings.size());
+    cullLayoutInfo.pBindings = cullBindings.data();
+    cullSetLayout = vk::raii::DescriptorSetLayout(vkCtx.device, cullLayoutInfo);
+}
+
+void OcclusionCuller::createCullPipeline(const vk::PipelineShaderStageCreateInfo &cullStage) {
+    vk::PushConstantRange pushConstantRange{};
+    pushConstantRange.stageFlags = vk::ShaderStageFlagBits::eCompute;
+    pushConstantRange.size = sizeof(PyramidPushConstants);
+
+    const std::array cullSetLayouts{*emptySetLayout, *emptySetLayout, *cullSetLayout};
+    vk::PipelineLayoutCreateInfo layoutInfo{};
+    layoutInfo.setLayoutCount = static_cast<uint32_t>(cullSetLayouts.size());
+    layoutInfo.pSetLayouts = cullSetLayouts.data();
+    layoutInfo.pushConstantRangeCount = 1;
+    layoutInfo.pPushConstantRanges = &pushConstantRange;
+    cullPipelineLayout = vk::raii::PipelineLayout(vkCtx.device, layoutInfo);
+
+    vk::ComputePipelineCreateInfo pipelineInfo{};
+    pipelineInfo.stage = cullStage;
+    pipelineInfo.layout = cullPipelineLayout;
+    cullPipeline = vk::raii::Pipeline(vkCtx.device, nullptr, pipelineInfo);
 }
 
 void OcclusionCuller::createDescriptorSets() {

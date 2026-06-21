@@ -238,6 +238,12 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
 
     commandBuffers[frameIndex].begin({});
 
+    static auto startTime = std::chrono::high_resolution_clock::now();
+    const float time = std::chrono::duration<float>(std::chrono::high_resolution_clock::now() - startTime).count();
+
+    instanceRenderer.cull(commandBuffers[frameIndex], frameIndex, occlusionCuller.cullPipelineLayout,
+                          occlusionCuller.cullPipeline, time);
+
     TransitionImageLayoutCommand colorTransition{};
     colorTransition.image = swapChainHandler.images[imageIndex];
     colorTransition.old_layout = eUndefined;
@@ -315,9 +321,6 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
     commandBuffers[frameIndex].setViewport(0, vk::Viewport(0.0f, 0.0f, static_cast<float>(swapChainHandler.extent2D.width),
                                                            static_cast<float>(swapChainHandler.extent2D.height), 0.0f, 1.0f));
     commandBuffers[frameIndex].setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainHandler.extent2D));
-
-    static auto startTime = std::chrono::high_resolution_clock::now();
-    const float time = std::chrono::duration<float>(std::chrono::high_resolution_clock::now() - startTime).count();
 
     for (const auto &[position, mesh, texture, isInstanced, isVisible, rotation] : renderObjects) {
         if (!isVisible)
@@ -696,6 +699,13 @@ void Engine::createOcclusionCuller() {
     downsampleStage.pName = "csDownsample";
 
     occlusionCuller.createPipelines(mip0Stage, downsampleStage);
+
+    vk::PipelineShaderStageCreateInfo cullStage{};
+    cullStage.stage = vk::ShaderStageFlagBits::eCompute;
+    cullStage.module = cullingShaderModule;
+    cullStage.pName = "csCullInstances";
+
+    occlusionCuller.createCullPipeline(cullStage);
 }
 
 void Engine::init() {
@@ -749,6 +759,7 @@ void Engine::init() {
     }
 
     instanceRenderer.build(commandPool);
+    instanceRenderer.createCullDescriptorSets(*occlusionCuller.cullSetLayout);
     createCommandBuffers();
     createSyncObjects();
 

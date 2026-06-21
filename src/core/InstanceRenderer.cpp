@@ -1,4 +1,5 @@
 #include "InstanceRenderer.hpp"
+#include "OcclusionCuller.hpp"
 #include "VulkanUtils.hpp"
 #include <array>
 #include <chrono>
@@ -86,24 +87,40 @@ void InstanceRenderer::build(const vk::raii::CommandPool &commandPool) {
         batch.instanceCount = static_cast<uint32_t>(batch.objectIndices.size());
         batch.boundingRadius = batch.mesh->boundingRadius;
         const vk::DeviceSize bufferSize = sizeof(InstanceData) * batch.instanceCount;
+        constexpr vk::DeviceSize indirectSize = sizeof(vk::DrawIndexedIndirectCommand);
 
         for (int i = 0; i < maxFramesInFlight; i++) {
-            auto [buffer, memory] =
-                VulkanUtils::createBuffer(vkCtx, bufferSize, vk::BufferUsageFlagBits::eVertexBuffer,
-                                          vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+            auto [buffer, memory] = VulkanUtils::createBuffer(
+                vkCtx, bufferSize, vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eStorageBuffer,
+                vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
             batch.buffers.push_back(std::move(buffer));
             batch.buffersMemory.push_back(std::move(memory));
             batch.buffersMapped.push_back(batch.buffersMemory[i].mapMemory(0, bufferSize));
+
+            auto [culledBuf, culledMem] = VulkanUtils::createBuffer(
+                vkCtx, bufferSize, vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eStorageBuffer,
+                vk::MemoryPropertyFlagBits::eDeviceLocal);
+            batch.culledBuffers.push_back(std::move(culledBuf));
+            batch.culledBuffersMemory.push_back(std::move(culledMem));
+
+            auto [indirectBuf, indirectMem] = VulkanUtils::createBuffer(
+                vkCtx, indirectSize, vk::BufferUsageFlagBits::eIndirectBuffer | vk::BufferUsageFlagBits::eStorageBuffer,
+                vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+            batch.indirectBuffers.push_back(std::move(indirectBuf));
+            batch.indirectBuffersMemory.push_back(std::move(indirectMem));
+            batch.indirectBuffersMapped.push_back(batch.indirectBuffersMemory[i].mapMemory(0, indirectSize));
+
+            const vk::DrawIndexedIndirectCommand initialCommand{static_cast<uint32_t>(batch.mesh->indices.size()), 0, 0, 0, 0};
+            std::memcpy(batch.indirectBuffersMapped[i], &initialCommand, indirectSize);
         }
 
         std::vector<glm::vec4> candidatePositions;
         candidatePositions.reserve(batch.instanceCount);
         for (const size_t idx : batch.objectIndices) {
-            candidatePositions.push_back(glm::vec4(objects[idx].position, 0.0f));
+            candidatePositions.push_back(glm::vec4(objects[idx].position, objects[idx].rotationSpeed));
         }
 
         const vk::DeviceSize candidateBufferSize = sizeof(glm::vec4) * candidatePositions.size();
-
         auto [stagingBuffer, stagingMemory] =
             VulkanUtils::createBuffer(vkCtx, candidateBufferSize, vk::BufferUsageFlagBits::eTransferSrc,
                                       vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
@@ -114,16 +131,105 @@ void InstanceRenderer::build(const vk::raii::CommandPool &commandPool) {
         std::tie(batch.candidateBuffer, batch.candidateBufferMemory) = VulkanUtils::createBuffer(
             vkCtx, candidateBufferSize, vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst,
             vk::MemoryPropertyFlagBits::eDeviceLocal);
-
         VulkanUtils::copyBuffer(vkCtx, stagingBuffer, batch.candidateBuffer, candidateBufferSize, commandPool);
     }
 
     batches = std::move(newBatches);
 }
 
-InstanceRenderer::BatchCullingInfo InstanceRenderer::getBatchCullingInfo(const size_t batchIndex) const {
-    const auto &batch = batches[batchIndex];
-    return {*batch.candidateBuffer, batch.instanceCount, batch.boundingRadius};
+void InstanceRenderer::createCullDescriptorSets(const vk::DescriptorSetLayout cullSetLayout) {
+    const auto framesU = static_cast<uint32_t>(maxFramesInFlight);
+    const auto totalSets = framesU * static_cast<uint32_t>(batches.size());
+    if (totalSets == 0)
+        return;
+
+    const vk::DescriptorPoolSize poolSize{vk::DescriptorType::eStorageBuffer, totalSets * 3};
+
+    vk::DescriptorPoolCreateInfo poolInfo{};
+    poolInfo.flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet;
+    poolInfo.maxSets = totalSets;
+    poolInfo.poolSizeCount = 1;
+    poolInfo.pPoolSizes = &poolSize;
+    cullDescriptorPool = vk::raii::DescriptorPool(vkCtx.device, poolInfo);
+
+    for (auto &batch : batches) {
+        batch.cullDescriptorSets.clear();
+        for (uint32_t f = 0; f < framesU; ++f) {
+            vk::DescriptorSetAllocateInfo allocInfo{};
+            allocInfo.descriptorPool = *cullDescriptorPool;
+            allocInfo.descriptorSetCount = 1;
+            allocInfo.pSetLayouts = &cullSetLayout;
+            vk::raii::DescriptorSet set = std::move(vk::raii::DescriptorSets(vkCtx.device, allocInfo).front());
+
+            vk::DescriptorBufferInfo inputInfo{*batch.buffers[f], 0, VK_WHOLE_SIZE};
+            vk::DescriptorBufferInfo outputInfo{*batch.culledBuffers[f], 0, VK_WHOLE_SIZE};
+            vk::DescriptorBufferInfo indirectInfo{*batch.indirectBuffers[f], 0, VK_WHOLE_SIZE};
+
+            const std::array writes{
+                vk::WriteDescriptorSet{*set, 0, 0, 1, vk::DescriptorType::eStorageBuffer, nullptr, &inputInfo},
+                vk::WriteDescriptorSet{*set, 1, 0, 1, vk::DescriptorType::eStorageBuffer, nullptr, &outputInfo},
+                vk::WriteDescriptorSet{*set, 2, 0, 1, vk::DescriptorType::eStorageBuffer, nullptr, &indirectInfo},
+            };
+            vkCtx.device.updateDescriptorSets(writes, {});
+
+            batch.cullDescriptorSets.push_back(std::move(set));
+        }
+    }
+}
+
+void InstanceRenderer::cull(const vk::raii::CommandBuffer &commandBuffer, const uint32_t frameIndex,
+                            const vk::PipelineLayout cullLayout, const vk::Pipeline cullPipeline, const float time) {
+    constexpr uint32_t GROUP = 64;
+
+    commandBuffer.bindPipeline(vk::PipelineBindPoint::eCompute, cullPipeline);
+
+    for (auto &batch : batches) {
+        static_cast<vk::DrawIndexedIndirectCommand *>(batch.indirectBuffersMapped[frameIndex])->instanceCount = 0;
+
+        if (batch.visibleInstanceCount == 0)
+            continue;
+
+        commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eCompute, cullLayout, 2, *batch.cullDescriptorSets[frameIndex],
+                                         nullptr);
+
+        OcclusionCuller::PyramidPushConstants pc{};
+        pc.instanceCount = batch.visibleInstanceCount;
+        pc.time = time;
+        commandBuffer.pushConstants<OcclusionCuller::PyramidPushConstants>(cullLayout, vk::ShaderStageFlagBits::eCompute, 0,
+                                                                           pc);
+        commandBuffer.dispatch((batch.visibleInstanceCount + GROUP - 1) / GROUP, 1, 1);
+    }
+
+    std::vector<vk::BufferMemoryBarrier2> barriers;
+    barriers.reserve(batches.size() * 2);
+    for (const auto &batch : batches) {
+        vk::BufferMemoryBarrier2 culledBarrier{};
+        culledBarrier.srcStageMask = vk::PipelineStageFlagBits2::eComputeShader;
+        culledBarrier.srcAccessMask = vk::AccessFlagBits2::eShaderWrite;
+        culledBarrier.dstStageMask = vk::PipelineStageFlagBits2::eVertexAttributeInput;
+        culledBarrier.dstAccessMask = vk::AccessFlagBits2::eVertexAttributeRead;
+        culledBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        culledBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        culledBarrier.buffer = *batch.culledBuffers[frameIndex];
+        culledBarrier.size = VK_WHOLE_SIZE;
+        barriers.push_back(culledBarrier);
+
+        vk::BufferMemoryBarrier2 indirectBarrier{};
+        indirectBarrier.srcStageMask = vk::PipelineStageFlagBits2::eComputeShader;
+        indirectBarrier.srcAccessMask = vk::AccessFlagBits2::eShaderWrite;
+        indirectBarrier.dstStageMask = vk::PipelineStageFlagBits2::eDrawIndirect;
+        indirectBarrier.dstAccessMask = vk::AccessFlagBits2::eIndirectCommandRead;
+        indirectBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        indirectBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        indirectBarrier.buffer = *batch.indirectBuffers[frameIndex];
+        indirectBarrier.size = VK_WHOLE_SIZE;
+        barriers.push_back(indirectBarrier);
+    }
+
+    vk::DependencyInfo dependencyInfo{};
+    dependencyInfo.bufferMemoryBarrierCount = static_cast<uint32_t>(barriers.size());
+    dependencyInfo.pBufferMemoryBarriers = barriers.data();
+    commandBuffer.pipelineBarrier2(dependencyInfo);
 }
 
 void InstanceRenderer::update(const uint32_t currentImage, const CullingUtils::Frustum &frustum) {
@@ -164,11 +270,11 @@ void InstanceRenderer::draw(
         vk::DeviceSize vertexOffsets[] = {0};
         commandBuffer.bindVertexBuffers(0, *batch.mesh->unifiedBuffer, vertexOffsets);
         vk::DeviceSize instanceOffsets[] = {0};
-        commandBuffer.bindVertexBuffers(1, *batch.buffers[frameIndex], instanceOffsets);
+        commandBuffer.bindVertexBuffers(1, *batch.culledBuffers[frameIndex], instanceOffsets);
         const vk::DeviceSize vertexSizeOffset = sizeof(Mesh::Vertex) * batch.mesh->vertices.size();
         commandBuffer.bindIndexBuffer(*batch.mesh->unifiedBuffer, vertexSizeOffset, vk::IndexType::eUint32);
 
-        commandBuffer.drawIndexed(static_cast<uint32_t>(batch.mesh->indices.size()), batch.visibleInstanceCount, 0, 0, 0);
+        commandBuffer.drawIndexedIndirect(*batch.indirectBuffers[frameIndex], 0, 1, sizeof(vk::DrawIndexedIndirectCommand));
         drawCallCount++;
         vertexCount += static_cast<uint64_t>(batch.mesh->indices.size()) * batch.visibleInstanceCount;
     }

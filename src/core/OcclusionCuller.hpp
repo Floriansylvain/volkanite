@@ -20,17 +20,24 @@ class OcclusionCuller {
     void createPipelines(const vk::PipelineShaderStageCreateInfo &depthToMip0Stage,
                          const vk::PipelineShaderStageCreateInfo &downsampleStage);
 
+    void createCullPipeline(const vk::PipelineShaderStageCreateInfo &cullStage);
+    vk::raii::DescriptorSetLayout cullSetLayout = nullptr;
+    vk::raii::PipelineLayout cullPipelineLayout = nullptr;
+    vk::raii::Pipeline cullPipeline = nullptr;
+
     [[nodiscard]] vk::ImageView resolvedDepthView(uint32_t frameIndex) const { return *resolvedDepthImageViews[frameIndex]; }
 
     void buildPyramid(const vk::raii::CommandBuffer &commandBuffer, uint32_t frameIndex);
     void prepareDepthResolveTarget(const vk::raii::CommandBuffer &commandBuffer, uint32_t frameIndex);
 
-  private:
     struct PyramidPushConstants {
         glm::ivec2 srcSize;
         glm::ivec2 dstSize;
+        uint32_t instanceCount;
+        float time;
     };
 
+  private:
     struct MipLevelInfo {
         uint32_t width;
         uint32_t height;
