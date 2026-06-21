@@ -23,6 +23,8 @@ Engine::~Engine() = default;
 void Engine::createGraphicsPipeline() {
     const vk::raii::ShaderModule shaderModule =
         ShaderUtils::createShaderModule(vkCtx, ShaderUtils::readFile("shaders/shader.spv"));
+    const vk::raii::ShaderModule textShaderModule =
+        ShaderUtils::createShaderModule(vkCtx, ShaderUtils::readFile("shaders/text.spv"));
 
     vk::PipelineShaderStageCreateInfo vertShaderStageInfo{};
     vertShaderStageInfo.stage = vk::ShaderStageFlagBits::eVertex;
@@ -130,12 +132,12 @@ void Engine::createGraphicsPipeline() {
 
     vk::PipelineShaderStageCreateInfo textVertStageInfo{};
     textVertStageInfo.stage = vk::ShaderStageFlagBits::eVertex;
-    textVertStageInfo.module = shaderModule;
+    textVertStageInfo.module = textShaderModule;
     textVertStageInfo.pName = "vertMainText";
 
     vk::PipelineShaderStageCreateInfo textFragStageInfo{};
     textFragStageInfo.stage = vk::ShaderStageFlagBits::eFragment;
-    textFragStageInfo.module = shaderModule;
+    textFragStageInfo.module = textShaderModule;
     textFragStageInfo.pName = "fragMainText";
 
     textRenderer.createPipeline(textVertStageInfo, textFragStageInfo, pipelineRenderingCreateInfo, vkCtx.msaaSamples);
@@ -198,6 +200,31 @@ void Engine::transition_image_layouts(const std::vector<TransitionImageLayoutCom
     vk::DependencyInfo dependencyInfo{};
     dependencyInfo.imageMemoryBarrierCount = static_cast<uint32_t>(barriers.size());
     dependencyInfo.pImageMemoryBarriers = barriers.data();
+
+    commandBuffers[frameIndex].pipelineBarrier2(dependencyInfo);
+}
+
+void Engine::buffer_barriers(const std::vector<BufferBarrierCommand> &commands) const {
+    std::vector<vk::BufferMemoryBarrier2> barriers;
+    barriers.reserve(commands.size());
+
+    for (const auto &command : commands) {
+        vk::BufferMemoryBarrier2 barrier{};
+        barrier.srcStageMask = command.src_stage_mask;
+        barrier.srcAccessMask = command.src_access_mask;
+        barrier.dstStageMask = command.dst_stage_mask;
+        barrier.dstAccessMask = command.dst_access_mask;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.buffer = command.buffer;
+        barrier.offset = command.offset;
+        barrier.size = command.size;
+        barriers.push_back(barrier);
+    }
+
+    vk::DependencyInfo dependencyInfo{};
+    dependencyInfo.bufferMemoryBarrierCount = static_cast<uint32_t>(barriers.size());
+    dependencyInfo.pBufferMemoryBarriers = barriers.data();
 
     commandBuffers[frameIndex].pipelineBarrier2(dependencyInfo);
 }
@@ -662,46 +689,33 @@ void Engine::init() {
     createDescriptorPool();
 
     const FBXModel house = createFBXModel("models/House_scene_01.fbx", ".png");
+    placeFBXModel(house, glm::vec3(0.f, 0.f, 0.f), true);
 
     textRenderer.loadFont("textures/consolas.png", commandPool, 0.38, 0.2);
 
-    // const auto brickTexture = std::make_shared<Texture>(vkCtx);
-    // brickTexture->loadFromFile("textures/bricks.jpg", commandPool);
+    const auto mesh = std::make_shared<Mesh>(vkCtx);
+    MeshUtils::generateCube(*mesh, 1.f);
+    mesh->createGeometryBuffers(commandPool);
 
-    // const auto cubeMesh = std::make_shared<Mesh>(vkCtx);
-    // MeshUtils::generateCube(*cubeMesh, 1.f);
-    // cubeMesh->createGeometryBuffers(commandPool);
+    auto texture = std::make_shared<Texture>(vkCtx);
+    texture->loadFromFile("textures/bricks.jpg", commandPool);
 
-    constexpr int SIZE = 300;
-    constexpr int OFFSET = 50;
+    constexpr int SIZE = 100;
+    constexpr int OFFSET = 5;
     for (int x = -SIZE / 2; x < SIZE / 2; x += OFFSET) {
         for (int y = -SIZE / 2; y < SIZE / 2; y += OFFSET) {
             for (int z = -SIZE / 2; z < SIZE / 2; z += OFFSET) {
-                // RenderObject cube;
-                // cube.mesh = cubeMesh;
-                // cube.texture = brickTexture;
-                // cube.position = {x, y, z};
-                // cube.isInstanced = true;
-                // cube.rotationSpeed =
-                //     glm::sin(static_cast<float>(x)) + glm::sin(static_cast<float>(y)) + glm::sin(static_cast<float>(z));
-                // addRenderObject(std::move(cube));
-
-                placeFBXModel(house, glm::vec3(x, y, z), true);
+                RenderObject cube;
+                cube.mesh = mesh;
+                cube.texture = texture;
+                cube.position = {x, y, z};
+                cube.isInstanced = true;
+                cube.rotationSpeed =
+                    glm::sin(static_cast<float>(x)) + glm::sin(static_cast<float>(y)) + glm::sin(static_cast<float>(z));
+                addRenderObject(std::move(cube));
             }
         }
     }
-
-    // const auto cubeMesh2 = std::make_shared<Mesh>(vkCtx);
-    // MeshUtils::generateCube(*cubeMesh2, 100.f);
-    // cubeMesh2->createGeometryBuffers(commandPool);
-
-    // RenderObject cube;
-    // cube.mesh = cubeMesh2;
-    // cube.texture = brickTexture;
-    // cube.position = {0.f, 0.f, -150.f};
-    // cube.isInstanced = false;
-    // cube.rotationSpeed = 0.f;
-    // addRenderObject(std::move(cube));
 
     instanceRenderer.build();
     createCommandBuffers();

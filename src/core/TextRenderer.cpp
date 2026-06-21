@@ -7,7 +7,7 @@ TextRenderer::TextRenderer(VulkanContext &context, const int maxFramesInFlight)
 
 void TextRenderer::createDescriptorSetLayout() {
     vk::DescriptorSetLayoutBinding samplerBinding{};
-    samplerBinding.binding = 2;
+    samplerBinding.binding = 0;
     samplerBinding.descriptorType = vk::DescriptorType::eCombinedImageSampler;
     samplerBinding.descriptorCount = 1;
     samplerBinding.stageFlags = vk::ShaderStageFlagBits::eFragment;
@@ -41,7 +41,7 @@ void TextRenderer::createDescriptorSet() {
     imageInfo.imageView = *font.texture.textureImageView;
     imageInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
 
-    const vk::WriteDescriptorSet write{*descriptorSet, 2, 0, 1, vk::DescriptorType::eCombinedImageSampler, &imageInfo};
+    const vk::WriteDescriptorSet write{*descriptorSet, 0, 0, 1, vk::DescriptorType::eCombinedImageSampler, &imageInfo};
     vkCtx.device.updateDescriptorSets(write, {});
 }
 

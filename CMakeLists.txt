@@ -17,20 +17,30 @@ file(GLOB_RECURSE SOURCES "src/*.cpp")
 set(SLANG_SHADER "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/shader.slang")
 set(SLANG_SPV "${CMAKE_CURRENT_BINARY_DIR}/shaders/shader.spv")
 
-add_custom_command(
-        OUTPUT "${SLANG_SPV}"
-        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/shaders"
-        COMMAND ${SLANGC} "${SLANG_SHADER}"
-        -target spirv
-        -profile spirv_1_4
-        -emit-spirv-directly
-        -fvk-use-entrypoint-name
-        -o "${SLANG_SPV}"
-        DEPENDS "${SLANG_SHADER}"
-        VERBATIM
-)
+set(SLANG_SHADER_NAMES shader text)
 
-add_custom_target(generate_shaders DEPENDS "${SLANG_SPV}")
+set(SLANG_SPV_FILES "")
+foreach (SHADER_NAME ${SLANG_SHADER_NAMES})
+    set(SLANG_SHADER "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/${SHADER_NAME}.slang")
+    set(SLANG_SPV "${CMAKE_CURRENT_BINARY_DIR}/shaders/${SHADER_NAME}.spv")
+
+    add_custom_command(
+            OUTPUT "${SLANG_SPV}"
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/shaders"
+            COMMAND ${SLANGC} "${SLANG_SHADER}"
+            -target spirv
+            -profile spirv_1_4
+            -emit-spirv-directly
+            -fvk-use-entrypoint-name
+            -o "${SLANG_SPV}"
+            DEPENDS "${SLANG_SHADER}"
+            VERBATIM
+    )
+
+    list(APPEND SLANG_SPV_FILES "${SLANG_SPV}")
+endforeach ()
+
+add_custom_target(generate_shaders DEPENDS ${SLANG_SPV_FILES})
 
 add_executable(${PROJECT_NAME} ${SOURCES})
 
