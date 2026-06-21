@@ -1,10 +1,13 @@
 #ifndef MESH_HPP
 #define MESH_HPP
 
+#define GLM_ENABLE_EXPERIMENTAL
+
 #pragma once
 #include "VulkanContext.hpp"
 #include <array>
 #include <glm/glm.hpp>
+#include <glm/gtx/hash.hpp>
 #include <vector>
 
 class Mesh {
@@ -16,6 +19,10 @@ class Mesh {
 
         static vk::VertexInputBindingDescription getBindingDescription();
         static std::array<vk::VertexInputAttributeDescription, 3> getAttributeDescriptions();
+
+        bool operator==(const Vertex &other) const {
+            return pos == other.pos && color == other.color && texCoord == other.texCoord;
+        }
     };
 
     explicit Mesh(const VulkanContext &context);
@@ -37,5 +44,16 @@ class Mesh {
   private:
     const VulkanContext &vkCtx;
 };
+
+namespace std {
+template <> struct hash<Mesh::Vertex> {
+    size_t operator()(const Mesh::Vertex &vertex) const noexcept {
+        const size_t h1 = hash<glm::vec3>()(vertex.pos);
+        const size_t h2 = hash<glm::vec3>()(vertex.color);
+        const size_t h3 = hash<glm::vec2>()(vertex.texCoord);
+        return ((h1 ^ (h2 << 1)) >> 1) ^ (h3 << 1);
+    }
+};
+} // namespace std
 
 #endif

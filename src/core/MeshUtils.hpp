@@ -12,6 +12,8 @@ void generateCube(Mesh &mesh, const float &size);
 
 std::vector<SubMesh> loadFBXModel(const std::string &path);
 
+void deduplicateVertices(std::vector<Mesh::Vertex> &vertices, std::vector<uint32_t> &indices);
+
 } // namespace MeshUtils
 
 #endif

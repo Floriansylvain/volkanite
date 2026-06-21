@@ -566,6 +566,8 @@ Engine::FBXModel Engine::createFBXModel(const std::string &fbxPath, const std::s
     FBXModel model;
 
     for (auto &[filename, group] : merged) {
+        MeshUtils::deduplicateVertices(group.vertices, group.indices);
+
         std::shared_ptr<Texture> texture;
         if (const auto it = textureCache.find(filename); it != textureCache.end()) {
             texture = it->second;
@@ -597,7 +599,7 @@ void Engine::placeFBXModel(const FBXModel &model, const glm::vec3 &position, con
         object.texture = model.textures[i];
         object.position = position;
         object.isInstanced = instanced;
-        object.rotationSpeed = 0.f;
+        object.rotationSpeed = 1.f;
         addRenderObject(std::move(object));
     }
 }

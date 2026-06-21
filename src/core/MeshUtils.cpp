@@ -135,3 +135,27 @@ std::vector<SubMesh> MeshUtils::loadFBXModel(const std::string &path) {
     ufbx_free_scene(scene);
     return subMeshes;
 }
+
+void MeshUtils::deduplicateVertices(std::vector<Mesh::Vertex> &vertices, std::vector<uint32_t> &indices) {
+    std::unordered_map<Mesh::Vertex, uint32_t> uniqueVertices;
+    std::vector<Mesh::Vertex> dedupedVertices;
+    std::vector<uint32_t> remappedIndices;
+    dedupedVertices.reserve(vertices.size());
+    remappedIndices.reserve(indices.size());
+
+    for (const uint32_t idx : indices) {
+        const Mesh::Vertex &v = vertices[idx];
+        const auto it = uniqueVertices.find(v);
+        if (it == uniqueVertices.end()) {
+            const auto newIndex = static_cast<uint32_t>(dedupedVertices.size());
+            uniqueVertices.emplace(v, newIndex);
+            dedupedVertices.push_back(v);
+            remappedIndices.push_back(newIndex);
+        } else {
+            remappedIndices.push_back(it->second);
+        }
+    }
+
+    vertices = std::move(dedupedVertices);
+    indices = std::move(remappedIndices);
+}
