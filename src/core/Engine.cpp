@@ -54,7 +54,7 @@ void Engine::createGraphicsPipeline() {
     rasterizer.lineWidth = 1.0f;
 
     vk::PipelineMultisampleStateCreateInfo multisampling{};
-    multisampling.rasterizationSamples = vk::SampleCountFlagBits::e1;
+    multisampling.rasterizationSamples = vkCtx.msaaSamples;
     multisampling.sampleShadingEnable = vk::False;
 
     using enum vk::ColorComponentFlagBits;
@@ -158,30 +158,33 @@ void Engine::createCommandBuffers() {
     commandBuffers = vk::raii::CommandBuffers(vkCtx.device, allocInfo);
 }
 
-void Engine::transition_image_layout(transitionImageLayoutCommand const &command) const {
-    vk::ImageSubresourceRange subresourceRange = {};
-    subresourceRange.aspectMask = command.image_aspect_flags;
-    subresourceRange.baseMipLevel = 0;
-    subresourceRange.levelCount = 1;
-    subresourceRange.baseArrayLayer = 0;
-    subresourceRange.layerCount = 1;
+void Engine::transition_image_layouts(const std::vector<TransitionImageLayoutCommand> &commands) const {
+    std::vector<vk::ImageMemoryBarrier2> barriers;
+    barriers.reserve(commands.size());
 
-    vk::ImageMemoryBarrier2 barrier = {};
-    barrier.srcStageMask = command.src_stage_mask;
-    barrier.srcAccessMask = command.src_access_mask;
-    barrier.dstStageMask = command.dst_stage_mask;
-    barrier.dstAccessMask = command.dst_access_mask;
-    barrier.oldLayout = command.old_layout;
-    barrier.newLayout = command.new_layout;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = command.image;
-    barrier.subresourceRange = subresourceRange;
+    for (const auto &command : commands) {
+        vk::ImageSubresourceRange subresourceRange{};
+        subresourceRange.aspectMask = command.image_aspect_flags;
+        subresourceRange.levelCount = 1;
+        subresourceRange.layerCount = 1;
+
+        vk::ImageMemoryBarrier2 barrier{};
+        barrier.srcStageMask = command.src_stage_mask;
+        barrier.srcAccessMask = command.src_access_mask;
+        barrier.dstStageMask = command.dst_stage_mask;
+        barrier.dstAccessMask = command.dst_access_mask;
+        barrier.oldLayout = command.old_layout;
+        barrier.newLayout = command.new_layout;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.image = command.image;
+        barrier.subresourceRange = subresourceRange;
+        barriers.push_back(barrier);
+    }
 
     vk::DependencyInfo dependencyInfo{};
-    dependencyInfo.dependencyFlags = {};
-    dependencyInfo.imageMemoryBarrierCount = 1;
-    dependencyInfo.pImageMemoryBarriers = &barrier;
+    dependencyInfo.imageMemoryBarrierCount = static_cast<uint32_t>(barriers.size());
+    dependencyInfo.pImageMemoryBarriers = barriers.data();
 
     commandBuffers[frameIndex].pipelineBarrier2(dependencyInfo);
 }
@@ -195,35 +198,47 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
 
     commandBuffers[frameIndex].begin({});
 
-    transitionImageLayoutCommand transitionCmd = {};
+    TransitionImageLayoutCommand colorTransition{};
+    colorTransition.image = swapChainHandler.images[imageIndex];
+    colorTransition.old_layout = eUndefined;
+    colorTransition.new_layout = eColorAttachmentOptimal;
+    colorTransition.src_access_mask = {};
+    colorTransition.dst_access_mask = vk::AccessFlagBits2::eColorAttachmentWrite;
+    colorTransition.src_stage_mask = eColorAttachmentOutput;
+    colorTransition.dst_stage_mask = eColorAttachmentOutput;
+    colorTransition.image_aspect_flags = vk::ImageAspectFlagBits::eColor;
 
-    transitionCmd.image = swapChainHandler.images[imageIndex];
-    transitionCmd.old_layout = eUndefined;
-    transitionCmd.new_layout = eColorAttachmentOptimal;
-    transitionCmd.src_access_mask = {};
-    transitionCmd.dst_access_mask = vk::AccessFlagBits2::eColorAttachmentWrite;
-    transitionCmd.src_stage_mask = eColorAttachmentOutput;
-    transitionCmd.dst_stage_mask = eColorAttachmentOutput;
-    transitionCmd.image_aspect_flags = vk::ImageAspectFlagBits::eColor;
+    TransitionImageLayoutCommand msaaColorTransition{};
+    msaaColorTransition.image = *swapChainHandler.colorImage;
+    msaaColorTransition.old_layout = eUndefined;
+    msaaColorTransition.new_layout = eColorAttachmentOptimal;
+    msaaColorTransition.src_access_mask = {};
+    msaaColorTransition.dst_access_mask = vk::AccessFlagBits2::eColorAttachmentWrite;
+    msaaColorTransition.src_stage_mask = eColorAttachmentOutput;
+    msaaColorTransition.dst_stage_mask = eColorAttachmentOutput;
+    msaaColorTransition.image_aspect_flags = vk::ImageAspectFlagBits::eColor;
 
-    transition_image_layout(transitionCmd);
+    TransitionImageLayoutCommand depthTransition{};
+    depthTransition.image = *swapChainHandler.depthImage;
+    depthTransition.old_layout = eUndefined;
+    depthTransition.new_layout = eDepthAttachmentOptimal;
+    depthTransition.src_access_mask = vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
+    depthTransition.dst_access_mask = vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
+    depthTransition.src_stage_mask = eEarlyFragmentTests | eLateFragmentTests;
+    depthTransition.dst_stage_mask = eEarlyFragmentTests | eLateFragmentTests;
+    depthTransition.image_aspect_flags = vk::ImageAspectFlagBits::eDepth;
 
-    transitionCmd.image = *swapChainHandler.depthImage;
-    transitionCmd.new_layout = eDepthAttachmentOptimal;
-    transitionCmd.src_access_mask = vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
-    transitionCmd.dst_access_mask = vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
-    transitionCmd.src_stage_mask = eEarlyFragmentTests | eLateFragmentTests;
-    transitionCmd.dst_stage_mask = eEarlyFragmentTests | eLateFragmentTests;
-    transitionCmd.image_aspect_flags = vk::ImageAspectFlagBits::eDepth;
-
-    transition_image_layout(transitionCmd);
+    transition_image_layouts({colorTransition, msaaColorTransition, depthTransition});
 
     constexpr vk::ClearValue clearColor = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 1.0f);
     vk::RenderingAttachmentInfo attachmentInfo = {};
-    attachmentInfo.imageView = swapChainHandler.imageViews[imageIndex];
+    attachmentInfo.imageView = swapChainHandler.colorImageView;
     attachmentInfo.imageLayout = eColorAttachmentOptimal;
+    attachmentInfo.resolveMode = vk::ResolveModeFlagBits::eAverage;
+    attachmentInfo.resolveImageView = swapChainHandler.imageViews[imageIndex];
+    attachmentInfo.resolveImageLayout = eColorAttachmentOptimal;
     attachmentInfo.loadOp = vk::AttachmentLoadOp::eClear;
-    attachmentInfo.storeOp = vk::AttachmentStoreOp::eStore;
+    attachmentInfo.storeOp = vk::AttachmentStoreOp::eDontCare;
     attachmentInfo.clearValue = clearColor;
 
     constexpr vk::ClearValue clearDepth = vk::ClearDepthStencilValue(1.0f, 0);
@@ -292,16 +307,16 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
 
     commandBuffers[frameIndex].endRendering();
 
-    transitionCmd.image = swapChainHandler.images[imageIndex];
-    transitionCmd.old_layout = eColorAttachmentOptimal;
-    transitionCmd.new_layout = ePresentSrcKHR;
-    transitionCmd.src_access_mask = vk::AccessFlagBits2::eColorAttachmentWrite;
-    transitionCmd.dst_access_mask = {};
-    transitionCmd.src_stage_mask = eColorAttachmentOutput;
-    transitionCmd.dst_stage_mask = eBottomOfPipe;
-    transitionCmd.image_aspect_flags = vk::ImageAspectFlagBits::eColor;
+    TransitionImageLayoutCommand presentTransition{};
+    presentTransition.image = swapChainHandler.images[imageIndex], presentTransition.old_layout = eColorAttachmentOptimal;
+    presentTransition.new_layout = ePresentSrcKHR;
+    presentTransition.src_access_mask = vk::AccessFlagBits2::eColorAttachmentWrite;
+    presentTransition.dst_access_mask = {};
+    presentTransition.src_stage_mask = eColorAttachmentOutput;
+    presentTransition.dst_stage_mask = eBottomOfPipe;
+    presentTransition.image_aspect_flags = vk::ImageAspectFlagBits::eColor;
 
-    transition_image_layout(transitionCmd);
+    transition_image_layouts({presentTransition});
     commandBuffers[frameIndex].end();
 }
 
@@ -618,6 +633,7 @@ void Engine::init() {
     createDescriptorSetLayout();
     createGraphicsPipeline();
     createCommandPool();
+    swapChainHandler.createColorResources();
     swapChainHandler.createDepthResources();
 
     createCameraUniformBuffer();

@@ -15,6 +15,7 @@ struct CreateImageCommand {
     uint32_t width;
     uint32_t height;
     uint32_t mipLevels;
+    vk::SampleCountFlagBits samples;
     vk::Format format;
     vk::ImageTiling tiling;
     vk::ImageUsageFlags usage;

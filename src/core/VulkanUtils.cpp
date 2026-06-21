@@ -41,7 +41,7 @@ std::pair<vk::raii::Image, vk::raii::DeviceMemory> VulkanUtils::createImage(Vulk
     imageInfo.extent = vk::Extent3D{command.width, command.height, 1};
     imageInfo.mipLevels = 1;
     imageInfo.arrayLayers = 1;
-    imageInfo.samples = vk::SampleCountFlagBits::e1;
+    imageInfo.samples = command.samples;
     imageInfo.tiling = command.tiling;
     imageInfo.usage = command.usage;
     imageInfo.sharingMode = vk::SharingMode::eExclusive;

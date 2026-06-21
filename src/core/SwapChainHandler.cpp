@@ -103,10 +103,20 @@ vk::Format SwapChainHandler::findDepthFormat() const {
                                vk::FormatFeatureFlagBits::eDepthStencilAttachment);
 }
 
+void SwapChainHandler::createColorResources() {
+    const vk::Format colorFormat = surfaceFormat.format;
+
+    std::tie(colorImage, colorImageMemory) = VulkanUtils::createImage(
+        vkCtx, {extent2D.width, extent2D.height, 1, vkCtx.msaaSamples, colorFormat, vk::ImageTiling::eOptimal,
+                vk::ImageUsageFlagBits::eTransientAttachment | vk::ImageUsageFlagBits::eColorAttachment,
+                vk::MemoryPropertyFlagBits::eDeviceLocal});
+    colorImageView = VulkanUtils::createImageView(vkCtx, colorImage, colorFormat, vk::ImageAspectFlagBits::eColor, 1);
+}
+
 void SwapChainHandler::createDepthResources() {
     const vk::Format depthFormat = findDepthFormat();
     std::tie(depthImage, depthImageMemory) = VulkanUtils::createImage(
-        vkCtx, {extent2D.width, extent2D.height, 1, depthFormat, vk::ImageTiling::eOptimal,
+        vkCtx, {extent2D.width, extent2D.height, 1, vkCtx.msaaSamples, depthFormat, vk::ImageTiling::eOptimal,
                 vk::ImageUsageFlagBits::eDepthStencilAttachment, vk::MemoryPropertyFlagBits::eDeviceLocal});
     depthImageView = VulkanUtils::createImageView(vkCtx, depthImage, depthFormat, vk::ImageAspectFlagBits::eDepth, 1);
 }
@@ -120,6 +130,7 @@ void SwapChainHandler::recreate() {
     cleanup();
     create();
     createImageViews();
+    createColorResources();
     createDepthResources();
 }
 

@@ -24,6 +24,8 @@ struct VulkanContext {
     uint32_t queueIndex = 0;
     vk::raii::Queue queue = nullptr;
 
+    vk::SampleCountFlagBits msaaSamples = vk::SampleCountFlagBits::e1;
+
     void init(const Window &window);
 
   private:
@@ -38,6 +40,8 @@ struct VulkanContext {
     void createLogicalDevice();
 
     bool isDeviceSuitable(const vk::raii::PhysicalDevice &_physicalDevice);
+
+    vk::SampleCountFlagBits getMaxUsableSampleCount();
 };
 
 #endif

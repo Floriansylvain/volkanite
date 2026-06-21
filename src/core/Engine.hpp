@@ -69,7 +69,7 @@ class Engine {
     void createGraphicsPipeline();
     void createCommandPool();
     void createCommandBuffers();
-    struct transitionImageLayoutCommand {
+    struct TransitionImageLayoutCommand {
         vk::Image image;
         vk::ImageLayout old_layout;
         vk::ImageLayout new_layout;
@@ -79,7 +79,7 @@ class Engine {
         vk::PipelineStageFlags2 dst_stage_mask;
         vk::ImageAspectFlags image_aspect_flags;
     };
-    void transition_image_layout(transitionImageLayoutCommand const &command) const;
+    void transition_image_layouts(const std::vector<TransitionImageLayoutCommand> &commands) const;
     void recordCommandBuffer(uint32_t imageIndex);
     void createSyncObjects();
     void drawFrame();

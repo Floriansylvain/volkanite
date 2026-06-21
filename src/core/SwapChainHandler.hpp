@@ -29,8 +29,13 @@ class SwapChainHandler {
     vk::raii::DeviceMemory depthImageMemory = nullptr;
     vk::raii::ImageView depthImageView = nullptr;
 
+    vk::raii::Image colorImage = nullptr;
+    vk::raii::DeviceMemory colorImageMemory = nullptr;
+    vk::raii::ImageView colorImageView = nullptr;
+
     void create();
     void createImageViews();
+    void createColorResources();
     void createDepthResources();
     void recreate();
     void cleanup();
