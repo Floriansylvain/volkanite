@@ -45,6 +45,7 @@ class OcclusionCuller {
         float boundingCenterX;
         float boundingCenterY;
         float boundingCenterZ;
+        uint32_t occlusionEnabled;
     };
 
   private:

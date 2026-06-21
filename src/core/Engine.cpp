@@ -276,7 +276,8 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
     occlusionCuller.buildPyramid(commandBuffers[frameIndex], frameIndex);
 
     instanceRenderer.cull(commandBuffers[frameIndex], frameIndex, occlusionCuller.cullPipelineLayout,
-                          occlusionCuller.cullPipeline, time, occlusionCuller.mipLevels - 1, swapChainHandler.extent2D);
+                          occlusionCuller.cullPipeline, time, occlusionCuller.mipLevels - 1, swapChainHandler.extent2D,
+                          occlusionEnabled);
 
     constexpr vk::ClearValue clearColor = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 1.0f);
     vk::RenderingAttachmentInfo attachmentInfo = {};
@@ -799,12 +800,22 @@ void Engine::update() {
     if (key_states[SDL_SCANCODE_SPACE])
         input.z += 1;
 
+    // -----------------------------------------------------------
+    // TODO: replace by window actions callback system
     static bool gKeyWasDown = false;
     const bool gKeyDown = key_states[SDL_SCANCODE_G];
     if (gKeyDown && !gKeyWasDown) {
         showCullingDebug = !showCullingDebug;
     }
     gKeyWasDown = gKeyDown;
+
+    static bool cKeyWasDown = false;
+    const bool cKeyDown = key_states[SDL_SCANCODE_C];
+    if (cKeyDown && !cKeyWasDown) {
+        occlusionEnabled = !occlusionEnabled;
+    }
+    cKeyWasDown = cKeyDown;
+    // -----------------------------------------------------------
 
     glm::vec3 movement = flatForward * input.y + right * input.x;
     if (glm::length(movement) > 0.0f) {

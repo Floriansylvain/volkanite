@@ -271,9 +271,9 @@ void InstanceRenderer::createCullDescriptorSets(vk::DescriptorSetLayout cullSetL
     }
 }
 
-void InstanceRenderer::cull(const vk::raii::CommandBuffer &commandBuffer, const uint32_t frameIndex,
-                            const vk::PipelineLayout pipelineLayout, const vk::Pipeline pipeline, const float time,
-                            const uint32_t maxMip, const vk::Extent2D &extent) {
+void InstanceRenderer::cull(const vk::raii::CommandBuffer &commandBuffer, uint32_t frameIndex,
+                            vk::PipelineLayout pipelineLayout, vk::Pipeline pipeline, float time, uint32_t maxMip,
+                            const vk::Extent2D &extent, bool occlusionEnabled) {
     commandBuffer.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline);
 
     for (const auto &batch : batches) {
@@ -323,6 +323,7 @@ void InstanceRenderer::cull(const vk::raii::CommandBuffer &commandBuffer, const 
         pc.boundingCenterX = batch.mesh->boundingCenter.x;
         pc.boundingCenterY = batch.mesh->boundingCenter.y;
         pc.boundingCenterZ = batch.mesh->boundingCenter.z;
+        pc.occlusionEnabled = occlusionEnabled ? 1u : 0u;
 
         commandBuffer.pushConstants<OcclusionCuller::PyramidPushConstants>(pipelineLayout, vk::ShaderStageFlagBits::eCompute, 0,
                                                                            pc);

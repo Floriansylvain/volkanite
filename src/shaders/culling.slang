@@ -8,6 +8,7 @@ struct PyramidPushConstants {
     float boundingCenterX;
     float boundingCenterY;
     float boundingCenterZ;
+    uint occlusionEnabled;
 };
 [[vk::push_constant]] ConstantBuffer<PyramidPushConstants> pc;
 
@@ -106,7 +107,7 @@ void csCullInstances(uint3 id: SV_DispatchThreadID) {
 
     bool visible = true;
 
-    if (dist > radius) {
+    if (pc.occlusionEnabled != 0 && dist > radius) {
         float nearestViewZ = viewPos.z + radius;
 
         float4 nearClip = mul(cullCamera.proj, float4(0.0, 0.0, nearestViewZ, 1.0));

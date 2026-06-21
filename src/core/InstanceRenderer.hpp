@@ -35,8 +35,8 @@ class InstanceRenderer {
     void createCullDescriptorSets(vk::DescriptorSetLayout cullSetLayout, const std::vector<vk::ImageView> &hiZViews,
                                   vk::Sampler hiZSampler, const std::vector<vk::Buffer> &cameraUniformBuffers);
 
-    void cull(const vk::raii::CommandBuffer &commandBuffer, const uint32_t frameIndex, const vk::PipelineLayout pipelineLayout,
-              const vk::Pipeline pipeline, const float time, const uint32_t maxMip, const vk::Extent2D &extent);
+    void cull(const vk::raii::CommandBuffer &commandBuffer, uint32_t frameIndex, vk::PipelineLayout pipelineLayout,
+              vk::Pipeline pipeline, float time, uint32_t maxMip, const vk::Extent2D &extent, bool occlusionEnabled);
 
     void draw(const vk::raii::CommandBuffer &commandBuffer, uint32_t frameIndex, vk::PipelineLayout pipelineLayout,
               const std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>> &textureDescriptorSets,

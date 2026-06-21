@@ -72,8 +72,12 @@ class Engine {
     bool isInitialized = false;
     bool framebufferResized = false;
     bool isWireframe = false;
-    // TODO: replace by window action callback system
+
+    // -----------------------------------------------
+    // TODO: replace by window actions callback system
     bool showCullingDebug = false;
+    bool occlusionEnabled = true;
+    // -----------------------------------------------
 
     std::chrono::high_resolution_clock::time_point engineStartTime;
 
