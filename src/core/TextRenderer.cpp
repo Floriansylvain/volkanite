@@ -149,29 +149,32 @@ void TextRenderer::createPipeline(const vk::PipelineShaderStageCreateInfo &vertS
 
 void TextRenderer::drawText(const std::string &text, const float pixelX, const float pixelY, const float pixelHeight,
                             const glm::vec3 &color, const vk::Extent2D screenExtent) {
-    float cursorX = pixelX;
+    constexpr float REFERENCE_HEIGHT = 1080.0f;
+    const float scale = static_cast<float>(screenExtent.height) / REFERENCE_HEIGHT;
+
+    const float scaledHeight = pixelHeight * scale;
+    float cursorX = pixelX * scale;
+    const float scaledY = pixelY * scale;
 
     for (const char c : text) {
         if (pendingVertices.size() + VERTICES_PER_CHAR > MAX_CHARS * VERTICES_PER_CHAR) {
             break;
         }
-
         if (c == ' ') {
-            cursorX += pixelHeight * wordSpacing;
+            cursorX += scaledHeight * wordSpacing;
             continue;
         }
 
         const auto [u0, v0, u1, v1] = font.glyphUV(c);
-
         auto toNdc = [&](const float px, const float py) {
             return glm::vec2((px / static_cast<float>(screenExtent.width)) * 2.0f - 1.0f,
                              (py / static_cast<float>(screenExtent.height)) * 2.0f - 1.0f);
         };
 
-        const glm::vec2 topLeft = toNdc(cursorX, pixelY);
-        const glm::vec2 topRight = toNdc(cursorX + pixelHeight, pixelY);
-        const glm::vec2 bottomLeft = toNdc(cursorX, pixelY + pixelHeight);
-        const glm::vec2 bottomRight = toNdc(cursorX + pixelHeight, pixelY + pixelHeight);
+        const glm::vec2 topLeft = toNdc(cursorX, scaledY);
+        const glm::vec2 topRight = toNdc(cursorX + scaledHeight, scaledY);
+        const glm::vec2 bottomLeft = toNdc(cursorX, scaledY + scaledHeight);
+        const glm::vec2 bottomRight = toNdc(cursorX + scaledHeight, scaledY + scaledHeight);
 
         pendingVertices.push_back({topLeft, color, {u0, v0}});
         pendingVertices.push_back({topRight, color, {u1, v0}});
@@ -180,7 +183,7 @@ void TextRenderer::drawText(const std::string &text, const float pixelX, const f
         pendingVertices.push_back({bottomLeft, color, {u0, v1}});
         pendingVertices.push_back({topLeft, color, {u0, v0}});
 
-        cursorX += pixelHeight * letterSpacing;
+        cursorX += scaledHeight * letterSpacing;
     }
 }
 

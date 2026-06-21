@@ -27,6 +27,7 @@ class Engine {
     void cleanup();
 
   private:
+    constexpr static float DEBUG_FONT_SIZE = 38.f;
     constexpr static int MAX_FRAMES_IN_FLIGHT = 2;
     constexpr static int MAX_TEXTURES = 16;
 

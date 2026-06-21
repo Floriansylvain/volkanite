@@ -320,8 +320,9 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
 
     float offset = 10.f;
     for (size_t i = 0; i < debugLines.size(); i++) {
-        textRenderer.drawText(debugLines[i], 10.0f, i + offset, 64.0f, glm::vec3(1.0f, 1.0f, 1.0f), swapChainHandler.extent2D);
-        offset += 48.0f;
+        textRenderer.drawText(debugLines[i], 10.0f, i + offset, DEBUG_FONT_SIZE, glm::vec3(1.0f, 1.0f, 1.0f),
+                              swapChainHandler.extent2D);
+        offset += DEBUG_FONT_SIZE - 14.f;
     }
     textRenderer.render(commandBuffers[frameIndex], frameIndex);
 
@@ -662,7 +663,7 @@ void Engine::init() {
 
     const FBXModel house = createFBXModel("models/House_scene_01.fbx", ".png");
 
-    textRenderer.loadFont("textures/consolas.png", commandPool, 0.35, 0.2);
+    textRenderer.loadFont("textures/consolas.png", commandPool, 0.38, 0.2);
 
     // const auto brickTexture = std::make_shared<Texture>(vkCtx);
     // brickTexture->loadFromFile("textures/bricks.jpg", commandPool);
