@@ -10,6 +10,7 @@
 #include "SwapChainHandler.hpp"
 #include "TextRenderer.hpp"
 #include "VulkanContext.hpp"
+#include <chrono>
 #include <glm/glm.hpp>
 
 #if defined(__INTELLISENSE__) || !defined(USE_CPP20_MODULES)
@@ -71,6 +72,10 @@ class Engine {
     bool isInitialized = false;
     bool framebufferResized = false;
     bool isWireframe = false;
+    // TODO: replace by window action callback system
+    bool showCullingDebug = false;
+
+    std::chrono::high_resolution_clock::time_point engineStartTime;
 
     void createGraphicsPipeline();
     void createCommandPool();

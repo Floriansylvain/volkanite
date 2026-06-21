@@ -28,9 +28,18 @@ void Mesh::createGeometryBuffers(const vk::raii::CommandPool &commandPool) {
 
     VulkanUtils::copyBuffer(vkCtx, stagingBuffer, unifiedBuffer, totalBufferSize, commandPool);
 
+    glm::vec3 minBounds(std::numeric_limits<float>::max());
+    glm::vec3 maxBounds(std::numeric_limits<float>::lowest());
+    for (const auto &v : vertices) {
+        minBounds = glm::min(minBounds, v.pos);
+        maxBounds = glm::max(maxBounds, v.pos);
+    }
+    boundingCenter = (minBounds + maxBounds) * 0.5f;
+
     float maxDistSq = 0.0f;
     for (const auto &v : vertices) {
-        maxDistSq = std::max(maxDistSq, glm::dot(v.pos, v.pos));
+        const glm::vec3 offset = v.pos - boundingCenter;
+        maxDistSq = std::max(maxDistSq, glm::dot(offset, offset));
     }
     boundingRadius = std::sqrt(maxDistSq);
 }

@@ -238,11 +238,7 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
 
     commandBuffers[frameIndex].begin({});
 
-    static auto startTime = std::chrono::high_resolution_clock::now();
-    const float time = std::chrono::duration<float>(std::chrono::high_resolution_clock::now() - startTime).count();
-
-    instanceRenderer.cull(commandBuffers[frameIndex], frameIndex, occlusionCuller.cullPipelineLayout,
-                          occlusionCuller.cullPipeline, time);
+    const float time = std::chrono::duration<float>(std::chrono::high_resolution_clock::now() - engineStartTime).count();
 
     TransitionImageLayoutCommand colorTransition{};
     colorTransition.image = swapChainHandler.images[imageIndex];
@@ -275,7 +271,12 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
     depthTransition.image_aspect_flags = vk::ImageAspectFlagBits::eDepth;
 
     transition_image_layouts({colorTransition, msaaColorTransition, depthTransition});
+
     occlusionCuller.prepareDepthResolveTarget(commandBuffers[frameIndex], frameIndex);
+    occlusionCuller.buildPyramid(commandBuffers[frameIndex], frameIndex);
+
+    instanceRenderer.cull(commandBuffers[frameIndex], frameIndex, occlusionCuller.cullPipelineLayout,
+                          occlusionCuller.cullPipeline, time, occlusionCuller.mipLevels - 1, swapChainHandler.extent2D);
 
     constexpr vk::ClearValue clearColor = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 1.0f);
     vk::RenderingAttachmentInfo attachmentInfo = {};
@@ -294,8 +295,7 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
     depthAttachmentInfo.imageLayout = eDepthAttachmentOptimal;
     depthAttachmentInfo.resolveMode = vk::ResolveModeFlagBits::eMax;
     depthAttachmentInfo.resolveImageView = occlusionCuller.resolvedDepthView(frameIndex);
-    depthAttachmentInfo.resolveImageLayout = vk::ImageLayout::eDepthAttachmentOptimal;
-
+    depthAttachmentInfo.resolveImageLayout = eDepthAttachmentOptimal;
     depthAttachmentInfo.loadOp = vk::AttachmentLoadOp::eClear;
     depthAttachmentInfo.storeOp = vk::AttachmentStoreOp::eDontCare;
     depthAttachmentInfo.clearValue = clearDepth;
@@ -322,36 +322,13 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
                                                            static_cast<float>(swapChainHandler.extent2D.height), 0.0f, 1.0f));
     commandBuffers[frameIndex].setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainHandler.extent2D));
 
-    for (const auto &[position, mesh, texture, isInstanced, isVisible, rotation] : renderObjects) {
-        if (!isVisible)
-            continue;
-
-        const auto &sets = textureDescriptorSets.at(texture);
-        commandBuffers[frameIndex].bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *pipelineLayout, 0, *sets[frameIndex],
-                                                      nullptr);
-
-        std::vector<vk::DeviceSize> offsets = {0};
-        commandBuffers[frameIndex].bindVertexBuffers(0, *mesh->unifiedBuffer, offsets);
-        const vk::DeviceSize vertexSizeOffset = sizeof(Mesh::Vertex) * mesh->vertices.size();
-        commandBuffers[frameIndex].bindIndexBuffer(*mesh->unifiedBuffer, vertexSizeOffset, vk::IndexType::eUint32);
-
-        ModelPushConstant pc{};
-        if (rotation != 0.f) {
-            pc.model = glm::translate(glm::mat4(1.0f), position) *
-                       rotate(glm::mat4(1.0f), time * glm::radians(90.0f) * rotation, glm::vec3(1.0f, 0.0f, 1.0f));
-        } else {
-            pc.model = glm::translate(glm::mat4(1.0f), position);
-        }
-
-        commandBuffers[frameIndex].pushConstants<ModelPushConstant>(*pipelineLayout, vk::ShaderStageFlagBits::eVertex, 0, pc);
-
-        commandBuffers[frameIndex].drawIndexed(static_cast<uint32_t>(mesh->indices.size()), 1, 0, 0, 0);
-        ++drawCallCount;
-        vertexCount += mesh->indices.size();
-    }
-
     instanceRenderer.draw(commandBuffers[frameIndex], frameIndex, *pipelineLayout, textureDescriptorSets, isWireframe,
                           drawCallCount, vertexCount);
+    vertexCount = instanceRenderer.getVisibleVertexEstimate(frameIndex);
+
+    if (showCullingDebug) {
+        instanceRenderer.drawXray(commandBuffers[frameIndex], frameIndex, *pipelineLayout, textureDescriptorSets);
+    }
 
     float offset = 10.f;
     for (size_t i = 0; i < debugLines.size(); i++) {
@@ -362,8 +339,6 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
     textRenderer.render(commandBuffers[frameIndex], frameIndex);
 
     commandBuffers[frameIndex].endRendering();
-
-    occlusionCuller.buildPyramid(commandBuffers[frameIndex], frameIndex);
 
     TransitionImageLayoutCommand presentTransition{};
     presentTransition.image = swapChainHandler.images[imageIndex], presentTransition.old_layout = eColorAttachmentOptimal;
@@ -713,6 +688,8 @@ void Engine::init() {
         throw EngineExceptions::NotInitialized("Failed to run Engine : Window is not running");
     }
 
+    engineStartTime = std::chrono::high_resolution_clock::now();
+
     window.setChangeCallback([this] { framebufferResized = true; });
     window.setWireframeCallback([this] { isWireframe = !isWireframe; });
 
@@ -759,7 +736,22 @@ void Engine::init() {
     }
 
     instanceRenderer.build(commandPool);
-    instanceRenderer.createCullDescriptorSets(*occlusionCuller.cullSetLayout);
+
+    std::vector<vk::ImageView> hiZViews;
+    hiZViews.reserve(occlusionCuller.hiZFullViews.size());
+    for (const auto &view : occlusionCuller.hiZFullViews) {
+        hiZViews.push_back(*view);
+    }
+
+    std::vector<vk::Buffer> camBuffers;
+    camBuffers.reserve(cameraUniformBuffers.size());
+    for (const auto &buf : cameraUniformBuffers) {
+        camBuffers.push_back(*buf);
+    }
+
+    instanceRenderer.createCullDescriptorSets(*occlusionCuller.cullSetLayout, hiZViews, *occlusionCuller.hiZSampler,
+                                              camBuffers);
+
     createCommandBuffers();
     createSyncObjects();
 
@@ -807,12 +799,19 @@ void Engine::update() {
     if (key_states[SDL_SCANCODE_SPACE])
         input.z += 1;
 
+    static bool gKeyWasDown = false;
+    const bool gKeyDown = key_states[SDL_SCANCODE_G];
+    if (gKeyDown && !gKeyWasDown) {
+        showCullingDebug = !showCullingDebug;
+    }
+    gKeyWasDown = gKeyDown;
+
     glm::vec3 movement = flatForward * input.y + right * input.x;
     if (glm::length(movement) > 0.0f) {
         movement = glm::normalize(movement);
     }
 
-    constexpr float speed = 75.0f;
+    constexpr float speed = 10.0f;
     camera.x += movement.x * speed * deltaTime;
     camera.y += movement.y * speed * deltaTime;
     camera.z += input.z * speed * deltaTime;

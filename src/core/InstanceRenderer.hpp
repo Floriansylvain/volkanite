@@ -32,13 +32,21 @@ class InstanceRenderer {
     void build(const vk::raii::CommandPool &commandPool);
     void update(uint32_t currentImage, const CullingUtils::Frustum &frustum);
 
-    void createCullDescriptorSets(vk::DescriptorSetLayout cullSetLayout);
-    void cull(const vk::raii::CommandBuffer &commandBuffer, uint32_t frameIndex, vk::PipelineLayout cullLayout,
-              vk::Pipeline cullPipeline, float time);
+    void createCullDescriptorSets(vk::DescriptorSetLayout cullSetLayout, const std::vector<vk::ImageView> &hiZViews,
+                                  vk::Sampler hiZSampler, const std::vector<vk::Buffer> &cameraUniformBuffers);
+
+    void cull(const vk::raii::CommandBuffer &commandBuffer, const uint32_t frameIndex, const vk::PipelineLayout pipelineLayout,
+              const vk::Pipeline pipeline, const float time, const uint32_t maxMip, const vk::Extent2D &extent);
 
     void draw(const vk::raii::CommandBuffer &commandBuffer, uint32_t frameIndex, vk::PipelineLayout pipelineLayout,
               const std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>> &textureDescriptorSets,
               bool wireframe, uint32_t &drawCallCount, uint64_t &vertexCount) const;
+
+    void drawXray(
+        const vk::raii::CommandBuffer &commandBuffer, uint32_t frameIndex, vk::PipelineLayout pipelineLayout,
+        const std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>> &textureDescriptorSets) const;
+
+    [[nodiscard]] uint64_t getVisibleVertexEstimate(uint32_t frameIndex) const;
 
   private:
     struct InstanceData {
@@ -60,6 +68,13 @@ class InstanceRenderer {
 
         std::vector<vk::raii::DescriptorSet> cullDescriptorSets;
 
+        std::vector<vk::raii::Buffer> culledOnlyBuffers;
+        std::vector<vk::raii::DeviceMemory> culledOnlyBuffersMemory;
+
+        std::vector<vk::raii::Buffer> culledOnlyIndirectBuffers;
+        std::vector<vk::raii::DeviceMemory> culledOnlyIndirectBuffersMemory;
+        std::vector<void *> culledOnlyIndirectBuffersMapped;
+
         vk::raii::Buffer candidateBuffer = nullptr;
         vk::raii::DeviceMemory candidateBufferMemory = nullptr;
 
@@ -76,6 +91,7 @@ class InstanceRenderer {
 
     vk::raii::Pipeline solidPipeline = nullptr;
     vk::raii::Pipeline wireframePipeline = nullptr;
+    vk::raii::Pipeline xrayPipeline = nullptr;
 
     vk::raii::DescriptorPool cullDescriptorPool = nullptr;
 

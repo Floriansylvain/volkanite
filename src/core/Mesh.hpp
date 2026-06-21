@@ -40,6 +40,7 @@ class Mesh {
     std::vector<uint32_t> indices;
 
     float boundingRadius = 0.0f;
+    glm::vec3 boundingCenter{0.0f};
 
   private:
     const VulkanContext &vkCtx;

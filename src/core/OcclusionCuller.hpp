@@ -25,6 +25,11 @@ class OcclusionCuller {
     vk::raii::PipelineLayout cullPipelineLayout = nullptr;
     vk::raii::Pipeline cullPipeline = nullptr;
 
+    std::vector<vk::raii::Image> hiZImages;
+    std::vector<vk::raii::ImageView> hiZFullViews;
+    uint32_t mipLevels = 0;
+    vk::raii::Sampler hiZSampler = nullptr;
+
     [[nodiscard]] vk::ImageView resolvedDepthView(uint32_t frameIndex) const { return *resolvedDepthImageViews[frameIndex]; }
 
     void buildPyramid(const vk::raii::CommandBuffer &commandBuffer, uint32_t frameIndex);
@@ -35,6 +40,11 @@ class OcclusionCuller {
         glm::ivec2 dstSize;
         uint32_t instanceCount;
         float time;
+        float boundingRadius;
+        uint32_t maxMip;
+        float boundingCenterX;
+        float boundingCenterY;
+        float boundingCenterZ;
     };
 
   private:
@@ -47,7 +57,6 @@ class OcclusionCuller {
     int maxFramesInFlight;
 
     vk::Extent2D extent{};
-    uint32_t mipLevels = 0;
     std::vector<MipLevelInfo> mipExtents;
 
     std::vector<vk::raii::Image> resolvedDepthImages;
@@ -55,7 +64,6 @@ class OcclusionCuller {
     std::vector<vk::raii::ImageView> resolvedDepthImageViews;
     vk::raii::Sampler depthSampler = nullptr;
 
-    std::vector<vk::raii::Image> hiZImages;
     std::vector<vk::raii::DeviceMemory> hiZImageMemories;
     std::vector<std::vector<vk::raii::ImageView>> hiZMipViews;
 

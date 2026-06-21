@@ -57,7 +57,20 @@ void OcclusionCuller::createResources(const vk::Extent2D ext, const vk::Format d
             hiZMipViews[f].push_back(VulkanUtils::createImageView(vkCtx, hiZImages[f], vk::Format::eR32Sfloat,
                                                                   vk::ImageAspectFlagBits::eColor, 1, i));
         }
+
+        hiZFullViews.push_back(VulkanUtils::createImageView(vkCtx, hiZImages[f], vk::Format::eR32Sfloat,
+                                                            vk::ImageAspectFlagBits::eColor, mipLevels, 0));
     }
+
+    vk::SamplerCreateInfo hiZSamplerInfo{};
+    hiZSamplerInfo.magFilter = vk::Filter::eNearest;
+    hiZSamplerInfo.minFilter = vk::Filter::eNearest;
+    hiZSamplerInfo.mipmapMode = vk::SamplerMipmapMode::eNearest;
+    hiZSamplerInfo.addressModeU = vk::SamplerAddressMode::eClampToEdge;
+    hiZSamplerInfo.addressModeV = vk::SamplerAddressMode::eClampToEdge;
+    hiZSamplerInfo.minLod = 0.0f;
+    hiZSamplerInfo.maxLod = static_cast<float>(mipLevels - 1);
+    hiZSampler = vk::raii::Sampler(vkCtx.device, hiZSamplerInfo);
 
     createDescriptorSetLayouts();
     createDescriptorSets();
@@ -122,7 +135,32 @@ void OcclusionCuller::createDescriptorSetLayouts() {
     indirectBinding.descriptorCount = 1;
     indirectBinding.stageFlags = vk::ShaderStageFlagBits::eCompute;
 
-    const std::array cullBindings{inputBinding, outputBinding, indirectBinding};
+    vk::DescriptorSetLayoutBinding eCombinedImageSampler{};
+    eCombinedImageSampler.binding = 3;
+    eCombinedImageSampler.descriptorType = vk::DescriptorType::eCombinedImageSampler;
+    eCombinedImageSampler.descriptorCount = 1;
+    eCombinedImageSampler.stageFlags = vk::ShaderStageFlagBits::eCompute;
+
+    vk::DescriptorSetLayoutBinding eUniformBuffer{};
+    eUniformBuffer.binding = 4;
+    eUniformBuffer.descriptorType = vk::DescriptorType::eUniformBuffer;
+    eUniformBuffer.descriptorCount = 1;
+    eUniformBuffer.stageFlags = vk::ShaderStageFlagBits::eCompute;
+
+    vk::DescriptorSetLayoutBinding culledOutputBinding{};
+    culledOutputBinding.binding = 6;
+    culledOutputBinding.descriptorType = vk::DescriptorType::eStorageBuffer;
+    culledOutputBinding.descriptorCount = 1;
+    culledOutputBinding.stageFlags = vk::ShaderStageFlagBits::eCompute;
+
+    vk::DescriptorSetLayoutBinding culledIndirectBinding{};
+    culledIndirectBinding.binding = 7;
+    culledIndirectBinding.descriptorType = vk::DescriptorType::eStorageBuffer;
+    culledIndirectBinding.descriptorCount = 1;
+    culledIndirectBinding.stageFlags = vk::ShaderStageFlagBits::eCompute;
+
+    const std::array cullBindings{inputBinding,   outputBinding,       indirectBinding,      eCombinedImageSampler,
+                                  eUniformBuffer, culledOutputBinding, culledIndirectBinding};
     vk::DescriptorSetLayoutCreateInfo cullLayoutInfo{};
     cullLayoutInfo.bindingCount = static_cast<uint32_t>(cullBindings.size());
     cullLayoutInfo.pBindings = cullBindings.data();
@@ -293,7 +331,7 @@ void OcclusionCuller::buildPyramid(const vk::raii::CommandBuffer &commandBuffer,
     for (uint32_t i = 1; i < mipLevels; ++i) {
         VulkanUtils::ImageBarrierCommand hiZCommand2 = {};
         hiZCommand2.image = *hiZImages[frameIndex];
-        hiZCommand2.old_layout = vk::ImageLayout::eGeneral;
+        hiZCommand2.old_layout = vk::ImageLayout::eGeneral; // Mip levels are already eGeneral now
         hiZCommand2.new_layout = vk::ImageLayout::eGeneral;
         hiZCommand2.src_access_mask = vk::AccessFlagBits2::eShaderWrite;
         hiZCommand2.dst_access_mask = vk::AccessFlagBits2::eShaderRead;
@@ -313,6 +351,20 @@ void OcclusionCuller::buildPyramid(const vk::raii::CommandBuffer &commandBuffer,
         commandBuffer.pushConstants<PyramidPushConstants>(*downsamplePipelineLayout, vk::ShaderStageFlagBits::eCompute, 0, pc);
         commandBuffer.dispatch((mipExtents[i].width + GROUP - 1) / GROUP, (mipExtents[i].height + GROUP - 1) / GROUP, 1);
     }
+
+    VulkanUtils::ImageBarrierCommand endHiZCommand = {};
+    endHiZCommand.image = *hiZImages[frameIndex];
+    endHiZCommand.old_layout = vk::ImageLayout::eGeneral;
+    endHiZCommand.new_layout = vk::ImageLayout::eShaderReadOnlyOptimal;
+    endHiZCommand.src_access_mask = vk::AccessFlagBits2::eShaderWrite;
+    endHiZCommand.dst_access_mask = vk::AccessFlagBits2::eShaderRead;
+    endHiZCommand.src_stage_mask = eComputeShader;
+    endHiZCommand.dst_stage_mask = eComputeShader;
+    endHiZCommand.image_aspect_flags = vk::ImageAspectFlagBits::eColor;
+    endHiZCommand.base_mip_level = 0;
+    endHiZCommand.level_count = mipLevels;
+
+    VulkanUtils::imageBarriers(commandBuffer, {endHiZCommand});
 }
 
 void OcclusionCuller::prepareDepthResolveTarget(const vk::raii::CommandBuffer &commandBuffer, const uint32_t frameIndex) {

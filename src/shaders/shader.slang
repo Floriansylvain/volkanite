@@ -76,3 +76,8 @@ float4 fragMain(VSOutput vertIn) : SV_TARGET {
         discard;
     return float4(vertIn.fragColor * texColor.rgb, 1.0);
 }
+
+[shader("fragment")]
+float4 fragMainXray(VSOutput vertIn) : SV_TARGET {
+    return float4(1.0, 0.0, 0.0, 0.35);
+}
