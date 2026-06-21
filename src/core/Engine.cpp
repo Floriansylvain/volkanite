@@ -322,7 +322,7 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
     for (size_t i = 0; i < debugLines.size(); i++) {
         textRenderer.drawText(debugLines[i], 10.0f, i + offset, DEBUG_FONT_SIZE, glm::vec3(1.0f, 1.0f, 1.0f),
                               swapChainHandler.extent2D);
-        offset += DEBUG_FONT_SIZE - 14.f;
+        offset += DEBUG_FONT_SIZE - 10.f;
     }
     textRenderer.render(commandBuffers[frameIndex], frameIndex);
 
@@ -781,10 +781,17 @@ void Engine::run() {
             const float avgFrameTimeMs = frameTimeAccumulator / static_cast<float>(frameCountAccumulator);
             const float fps = 1000.0f / avgFrameTimeMs;
 
+            const bool vsyncOn = swapChainHandler.presentMode != vk::PresentModeKHR::eImmediate;
+
             debugLines.clear();
             debugLines.push_back(std::format("frametime: {:.2f}ms ({:.0f} fps)", avgFrameTimeMs, fps));
             debugLines.push_back(std::format("draws: {}", drawCallCount));
             debugLines.push_back(std::format("verts: {}", vertexCount));
+            debugLines.push_back(std::format("MSAA: {}x", static_cast<uint32_t>(vkCtx.msaaSamples)));
+            debugLines.push_back(
+                std::format("anisotropy: {:.0f}x", vkCtx.physicalDevice.getProperties().limits.maxSamplerAnisotropy));
+            debugLines.push_back(
+                std::format("V-SYNC: {} ({})", vsyncOn ? "ON" : "OFF", vk::to_string(swapChainHandler.presentMode)));
 
             frameTimeAccumulator = 0.0f;
             frameCountAccumulator = 0;

@@ -54,6 +54,7 @@ void SwapChainHandler::create() {
     surfaceFormat = chooseSwapSurfaceFormat(availableFormats);
 
     const std::vector<vk::PresentModeKHR> availablePresentModes = vkCtx.physicalDevice.getSurfacePresentModesKHR(vkCtx.surface);
+    presentMode = chooseSwapPresentMode(availablePresentModes);
 
     vk::SwapchainCreateInfoKHR swapChainCreateInfo{};
     swapChainCreateInfo.surface = *vkCtx.surface;
@@ -66,7 +67,7 @@ void SwapChainHandler::create() {
     swapChainCreateInfo.imageSharingMode = vk::SharingMode::eExclusive;
     swapChainCreateInfo.preTransform = surfaceCapabilities.currentTransform;
     swapChainCreateInfo.compositeAlpha = vk::CompositeAlphaFlagBitsKHR::eOpaque;
-    swapChainCreateInfo.presentMode = chooseSwapPresentMode(availablePresentModes);
+    swapChainCreateInfo.presentMode = presentMode;
     swapChainCreateInfo.clipped = true;
 
     swapChainKHR = vk::raii::SwapchainKHR(vkCtx.device, swapChainCreateInfo);

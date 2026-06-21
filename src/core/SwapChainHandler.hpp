@@ -21,6 +21,7 @@ class SwapChainHandler {
 
     vk::SurfaceFormatKHR surfaceFormat;
     vk::raii::SwapchainKHR swapChainKHR = nullptr;
+    vk::PresentModeKHR presentMode = vk::PresentModeKHR::eFifo;
     vk::Extent2D extent2D;
     std::vector<vk::Image> images;
     std::vector<vk::raii::ImageView> imageViews;
