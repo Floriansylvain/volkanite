@@ -2,7 +2,7 @@
 #include "Exceptions.hpp"
 
 vk::raii::ImageView VulkanUtils::createImageView(VulkanContext const &vkCtx, vk::Image const &image, const vk::Format format,
-                                                 const vk::ImageAspectFlags aspectFlags) {
+                                                 const vk::ImageAspectFlags aspectFlags, uint32_t mipLevels) {
     vk::ImageSubresourceRange subresourceRange = {};
     subresourceRange.aspectMask = aspectFlags;
     subresourceRange.baseMipLevel = 0;
@@ -15,6 +15,7 @@ vk::raii::ImageView VulkanUtils::createImageView(VulkanContext const &vkCtx, vk:
     viewInfo.viewType = vk::ImageViewType::e2D;
     viewInfo.format = format;
     viewInfo.subresourceRange = subresourceRange;
+    viewInfo.subresourceRange.levelCount = mipLevels;
 
     return {vkCtx.device, viewInfo};
 }
@@ -32,28 +33,26 @@ uint32_t VulkanUtils::findMemoryType(VulkanContext const &vkCtx, const uint32_t 
     throw EngineExceptions::Compatibility("Failed to find suitable memory type.");
 }
 
-std::pair<vk::raii::Image, vk::raii::DeviceMemory> VulkanUtils::createImage(VulkanContext const &vkCtx, const uint32_t width,
-                                                                            const uint32_t height, const vk::Format format,
-                                                                            const vk::ImageTiling tiling,
-                                                                            const vk::ImageUsageFlags usage,
-                                                                            const vk::MemoryPropertyFlags properties) {
+std::pair<vk::raii::Image, vk::raii::DeviceMemory> VulkanUtils::createImage(VulkanContext const &vkCtx,
+                                                                            VulkanUtils::CreateImageCommand command) {
     vk::ImageCreateInfo imageInfo{};
     imageInfo.imageType = vk::ImageType::e2D;
-    imageInfo.format = format;
-    imageInfo.extent = vk::Extent3D{width, height, 1};
+    imageInfo.format = command.format;
+    imageInfo.extent = vk::Extent3D{command.width, command.height, 1};
     imageInfo.mipLevels = 1;
     imageInfo.arrayLayers = 1;
     imageInfo.samples = vk::SampleCountFlagBits::e1;
-    imageInfo.tiling = tiling;
-    imageInfo.usage = usage;
+    imageInfo.tiling = command.tiling;
+    imageInfo.usage = command.usage;
     imageInfo.sharingMode = vk::SharingMode::eExclusive;
+    imageInfo.mipLevels = command.mipLevels;
 
     auto image = vk::raii::Image(vkCtx.device, imageInfo);
 
     const vk::MemoryRequirements memRequirements = image.getMemoryRequirements();
     vk::MemoryAllocateInfo allocInfo{};
     allocInfo.allocationSize = memRequirements.size;
-    allocInfo.memoryTypeIndex = findMemoryType(vkCtx, memRequirements.memoryTypeBits, properties);
+    allocInfo.memoryTypeIndex = findMemoryType(vkCtx, memRequirements.memoryTypeBits, command.properties);
 
     auto imageMemory = vk::raii::DeviceMemory(vkCtx.device, allocInfo);
     image.bindMemory(imageMemory, 0);
@@ -139,7 +138,7 @@ void VulkanUtils::copyBufferToImage(const vk::raii::CommandBuffer &commandBuffer
 }
 
 void VulkanUtils::transitionImageLayout(const vk::raii::CommandBuffer &commandBuffer, const vk::raii::Image &image,
-                                        const vk::ImageLayout oldLayout, const vk::ImageLayout newLayout) {
+                                        const vk::ImageLayout oldLayout, const vk::ImageLayout newLayout, uint32_t mipLevels) {
     vk::ImageSubresourceRange imageSubresourceRange = {};
     imageSubresourceRange.aspectMask = vk::ImageAspectFlagBits::eColor;
     imageSubresourceRange.levelCount = 1;
@@ -152,6 +151,7 @@ void VulkanUtils::transitionImageLayout(const vk::raii::CommandBuffer &commandBu
     barrier.dstQueueFamilyIndex = vk::QueueFamilyIgnored;
     barrier.image = image;
     barrier.subresourceRange = imageSubresourceRange;
+    barrier.subresourceRange.levelCount = mipLevels;
 
     vk::PipelineStageFlags sourceStage;
     vk::PipelineStageFlags destinationStage;

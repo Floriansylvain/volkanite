@@ -17,6 +17,8 @@ class Texture {
     vk::raii::ImageView textureImageView = nullptr;
     vk::raii::Sampler textureSampler = nullptr;
 
+    uint32_t mipLevels = 0;
+
   private:
     const VulkanContext &vkCtx;
 
@@ -28,6 +30,7 @@ class Texture {
 
     void createImageView();
     void createSampler();
+    void generateMipmaps(vk::Format imageFormat, const vk::raii::CommandBuffer &commandBuffer);
 };
 
 #endif

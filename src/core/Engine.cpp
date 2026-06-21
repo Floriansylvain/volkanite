@@ -529,7 +529,7 @@ void Engine::addRenderObject(RenderObject object) {
 void Engine::updateInstanceBuffers(const uint32_t currentImage) {
     const float aspect =
         static_cast<float>(swapChainHandler.extent2D.width) / static_cast<float>(swapChainHandler.extent2D.height);
-    constexpr float cullFovMargin = 8.0f;
+    constexpr float cullFovMargin = 4.0f;
     const glm::mat4 cullProj = Camera::projMatrix(aspect, 55.0f + cullFovMargin);
     const CullingUtils::Frustum frustum = CullingUtils::extractFrustum(cullProj * camera.viewMatrix());
 
@@ -599,7 +599,7 @@ void Engine::placeFBXModel(const FBXModel &model, const glm::vec3 &position, con
         object.texture = model.textures[i];
         object.position = position;
         object.isInstanced = instanced;
-        object.rotationSpeed = 1.f;
+        object.rotationSpeed = 0.f;
         addRenderObject(std::move(object));
     }
 }
