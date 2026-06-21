@@ -3,7 +3,8 @@
 #include <array>
 #include <cmath>
 
-OcclusionCuller::OcclusionCuller(VulkanContext &context) : vkCtx(context) {}
+OcclusionCuller::OcclusionCuller(VulkanContext &context, const int maxFramesInFlight)
+    : vkCtx(context), maxFramesInFlight(maxFramesInFlight) {}
 
 void OcclusionCuller::createResources(const vk::Extent2D ext, const vk::Format depthFormat) {
     extent = ext;
@@ -15,13 +16,6 @@ void OcclusionCuller::createResources(const vk::Extent2D ext, const vk::Format d
         mipExtents.push_back({std::max(1u, extent.width >> i), std::max(1u, extent.height >> i)});
     }
 
-    std::tie(resolvedDepthImage, resolvedDepthImageMemory) = VulkanUtils::createImage(
-        vkCtx, {extent.width, extent.height, 1, vk::SampleCountFlagBits::e1, depthFormat, vk::ImageTiling::eOptimal,
-                vk::ImageUsageFlagBits::eDepthStencilAttachment | vk::ImageUsageFlagBits::eSampled,
-                vk::MemoryPropertyFlagBits::eDeviceLocal});
-    resolvedDepthImageView =
-        VulkanUtils::createImageView(vkCtx, resolvedDepthImage, depthFormat, vk::ImageAspectFlagBits::eDepth, 1);
-
     vk::SamplerCreateInfo samplerInfo{};
     samplerInfo.magFilter = vk::Filter::eNearest;
     samplerInfo.minFilter = vk::Filter::eNearest;
@@ -31,16 +25,38 @@ void OcclusionCuller::createResources(const vk::Extent2D ext, const vk::Format d
     samplerInfo.addressModeW = vk::SamplerAddressMode::eClampToEdge;
     depthSampler = vk::raii::Sampler(vkCtx.device, samplerInfo);
 
-    std::tie(hiZImage, hiZImageMemory) = VulkanUtils::createImage(
-        vkCtx,
-        {extent.width, extent.height, mipLevels, vk::SampleCountFlagBits::e1, vk::Format::eR32Sfloat, vk::ImageTiling::eOptimal,
-         vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled, vk::MemoryPropertyFlagBits::eDeviceLocal});
-
+    resolvedDepthImages.clear();
+    resolvedDepthImageMemories.clear();
+    resolvedDepthImageViews.clear();
+    hiZImages.clear();
+    hiZImageMemories.clear();
     hiZMipViews.clear();
-    hiZMipViews.reserve(mipLevels);
-    for (uint32_t i = 0; i < mipLevels; ++i) {
-        hiZMipViews.push_back(
-            VulkanUtils::createImageView(vkCtx, hiZImage, vk::Format::eR32Sfloat, vk::ImageAspectFlagBits::eColor, 1, i));
+    hiZMipViews.resize(maxFramesInFlight);
+
+    for (int f = 0; f < maxFramesInFlight; ++f) {
+        auto [depthImage, depthMemory] = VulkanUtils::createImage(
+            vkCtx, {extent.width, extent.height, 1, vk::SampleCountFlagBits::e1, depthFormat, vk::ImageTiling::eOptimal,
+                    vk::ImageUsageFlagBits::eDepthStencilAttachment | vk::ImageUsageFlagBits::eSampled,
+                    vk::MemoryPropertyFlagBits::eDeviceLocal});
+        vk::raii::ImageView depthView =
+            VulkanUtils::createImageView(vkCtx, depthImage, depthFormat, vk::ImageAspectFlagBits::eDepth, 1);
+
+        resolvedDepthImages.push_back(std::move(depthImage));
+        resolvedDepthImageMemories.push_back(std::move(depthMemory));
+        resolvedDepthImageViews.push_back(std::move(depthView));
+
+        auto [pyramidImage, pyramidMemory] = VulkanUtils::createImage(
+            vkCtx, {extent.width, extent.height, mipLevels, vk::SampleCountFlagBits::e1, vk::Format::eR32Sfloat,
+                    vk::ImageTiling::eOptimal, vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled,
+                    vk::MemoryPropertyFlagBits::eDeviceLocal});
+
+        hiZImages.push_back(std::move(pyramidImage));
+        hiZImageMemories.push_back(std::move(pyramidMemory));
+
+        for (uint32_t i = 0; i < mipLevels; ++i) {
+            hiZMipViews[f].push_back(VulkanUtils::createImageView(vkCtx, hiZImages[f], vk::Format::eR32Sfloat,
+                                                                  vk::ImageAspectFlagBits::eColor, 1, i));
+        }
     }
 
     createDescriptorSetLayouts();
@@ -91,63 +107,69 @@ void OcclusionCuller::createDescriptorSetLayouts() {
 
 void OcclusionCuller::createDescriptorSets() {
     const uint32_t downsampleCount = mipLevels - 1;
+    const auto framesU = static_cast<uint32_t>(maxFramesInFlight);
 
     const std::array poolSizes{
-        vk::DescriptorPoolSize{vk::DescriptorType::eCombinedImageSampler, 1},
-        vk::DescriptorPoolSize{vk::DescriptorType::eStorageImage, 1 + downsampleCount * 2},
+        vk::DescriptorPoolSize{vk::DescriptorType::eCombinedImageSampler, framesU},
+        vk::DescriptorPoolSize{vk::DescriptorType::eStorageImage, framesU * (1 + downsampleCount * 2)},
     };
 
     vk::DescriptorPoolCreateInfo poolInfo{};
     poolInfo.flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet;
-    poolInfo.maxSets = 1 + downsampleCount;
+    poolInfo.maxSets = framesU * (1 + downsampleCount);
     poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
     poolInfo.pPoolSizes = poolSizes.data();
     descriptorPool = vk::raii::DescriptorPool(vkCtx.device, poolInfo);
 
-    vk::DescriptorSetAllocateInfo mip0AllocInfo{};
-    mip0AllocInfo.descriptorPool = *descriptorPool;
-    mip0AllocInfo.descriptorSetCount = 1;
-    mip0AllocInfo.pSetLayouts = &*mip0SetLayout;
-    mip0DescriptorSet = std::move(vk::raii::DescriptorSets(vkCtx.device, mip0AllocInfo).front());
-
-    vk::DescriptorImageInfo depthImageInfo{};
-    depthImageInfo.sampler = *depthSampler;
-    depthImageInfo.imageView = *resolvedDepthImageView;
-    depthImageInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-
-    vk::DescriptorImageInfo mip0ImageInfo{};
-    mip0ImageInfo.imageView = *hiZMipViews[0];
-    mip0ImageInfo.imageLayout = vk::ImageLayout::eGeneral;
-
-    const std::array mip0Writes{
-        vk::WriteDescriptorSet{*mip0DescriptorSet, 0, 0, 1, vk::DescriptorType::eCombinedImageSampler, &depthImageInfo},
-        vk::WriteDescriptorSet{*mip0DescriptorSet, 1, 0, 1, vk::DescriptorType::eStorageImage, &mip0ImageInfo},
-    };
-    vkCtx.device.updateDescriptorSets(mip0Writes, {});
-
+    mip0DescriptorSets.clear();
     downsampleDescriptorSets.clear();
-    for (uint32_t i = 1; i < mipLevels; ++i) {
-        vk::DescriptorSetAllocateInfo allocInfo{};
-        allocInfo.descriptorPool = *descriptorPool;
-        allocInfo.descriptorSetCount = 1;
-        allocInfo.pSetLayouts = &*downsampleSetLayout;
-        vk::raii::DescriptorSet set = std::move(vk::raii::DescriptorSets(vkCtx.device, allocInfo).front());
+    downsampleDescriptorSets.resize(maxFramesInFlight);
 
-        vk::DescriptorImageInfo srcInfo{};
-        srcInfo.imageView = *hiZMipViews[i - 1];
-        srcInfo.imageLayout = vk::ImageLayout::eGeneral;
+    for (int f = 0; f < maxFramesInFlight; ++f) {
+        vk::DescriptorSetAllocateInfo mip0AllocInfo{};
+        mip0AllocInfo.descriptorPool = *descriptorPool;
+        mip0AllocInfo.descriptorSetCount = 1;
+        mip0AllocInfo.pSetLayouts = &*mip0SetLayout;
+        mip0DescriptorSets.push_back(std::move(vk::raii::DescriptorSets(vkCtx.device, mip0AllocInfo).front()));
 
-        vk::DescriptorImageInfo dstInfo{};
-        dstInfo.imageView = *hiZMipViews[i];
-        dstInfo.imageLayout = vk::ImageLayout::eGeneral;
+        vk::DescriptorImageInfo depthImageInfo{};
+        depthImageInfo.sampler = *depthSampler;
+        depthImageInfo.imageView = *resolvedDepthImageViews[f];
+        depthImageInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
 
-        const std::array writes{
-            vk::WriteDescriptorSet{*set, 0, 0, 1, vk::DescriptorType::eStorageImage, &srcInfo},
-            vk::WriteDescriptorSet{*set, 1, 0, 1, vk::DescriptorType::eStorageImage, &dstInfo},
+        vk::DescriptorImageInfo mip0ImageInfo{};
+        mip0ImageInfo.imageView = *hiZMipViews[f][0];
+        mip0ImageInfo.imageLayout = vk::ImageLayout::eGeneral;
+
+        const std::array mip0Writes{
+            vk::WriteDescriptorSet{*mip0DescriptorSets[f], 0, 0, 1, vk::DescriptorType::eCombinedImageSampler, &depthImageInfo},
+            vk::WriteDescriptorSet{*mip0DescriptorSets[f], 1, 0, 1, vk::DescriptorType::eStorageImage, &mip0ImageInfo},
         };
-        vkCtx.device.updateDescriptorSets(writes, {});
+        vkCtx.device.updateDescriptorSets(mip0Writes, {});
 
-        downsampleDescriptorSets.push_back(std::move(set));
+        for (uint32_t i = 1; i < mipLevels; ++i) {
+            vk::DescriptorSetAllocateInfo allocInfo{};
+            allocInfo.descriptorPool = *descriptorPool;
+            allocInfo.descriptorSetCount = 1;
+            allocInfo.pSetLayouts = &*downsampleSetLayout;
+            vk::raii::DescriptorSet set = std::move(vk::raii::DescriptorSets(vkCtx.device, allocInfo).front());
+
+            vk::DescriptorImageInfo srcInfo{};
+            srcInfo.imageView = *hiZMipViews[f][i - 1];
+            srcInfo.imageLayout = vk::ImageLayout::eGeneral;
+
+            vk::DescriptorImageInfo dstInfo{};
+            dstInfo.imageView = *hiZMipViews[f][i];
+            dstInfo.imageLayout = vk::ImageLayout::eGeneral;
+
+            const std::array writes{
+                vk::WriteDescriptorSet{*set, 0, 0, 1, vk::DescriptorType::eStorageImage, &srcInfo},
+                vk::WriteDescriptorSet{*set, 1, 0, 1, vk::DescriptorType::eStorageImage, &dstInfo},
+            };
+            vkCtx.device.updateDescriptorSets(writes, {});
+
+            downsampleDescriptorSets[f].push_back(std::move(set));
+        }
     }
 }
 
@@ -185,12 +207,12 @@ void OcclusionCuller::createPipelines(const vk::PipelineShaderStageCreateInfo &d
     downsamplePipeline = vk::raii::Pipeline(vkCtx.device, nullptr, downsamplePipelineInfo);
 }
 
-void OcclusionCuller::buildPyramid(const vk::raii::CommandBuffer &commandBuffer) {
+void OcclusionCuller::buildPyramid(const vk::raii::CommandBuffer &commandBuffer, const uint32_t frameIndex) {
     using enum vk::PipelineStageFlagBits2;
     constexpr uint32_t GROUP = 8;
 
     VulkanUtils::ImageBarrierCommand depthCommand = {};
-    depthCommand.image = *resolvedDepthImage;
+    depthCommand.image = *resolvedDepthImages[frameIndex];
     depthCommand.old_layout = vk::ImageLayout::eDepthAttachmentOptimal;
     depthCommand.new_layout = vk::ImageLayout::eShaderReadOnlyOptimal;
     depthCommand.src_access_mask = vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
@@ -202,7 +224,7 @@ void OcclusionCuller::buildPyramid(const vk::raii::CommandBuffer &commandBuffer)
     depthCommand.level_count = 1;
 
     VulkanUtils::ImageBarrierCommand hiZCommand = {};
-    hiZCommand.image = *hiZImage;
+    hiZCommand.image = *hiZImages[frameIndex];
     hiZCommand.old_layout = vk::ImageLayout::eUndefined;
     hiZCommand.new_layout = vk::ImageLayout::eGeneral;
     hiZCommand.src_access_mask = {};
@@ -216,7 +238,8 @@ void OcclusionCuller::buildPyramid(const vk::raii::CommandBuffer &commandBuffer)
     VulkanUtils::imageBarriers(commandBuffer, {depthCommand, hiZCommand});
 
     commandBuffer.bindPipeline(vk::PipelineBindPoint::eCompute, *depthToMip0Pipeline);
-    commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eCompute, *mip0PipelineLayout, 0, *mip0DescriptorSet, nullptr);
+    commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eCompute, *mip0PipelineLayout, 0, *mip0DescriptorSets[frameIndex],
+                                     nullptr);
 
     PyramidPushConstants pc0{{0, 0}, {static_cast<int32_t>(mipExtents[0].width), static_cast<int32_t>(mipExtents[0].height)}};
     commandBuffer.pushConstants<PyramidPushConstants>(*mip0PipelineLayout, vk::ShaderStageFlagBits::eCompute, 0, pc0);
@@ -226,7 +249,7 @@ void OcclusionCuller::buildPyramid(const vk::raii::CommandBuffer &commandBuffer)
 
     for (uint32_t i = 1; i < mipLevels; ++i) {
         VulkanUtils::ImageBarrierCommand hiZCommand2 = {};
-        hiZCommand2.image = *hiZImage;
+        hiZCommand2.image = *hiZImages[frameIndex];
         hiZCommand2.old_layout = vk::ImageLayout::eGeneral;
         hiZCommand2.new_layout = vk::ImageLayout::eGeneral;
         hiZCommand2.src_access_mask = vk::AccessFlagBits2::eShaderWrite;
@@ -240,7 +263,7 @@ void OcclusionCuller::buildPyramid(const vk::raii::CommandBuffer &commandBuffer)
         VulkanUtils::imageBarriers(commandBuffer, {hiZCommand2});
 
         commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eCompute, *downsamplePipelineLayout, 1,
-                                         *downsampleDescriptorSets[i - 1], nullptr);
+                                         *downsampleDescriptorSets[frameIndex][i - 1], nullptr);
 
         PyramidPushConstants pc{{static_cast<int32_t>(mipExtents[i - 1].width), static_cast<int32_t>(mipExtents[i - 1].height)},
                                 {static_cast<int32_t>(mipExtents[i].width), static_cast<int32_t>(mipExtents[i].height)}};
@@ -249,11 +272,11 @@ void OcclusionCuller::buildPyramid(const vk::raii::CommandBuffer &commandBuffer)
     }
 }
 
-void OcclusionCuller::prepareDepthResolveTarget(const vk::raii::CommandBuffer &commandBuffer) {
+void OcclusionCuller::prepareDepthResolveTarget(const vk::raii::CommandBuffer &commandBuffer, const uint32_t frameIndex) {
     using enum vk::PipelineStageFlagBits2;
 
     VulkanUtils::ImageBarrierCommand depthCommand = {};
-    depthCommand.image = *resolvedDepthImage;
+    depthCommand.image = *resolvedDepthImages[frameIndex];
     depthCommand.old_layout = vk::ImageLayout::eUndefined;
     depthCommand.new_layout = vk::ImageLayout::eDepthAttachmentOptimal;
     depthCommand.src_access_mask = {};

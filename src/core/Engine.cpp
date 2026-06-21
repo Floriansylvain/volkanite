@@ -16,7 +16,7 @@
 
 Engine::Engine(Window *_window, VulkanContext *_vkCtx)
     : window(*_window), vkCtx(*_vkCtx), swapChainHandler(vkCtx, window), instanceRenderer(vkCtx, MAX_FRAMES_IN_FLIGHT),
-      textRenderer(vkCtx, MAX_FRAMES_IN_FLIGHT), occlusionCuller(vkCtx) {}
+      textRenderer(vkCtx, MAX_FRAMES_IN_FLIGHT), occlusionCuller(vkCtx, MAX_FRAMES_IN_FLIGHT) {}
 
 Engine::~Engine() = default;
 
@@ -269,7 +269,7 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
     depthTransition.image_aspect_flags = vk::ImageAspectFlagBits::eDepth;
 
     transition_image_layouts({colorTransition, msaaColorTransition, depthTransition});
-    occlusionCuller.prepareDepthResolveTarget(commandBuffers[frameIndex]);
+    occlusionCuller.prepareDepthResolveTarget(commandBuffers[frameIndex], frameIndex);
 
     constexpr vk::ClearValue clearColor = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 1.0f);
     vk::RenderingAttachmentInfo attachmentInfo = {};
@@ -287,7 +287,7 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
     depthAttachmentInfo.imageView = swapChainHandler.depthImageView;
     depthAttachmentInfo.imageLayout = eDepthAttachmentOptimal;
     depthAttachmentInfo.resolveMode = vk::ResolveModeFlagBits::eMax;
-    depthAttachmentInfo.resolveImageView = occlusionCuller.resolvedDepthView();
+    depthAttachmentInfo.resolveImageView = occlusionCuller.resolvedDepthView(frameIndex);
     depthAttachmentInfo.resolveImageLayout = vk::ImageLayout::eDepthAttachmentOptimal;
 
     depthAttachmentInfo.loadOp = vk::AttachmentLoadOp::eClear;
@@ -360,7 +360,7 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
 
     commandBuffers[frameIndex].endRendering();
 
-    occlusionCuller.buildPyramid(commandBuffers[frameIndex]);
+    occlusionCuller.buildPyramid(commandBuffers[frameIndex], frameIndex);
 
     TransitionImageLayoutCommand presentTransition{};
     presentTransition.image = swapChainHandler.images[imageIndex], presentTransition.old_layout = eColorAttachmentOptimal;

@@ -14,16 +14,16 @@ import vulkan_hpp;
 
 class OcclusionCuller {
   public:
-    explicit OcclusionCuller(VulkanContext &context);
+    explicit OcclusionCuller(VulkanContext &context, int maxFramesInFlight);
 
     void createResources(vk::Extent2D extent, vk::Format depthFormat);
     void createPipelines(const vk::PipelineShaderStageCreateInfo &depthToMip0Stage,
                          const vk::PipelineShaderStageCreateInfo &downsampleStage);
 
-    [[nodiscard]] vk::ImageView resolvedDepthView() const { return *resolvedDepthImageView; }
+    [[nodiscard]] vk::ImageView resolvedDepthView(uint32_t frameIndex) const { return *resolvedDepthImageViews[frameIndex]; }
 
-    void buildPyramid(const vk::raii::CommandBuffer &commandBuffer);
-    void prepareDepthResolveTarget(const vk::raii::CommandBuffer &commandBuffer);
+    void buildPyramid(const vk::raii::CommandBuffer &commandBuffer, uint32_t frameIndex);
+    void prepareDepthResolveTarget(const vk::raii::CommandBuffer &commandBuffer, uint32_t frameIndex);
 
   private:
     struct PyramidPushConstants {
@@ -37,19 +37,20 @@ class OcclusionCuller {
     };
 
     VulkanContext &vkCtx;
+    int maxFramesInFlight;
 
     vk::Extent2D extent{};
     uint32_t mipLevels = 0;
     std::vector<MipLevelInfo> mipExtents;
 
-    vk::raii::Image resolvedDepthImage = nullptr;
-    vk::raii::DeviceMemory resolvedDepthImageMemory = nullptr;
-    vk::raii::ImageView resolvedDepthImageView = nullptr;
+    std::vector<vk::raii::Image> resolvedDepthImages;
+    std::vector<vk::raii::DeviceMemory> resolvedDepthImageMemories;
+    std::vector<vk::raii::ImageView> resolvedDepthImageViews;
     vk::raii::Sampler depthSampler = nullptr;
 
-    vk::raii::Image hiZImage = nullptr;
-    vk::raii::DeviceMemory hiZImageMemory = nullptr;
-    std::vector<vk::raii::ImageView> hiZMipViews;
+    std::vector<vk::raii::Image> hiZImages;
+    std::vector<vk::raii::DeviceMemory> hiZImageMemories;
+    std::vector<std::vector<vk::raii::ImageView>> hiZMipViews;
 
     vk::raii::DescriptorSetLayout emptySetLayout = nullptr;
     vk::raii::DescriptorSetLayout mip0SetLayout = nullptr;
@@ -60,10 +61,10 @@ class OcclusionCuller {
     vk::raii::Pipeline downsamplePipeline = nullptr;
 
     vk::raii::DescriptorPool descriptorPool = nullptr;
-    vk::raii::DescriptorSet mip0DescriptorSet = nullptr;
-    std::vector<vk::raii::DescriptorSet> downsampleDescriptorSets;
-    void createDescriptorSetLayouts();
+    std::vector<vk::raii::DescriptorSet> mip0DescriptorSets;
+    std::vector<std::vector<vk::raii::DescriptorSet>> downsampleDescriptorSets;
 
+    void createDescriptorSetLayouts();
     void createDescriptorSets();
 };
 
