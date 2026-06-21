@@ -114,18 +114,7 @@ vk::SampleCountFlagBits VulkanContext::getMaxUsableSampleCount() {
 
     vk::SampleCountFlags counts = physicalDeviceProperties.limits.framebufferColorSampleCounts &
                                   physicalDeviceProperties.limits.framebufferDepthSampleCounts;
-    if (counts & vk::SampleCountFlagBits::e64) {
-        return vk::SampleCountFlagBits::e64;
-    }
-    if (counts & vk::SampleCountFlagBits::e32) {
-        return vk::SampleCountFlagBits::e32;
-    }
-    if (counts & vk::SampleCountFlagBits::e16) {
-        return vk::SampleCountFlagBits::e16;
-    }
-    if (counts & vk::SampleCountFlagBits::e8) {
-        return vk::SampleCountFlagBits::e8;
-    }
+
     if (counts & vk::SampleCountFlagBits::e4) {
         return vk::SampleCountFlagBits::e4;
     }
@@ -150,7 +139,7 @@ void VulkanContext::pickPhysicalDevice() {
 void VulkanContext::createLogicalDevice() {
     std::vector<vk::QueueFamilyProperties> queueFamilyProperties = physicalDevice.getQueueFamilyProperties();
     for (uint32_t qfpIndex = 0; std::cmp_less(qfpIndex, queueFamilyProperties.size()); qfpIndex++) {
-        if (queueFamilyProperties[qfpIndex].queueFlags & vk::QueueFlagBits::eGraphics &&
+        if ((queueFamilyProperties[qfpIndex].queueFlags & vk::QueueFlagBits::eGraphics & vk::QueueFlagBits::eCompute) &&
             physicalDevice.getSurfaceSupportKHR(qfpIndex, *surface)) {
             queueIndex = qfpIndex;
             break;
