@@ -711,6 +711,9 @@ void Engine::init() {
 }
 
 void Engine::update() {
+    if (!window.focusToggle)
+        return;
+
     static auto lastTime = std::chrono::high_resolution_clock::now();
     const auto currentTime = std::chrono::high_resolution_clock::now();
     float deltaTime = std::chrono::duration<float>(currentTime - lastTime).count();
@@ -784,14 +787,18 @@ void Engine::run() {
             const bool vsyncOn = swapChainHandler.presentMode != vk::PresentModeKHR::eImmediate;
 
             debugLines.clear();
+
+            debugLines.push_back(std::format("MSAA: {}x", static_cast<uint32_t>(vkCtx.msaaSamples)));
+            debugLines.push_back(
+                std::format("ANISOTROPY: {:.0f}x", vkCtx.physicalDevice.getProperties().limits.maxSamplerAnisotropy));
+            debugLines.push_back(
+                std::format("V-SYNC: {} ({})", vsyncOn ? "ON" : "OFF", vk::to_string(swapChainHandler.presentMode)));
+
+            debugLines.push_back("");
+
             debugLines.push_back(std::format("frametime: {:.2f}ms ({:.0f} fps)", avgFrameTimeMs, fps));
             debugLines.push_back(std::format("draws: {}", drawCallCount));
             debugLines.push_back(std::format("verts: {}", vertexCount));
-            debugLines.push_back(std::format("MSAA: {}x", static_cast<uint32_t>(vkCtx.msaaSamples)));
-            debugLines.push_back(
-                std::format("anisotropy: {:.0f}x", vkCtx.physicalDevice.getProperties().limits.maxSamplerAnisotropy));
-            debugLines.push_back(
-                std::format("V-SYNC: {} ({})", vsyncOn ? "ON" : "OFF", vk::to_string(swapChainHandler.presentMode)));
 
             frameTimeAccumulator = 0.0f;
             frameCountAccumulator = 0;

@@ -3,8 +3,8 @@
 
 #include "SDL3/SDL.h"
 #include <functional>
-#include <vulkan/vulkan_core.h>
 #include <string>
+#include <vulkan/vulkan_core.h>
 
 class Window {
   public:
@@ -26,6 +26,8 @@ class Window {
 
     void setWindowTitle(const std::string &title) const;
 
+    bool focusToggle = true;
+
   private:
     SDL_Window *SDL_Window = nullptr;
 
@@ -35,7 +37,6 @@ class Window {
     bool running = false;
     bool isInitialized = false;
     bool isWindowCreated = false;
-    bool focusToggle = true;
     std::function<void()> onChange;
     std::function<void()> onWireframeToggle;
 };
