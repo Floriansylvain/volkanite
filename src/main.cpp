@@ -1,5 +1,6 @@
 #include "core/Engine.hpp"
 
+#include <core/DemoGame.hpp>
 #include <core/Window.hpp>
 #include <iostream>
 
@@ -7,9 +8,12 @@ int main() {
     Window window;
     VulkanContext vkCtx{};
     Engine engine(&window, &vkCtx);
+    DemoGame game;
 
     try {
         window.init("volkanite", 2560, 1440);
+
+        engine.setGame(&game);
         engine.init();
         engine.run();
     } catch (const std::exception &e) {

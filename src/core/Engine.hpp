@@ -4,6 +4,7 @@
 #pragma once
 #include "Camera.hpp"
 #include "Debug.hpp"
+#include "Game.hpp"
 #include "InstanceRenderer.hpp"
 #include "Mesh.hpp"
 #include "OcclusionCuller.hpp"
@@ -19,6 +20,22 @@ class Engine {
     void init();
     void run();
     void cleanup();
+
+    void setGame(Game *_game) { game = _game; }
+
+    [[nodiscard]] Camera &getCamera() { return camera; }
+
+    void addRenderObject(RenderObject object);
+
+    struct FBXModel {
+        std::vector<std::shared_ptr<Mesh>> meshes;
+        std::vector<std::shared_ptr<Texture>> textures;
+    };
+    FBXModel createFBXModel(const std::string &fbxPath, const std::string &fileExtension);
+    void placeFBXModel(const FBXModel &model, const glm::vec3 &position, bool instanced = false);
+
+    [[nodiscard]] std::shared_ptr<Mesh> createCubeMesh(float size);
+    [[nodiscard]] std::shared_ptr<Texture> loadTexture(const std::string &path);
 
   private:
     constexpr static float DEBUG_FONT_SIZE = 38.f;
@@ -38,6 +55,8 @@ class Engine {
     uint64_t vertexCount = 0;
 
     Debug debug;
+
+    Game *game = nullptr;
 
     constexpr static uint32_t GPU_QUERY_COUNT = static_cast<uint32_t>(GpuPass::Count) * 2;
     std::vector<vk::raii::QueryPool> gpuQueryPools;
@@ -97,19 +116,12 @@ class Engine {
     void registerTexture(const std::shared_ptr<Texture> &texture);
     void updateUniformBuffer(uint32_t currentImage) const;
     void createDescriptorPool();
-    void addRenderObject(RenderObject object);
     void updateInstanceBuffers(uint32_t currentImage);
 
-    struct FBXModel {
-        std::vector<std::shared_ptr<Mesh>> meshes;
-        std::vector<std::shared_ptr<Texture>> textures;
-    };
     struct StringHash {
         using is_transparent = void;
         std::size_t operator()(const std::string_view sv) const { return std::hash<std::string_view>{}(sv); }
     };
-    FBXModel createFBXModel(const std::string &fbxPath, const std::string &fileExtension);
-    void placeFBXModel(const FBXModel &model, const glm::vec3 &position, bool instanced = false);
 
     void recreateSwapChain();
     void createOcclusionCuller();

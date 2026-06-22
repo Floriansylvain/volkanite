@@ -8,7 +8,6 @@
 #include "ShaderUtils.hpp"
 #include "VulkanUtils.hpp"
 #include "Window.hpp"
-#include <SDL3_image/SDL_image.h>
 #include <filesystem>
 #include <fstream>
 #include <glm/gtc/matrix_transform.hpp>
@@ -505,6 +504,19 @@ void Engine::addRenderObject(RenderObject object) {
     }
 }
 
+std::shared_ptr<Mesh> Engine::createCubeMesh(const float size) {
+    auto mesh = std::make_shared<Mesh>(vkCtx);
+    MeshUtils::generateCube(*mesh, size);
+    mesh->createGeometryBuffers(commandPool);
+    return mesh;
+}
+
+std::shared_ptr<Texture> Engine::loadTexture(const std::string &path) {
+    auto texture = std::make_shared<Texture>(vkCtx);
+    texture->loadFromFile(path, commandPool);
+    return texture;
+}
+
 void Engine::updateInstanceBuffers(const uint32_t currentImage) {
     const float aspect =
         static_cast<float>(swapChainHandler.extent2D.width) / static_cast<float>(swapChainHandler.extent2D.height);
@@ -643,28 +655,8 @@ void Engine::init() {
 
     textRenderer.loadFont("textures/consolas.png", commandPool, 0.38f, 0.2f);
 
-    const auto mesh = std::make_shared<Mesh>(vkCtx);
-    MeshUtils::generateCube(*mesh, 1.f);
-    mesh->createGeometryBuffers(commandPool);
-
-    const auto texture = std::make_shared<Texture>(vkCtx);
-    texture->loadFromFile("textures/bricks.jpg", commandPool);
-
-    constexpr int SIZE = 100;
-    constexpr int OFFSET = 5;
-    for (int x = -SIZE / 2; x < SIZE / 2; x += OFFSET) {
-        for (int y = -SIZE / 2; y < SIZE / 2; y += OFFSET) {
-            for (int z = -SIZE / 2; z < SIZE / 2; z += OFFSET) {
-                RenderObject cube;
-                cube.mesh = mesh;
-                cube.texture = texture;
-                cube.position = {x, y, z};
-                cube.isInstanced = true;
-                cube.rotationSpeed =
-                    glm::sin(static_cast<float>(x)) + glm::sin(static_cast<float>(y)) + glm::sin(static_cast<float>(z));
-                addRenderObject(std::move(cube));
-            }
-        }
+    if (game) {
+        game->init(*this);
     }
 
     instanceRenderer.build(commandPool);
@@ -694,46 +686,9 @@ void Engine::update() {
     lastTime = currentTime;
     deltaTime = std::min(deltaTime, 0.1f);
 
-    float mouseDx;
-    float mouseDy;
-    SDL_GetRelativeMouseState(&mouseDx, &mouseDy);
-
-    constexpr float sensitivity = 0.1f;
-    camera.yaw -= mouseDx * sensitivity;
-    camera.pitch -= mouseDy * sensitivity;
-
-    constexpr float maxPitch = 89.0f;
-    camera.pitch = std::clamp(camera.pitch, -maxPitch, maxPitch);
-
-    const float yawRad = glm::radians(camera.yaw);
-    const glm::vec3 flatForward(cos(yawRad), sin(yawRad), 0.0f);
-    const glm::vec3 right = glm::normalize(glm::cross(flatForward, glm::vec3(0.0f, 0.0f, 1.0f)));
-
-    const bool *key_states = SDL_GetKeyboardState(nullptr);
-    glm::vec3 input = {0.f, 0.f, 0.f};
-
-    if (key_states[SDL_SCANCODE_W])
-        input.y += 1;
-    if (key_states[SDL_SCANCODE_S])
-        input.y -= 1;
-    if (key_states[SDL_SCANCODE_D])
-        input.x += 1;
-    if (key_states[SDL_SCANCODE_A])
-        input.x -= 1;
-    if (key_states[SDL_SCANCODE_LCTRL])
-        input.z -= 1;
-    if (key_states[SDL_SCANCODE_SPACE])
-        input.z += 1;
-
-    glm::vec3 movement = flatForward * input.y + right * input.x;
-    if (glm::length(movement) > 0.0f) {
-        movement = glm::normalize(movement);
+    if (game) {
+        game->update(*this, deltaTime);
     }
-
-    constexpr float speed = 10.0f;
-    camera.x += movement.x * speed * deltaTime;
-    camera.y += movement.y * speed * deltaTime;
-    camera.z += input.z * speed * deltaTime;
 }
 
 void Engine::run() {
