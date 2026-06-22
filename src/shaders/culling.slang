@@ -114,15 +114,24 @@ void csCullInstances(uint3 id: SV_DispatchThreadID) {
         float nearestNdcDepth = nearClip.z / nearClip.w;
 
         float4 centerClip = mul(cullCamera.proj, viewPos4);
-        float2 centerNdc = centerClip.xy / centerClip.w;
+        float invW = 1.0 / max(centerClip.w, 1e-4);
+        float2 centerNdc = centerClip.xy * invW;
 
-        float ndcRadius = (abs(cullCamera.proj[1][1]) * radius / dist);
-        float2 uvCenter = centerNdc * float2(0.5, 0.5) + float2(0.5, 0.5);
+        float ndcRadiusX = abs(cullCamera.proj[0][0]) * radius / dist;
+        float ndcRadiusY = abs(cullCamera.proj[1][1]) * radius / dist;
 
-        float footprintTexels = 2.0 * ndcRadius * float(pc.dstSize.y);
-        float mipLevel = clamp(ceil(log2(max(footprintTexels, 1.0))) + 1.0, 0.0, float(pc.maxMip));
+        float2 uvMin = saturate((centerNdc - float2(ndcRadiusX, ndcRadiusY)) * 0.5 + 0.5);
+        float2 uvMax = saturate((centerNdc + float2(ndcRadiusX, ndcRadiusY)) * 0.5 + 0.5);
 
-        float hiZDepth = hiZPyramid.SampleLevel(uvCenter, mipLevel).r;
+        float2 boxTexels = (uvMax - uvMin) * float2(pc.dstSize);
+        float maxBoxTexels = max(boxTexels.x, boxTexels.y);
+        float mipLevel = clamp(ceil(log2(max(maxBoxTexels, 1.0))), 0.0, float(pc.maxMip));
+
+        float d0 = hiZPyramid.SampleLevel(float2(uvMin.x, uvMin.y), mipLevel).r;
+        float d1 = hiZPyramid.SampleLevel(float2(uvMax.x, uvMin.y), mipLevel).r;
+        float d2 = hiZPyramid.SampleLevel(float2(uvMin.x, uvMax.y), mipLevel).r;
+        float d3 = hiZPyramid.SampleLevel(float2(uvMax.x, uvMax.y), mipLevel).r;
+        float hiZDepth = max(max(d0, d1), max(d2, d3));
 
         visible = (nearestNdcDepth <= hiZDepth);
     }
