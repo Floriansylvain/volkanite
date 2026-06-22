@@ -106,63 +106,6 @@ void Engine::collectGpuTimings(const uint32_t slot) {
     debug.endGpuSample();
 }
 
-void Engine::transition_image_layouts(const std::vector<TransitionImageLayoutCommand> &commands) const {
-    std::vector<vk::ImageMemoryBarrier2> barriers;
-    barriers.reserve(commands.size());
-
-    for (const auto &[image, old_layout, new_layout, src_access_mask, dst_access_mask, src_stage_mask, dst_stage_mask,
-                      image_aspect_flags] : commands) {
-        vk::ImageSubresourceRange subresourceRange{};
-        subresourceRange.aspectMask = image_aspect_flags;
-        subresourceRange.levelCount = 1;
-        subresourceRange.layerCount = 1;
-
-        vk::ImageMemoryBarrier2 barrier{};
-        barrier.srcStageMask = src_stage_mask;
-        barrier.srcAccessMask = src_access_mask;
-        barrier.dstStageMask = dst_stage_mask;
-        barrier.dstAccessMask = dst_access_mask;
-        barrier.oldLayout = old_layout;
-        barrier.newLayout = new_layout;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = image;
-        barrier.subresourceRange = subresourceRange;
-        barriers.push_back(barrier);
-    }
-
-    vk::DependencyInfo dependencyInfo{};
-    dependencyInfo.imageMemoryBarrierCount = static_cast<uint32_t>(barriers.size());
-    dependencyInfo.pImageMemoryBarriers = barriers.data();
-
-    commandBuffers[frameIndex].pipelineBarrier2(dependencyInfo);
-}
-
-void Engine::buffer_barriers(const std::vector<BufferBarrierCommand> &commands) const {
-    std::vector<vk::BufferMemoryBarrier2> barriers;
-    barriers.reserve(commands.size());
-
-    for (const auto &command : commands) {
-        vk::BufferMemoryBarrier2 barrier{};
-        barrier.srcStageMask = command.src_stage_mask;
-        barrier.srcAccessMask = command.src_access_mask;
-        barrier.dstStageMask = command.dst_stage_mask;
-        barrier.dstAccessMask = command.dst_access_mask;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.buffer = command.buffer;
-        barrier.offset = command.offset;
-        barrier.size = command.size;
-        barriers.push_back(barrier);
-    }
-
-    vk::DependencyInfo dependencyInfo{};
-    dependencyInfo.bufferMemoryBarrierCount = static_cast<uint32_t>(barriers.size());
-    dependencyInfo.pBufferMemoryBarriers = barriers.data();
-
-    commandBuffers[frameIndex].pipelineBarrier2(dependencyInfo);
-}
-
 void Engine::recordCommandBuffer(const uint32_t imageIndex) {
     using enum vk::ImageLayout;
     using enum vk::PipelineStageFlagBits2;
@@ -177,7 +120,7 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
 
     const float time = std::chrono::duration<float>(std::chrono::high_resolution_clock::now() - engineStartTime).count();
 
-    TransitionImageLayoutCommand colorTransition{};
+    VulkanUtils::ImageBarrierCommand colorTransition{};
     colorTransition.image = swapChainHandler.images[imageIndex];
     colorTransition.old_layout = eUndefined;
     colorTransition.new_layout = eColorAttachmentOptimal;
@@ -187,7 +130,7 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
     colorTransition.dst_stage_mask = eColorAttachmentOutput;
     colorTransition.image_aspect_flags = vk::ImageAspectFlagBits::eColor;
 
-    TransitionImageLayoutCommand msaaColorTransition{};
+    VulkanUtils::ImageBarrierCommand msaaColorTransition{};
     msaaColorTransition.image = *swapChainHandler.colorImage;
     msaaColorTransition.old_layout = eUndefined;
     msaaColorTransition.new_layout = eColorAttachmentOptimal;
@@ -197,7 +140,7 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
     msaaColorTransition.dst_stage_mask = eColorAttachmentOutput;
     msaaColorTransition.image_aspect_flags = vk::ImageAspectFlagBits::eColor;
 
-    TransitionImageLayoutCommand depthTransition{};
+    VulkanUtils::ImageBarrierCommand depthTransition{};
     depthTransition.image = *swapChainHandler.depthImage;
     depthTransition.old_layout = eUndefined;
     depthTransition.new_layout = eDepthAttachmentOptimal;
@@ -208,7 +151,7 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
     depthTransition.image_aspect_flags = vk::ImageAspectFlagBits::eDepth;
 
     writeTimestamp(GpuPass::FrameSetup, true, eTopOfPipe);
-    transition_image_layouts({colorTransition, msaaColorTransition, depthTransition});
+    VulkanUtils::imageBarriers(commandBuffers[frameIndex], {colorTransition, msaaColorTransition, depthTransition});
     writeTimestamp(GpuPass::FrameSetup, false, eAllCommands);
 
     writeTimestamp(GpuPass::HiZBuild, true, eComputeShader);
@@ -310,7 +253,7 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
 
     commandBuffers[frameIndex].endRendering();
 
-    TransitionImageLayoutCommand presentTransition{};
+    VulkanUtils::ImageBarrierCommand presentTransition{};
     presentTransition.image = swapChainHandler.images[imageIndex];
     presentTransition.old_layout = eColorAttachmentOptimal;
     presentTransition.new_layout = ePresentSrcKHR;
@@ -321,7 +264,7 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
     presentTransition.image_aspect_flags = vk::ImageAspectFlagBits::eColor;
 
     writeTimestamp(GpuPass::Present, true, eColorAttachmentOutput);
-    transition_image_layouts({presentTransition});
+    VulkanUtils::imageBarriers(commandBuffers[frameIndex], {presentTransition});
     writeTimestamp(GpuPass::Present, false, eBottomOfPipe);
 
     writeTimestamp(GpuPass::Total, false, eBottomOfPipe);

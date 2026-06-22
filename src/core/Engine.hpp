@@ -76,27 +76,6 @@ class Engine {
     void createGraphicsPipeline();
     void createCommandPool();
     void createCommandBuffers();
-    struct TransitionImageLayoutCommand {
-        vk::Image image;
-        vk::ImageLayout old_layout;
-        vk::ImageLayout new_layout;
-        vk::AccessFlags2 src_access_mask;
-        vk::AccessFlags2 dst_access_mask;
-        vk::PipelineStageFlags2 src_stage_mask;
-        vk::PipelineStageFlags2 dst_stage_mask;
-        vk::ImageAspectFlags image_aspect_flags;
-    };
-    struct BufferBarrierCommand {
-        vk::Buffer buffer;
-        vk::DeviceSize offset;
-        vk::DeviceSize size;
-        vk::AccessFlags2 src_access_mask;
-        vk::AccessFlags2 dst_access_mask;
-        vk::PipelineStageFlags2 src_stage_mask;
-        vk::PipelineStageFlags2 dst_stage_mask;
-    };
-    void transition_image_layouts(const std::vector<TransitionImageLayoutCommand> &commands) const;
-    void buffer_barriers(const std::vector<BufferBarrierCommand> &commands) const;
     void recordCommandBuffer(uint32_t imageIndex);
     void createSyncObjects();
     void drawFrame();

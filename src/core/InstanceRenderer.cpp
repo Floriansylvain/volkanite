@@ -182,21 +182,17 @@ void InstanceRenderer::cull(const CullCommand &command) const {
         command.commandBuffer->fillBuffer(batch.culledOnlyIndirectBuffers[command.frameIndex],
                                           offsetof(vk::DrawIndexedIndirectCommand, instanceCount), sizeof(uint32_t), 0);
 
-        std::array<vk::BufferMemoryBarrier2, 2> fillBarriers{};
-        fillBarriers[0].srcStageMask = vk::PipelineStageFlagBits2::eClear;
-        fillBarriers[0].srcAccessMask = vk::AccessFlagBits2::eTransferWrite;
-        fillBarriers[0].dstStageMask = vk::PipelineStageFlagBits2::eComputeShader;
-        fillBarriers[0].dstAccessMask = vk::AccessFlagBits2::eShaderStorageWrite | vk::AccessFlagBits2::eShaderStorageRead;
-        fillBarriers[0].buffer = batch.indirectBuffers[command.frameIndex];
-        fillBarriers[0].size = vk::WholeSize;
+        VulkanUtils::BufferBarrierCommand fillBarrier{};
+        fillBarrier.buffer = batch.indirectBuffers[command.frameIndex];
+        fillBarrier.src_stage_mask = vk::PipelineStageFlagBits2::eClear;
+        fillBarrier.src_access_mask = vk::AccessFlagBits2::eTransferWrite;
+        fillBarrier.dst_stage_mask = vk::PipelineStageFlagBits2::eComputeShader;
+        fillBarrier.dst_access_mask = vk::AccessFlagBits2::eShaderStorageWrite | vk::AccessFlagBits2::eShaderStorageRead;
 
-        fillBarriers[1] = fillBarriers[0];
-        fillBarriers[1].buffer = batch.culledOnlyIndirectBuffers[command.frameIndex];
+        VulkanUtils::BufferBarrierCommand culledOnlyFillBarrier = fillBarrier;
+        culledOnlyFillBarrier.buffer = batch.culledOnlyIndirectBuffers[command.frameIndex];
 
-        vk::DependencyInfo dependencyInfo{};
-        dependencyInfo.bufferMemoryBarrierCount = 2;
-        dependencyInfo.pBufferMemoryBarriers = fillBarriers.data();
-        command.commandBuffer->pipelineBarrier2(dependencyInfo);
+        VulkanUtils::bufferBarriers(*command.commandBuffer, {fillBarrier, culledOnlyFillBarrier});
 
         if (batch.visibleInstanceCount == 0)
             continue;
@@ -222,30 +218,28 @@ void InstanceRenderer::cull(const CullCommand &command) const {
         const uint32_t groupCount = (batch.visibleInstanceCount + 63) / 64;
         command.commandBuffer->dispatch(groupCount, 1, 1);
 
-        std::array<vk::BufferMemoryBarrier2, 4> postBarriers{};
-        postBarriers[0].srcStageMask = vk::PipelineStageFlagBits2::eComputeShader;
-        postBarriers[0].srcAccessMask = vk::AccessFlagBits2::eShaderStorageWrite;
-        postBarriers[0].dstStageMask = vk::PipelineStageFlagBits2::eDrawIndirect;
-        postBarriers[0].dstAccessMask = vk::AccessFlagBits2::eIndirectCommandRead;
-        postBarriers[0].buffer = batch.indirectBuffers[command.frameIndex];
-        postBarriers[0].size = vk::WholeSize;
+        VulkanUtils::BufferBarrierCommand indirectReadyBarrier{};
+        indirectReadyBarrier.buffer = batch.indirectBuffers[command.frameIndex];
+        indirectReadyBarrier.src_stage_mask = vk::PipelineStageFlagBits2::eComputeShader;
+        indirectReadyBarrier.src_access_mask = vk::AccessFlagBits2::eShaderStorageWrite;
+        indirectReadyBarrier.dst_stage_mask = vk::PipelineStageFlagBits2::eDrawIndirect;
+        indirectReadyBarrier.dst_access_mask = vk::AccessFlagBits2::eIndirectCommandRead;
 
-        postBarriers[1].srcStageMask = vk::PipelineStageFlagBits2::eComputeShader;
-        postBarriers[1].srcAccessMask = vk::AccessFlagBits2::eShaderStorageWrite;
-        postBarriers[1].dstStageMask = vk::PipelineStageFlagBits2::eVertexAttributeInput;
-        postBarriers[1].dstAccessMask = vk::AccessFlagBits2::eVertexAttributeRead;
-        postBarriers[1].buffer = batch.culledBuffers[command.frameIndex];
-        postBarriers[1].size = vk::WholeSize;
+        VulkanUtils::BufferBarrierCommand instanceReadyBarrier{};
+        instanceReadyBarrier.buffer = batch.culledBuffers[command.frameIndex];
+        instanceReadyBarrier.src_stage_mask = vk::PipelineStageFlagBits2::eComputeShader;
+        instanceReadyBarrier.src_access_mask = vk::AccessFlagBits2::eShaderStorageWrite;
+        instanceReadyBarrier.dst_stage_mask = vk::PipelineStageFlagBits2::eVertexAttributeInput;
+        instanceReadyBarrier.dst_access_mask = vk::AccessFlagBits2::eVertexAttributeRead;
 
-        postBarriers[2] = postBarriers[0];
-        postBarriers[2].buffer = batch.culledOnlyIndirectBuffers[command.frameIndex];
-        postBarriers[3] = postBarriers[1];
-        postBarriers[3].buffer = batch.culledOnlyBuffers[command.frameIndex];
+        VulkanUtils::BufferBarrierCommand culledOnlyIndirectReadyBarrier = indirectReadyBarrier;
+        culledOnlyIndirectReadyBarrier.buffer = batch.culledOnlyIndirectBuffers[command.frameIndex];
 
-        vk::DependencyInfo postDependencyInfo{};
-        postDependencyInfo.bufferMemoryBarrierCount = 4;
-        postDependencyInfo.pBufferMemoryBarriers = postBarriers.data();
-        command.commandBuffer->pipelineBarrier2(postDependencyInfo);
+        VulkanUtils::BufferBarrierCommand culledOnlyInstanceReadyBarrier = instanceReadyBarrier;
+        culledOnlyInstanceReadyBarrier.buffer = batch.culledOnlyBuffers[command.frameIndex];
+
+        VulkanUtils::bufferBarriers(*command.commandBuffer, {indirectReadyBarrier, instanceReadyBarrier,
+                                                             culledOnlyIndirectReadyBarrier, culledOnlyInstanceReadyBarrier});
     }
 }
 

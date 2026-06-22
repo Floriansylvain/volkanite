@@ -30,8 +30,18 @@ struct ImageBarrierCommand {
     uint32_t base_mip_level = 0;
     uint32_t level_count = 1;
 };
-
 void imageBarriers(const vk::raii::CommandBuffer &commandBuffer, const std::vector<ImageBarrierCommand> &commands);
+
+struct BufferBarrierCommand {
+    vk::Buffer buffer;
+    vk::DeviceSize offset = 0;
+    vk::DeviceSize size = vk::WholeSize;
+    vk::AccessFlags2 src_access_mask;
+    vk::AccessFlags2 dst_access_mask;
+    vk::PipelineStageFlags2 src_stage_mask;
+    vk::PipelineStageFlags2 dst_stage_mask;
+};
+void bufferBarriers(const vk::raii::CommandBuffer &commandBuffer, const std::vector<BufferBarrierCommand> &commands);
 
 ImageAllocation createImage(const VulkanContext &vkCtx, const CreateImageCommand &command);
 

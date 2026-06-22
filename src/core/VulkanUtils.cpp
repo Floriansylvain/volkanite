@@ -226,3 +226,28 @@ vk::raii::PipelineLayout VulkanUtils::createPipelineLayout(const VulkanContext &
     layoutInfo.pPushConstantRanges = pushConstantRanges.data();
     return {vkCtx.device, layoutInfo};
 }
+
+void VulkanUtils::bufferBarriers(const vk::raii::CommandBuffer &commandBuffer,
+                                 const std::vector<BufferBarrierCommand> &commands) {
+    std::vector<vk::BufferMemoryBarrier2> barriers;
+    barriers.reserve(commands.size());
+
+    for (const auto &command : commands) {
+        vk::BufferMemoryBarrier2 barrier{};
+        barrier.srcStageMask = command.src_stage_mask;
+        barrier.srcAccessMask = command.src_access_mask;
+        barrier.dstStageMask = command.dst_stage_mask;
+        barrier.dstAccessMask = command.dst_access_mask;
+        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        barrier.buffer = command.buffer;
+        barrier.offset = command.offset;
+        barrier.size = command.size;
+        barriers.push_back(barrier);
+    }
+
+    vk::DependencyInfo dependencyInfo{};
+    dependencyInfo.bufferMemoryBarrierCount = static_cast<uint32_t>(barriers.size());
+    dependencyInfo.pBufferMemoryBarriers = barriers.data();
+    commandBuffer.pipelineBarrier2(dependencyInfo);
+}
