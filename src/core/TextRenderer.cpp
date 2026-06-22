@@ -6,27 +6,34 @@ TextRenderer::TextRenderer(VulkanContext &context, const int maxFramesInFlight)
     : vkCtx(context), maxFramesInFlight(maxFramesInFlight), font(context) {}
 
 void TextRenderer::createDescriptorSetLayout() {
-    vk::DescriptorSetLayoutBinding samplerBinding{};
-    samplerBinding.binding = 0;
-    samplerBinding.descriptorType = vk::DescriptorType::eCombinedImageSampler;
-    samplerBinding.descriptorCount = 1;
-    samplerBinding.stageFlags = vk::ShaderStageFlagBits::eFragment;
+    std::array<vk::DescriptorSetLayoutBinding, 2> bindings{};
+
+    bindings[0].binding = 0;
+    bindings[0].descriptorType = vk::DescriptorType::eSampledImage;
+    bindings[0].descriptorCount = 1;
+    bindings[0].stageFlags = vk::ShaderStageFlagBits::eFragment;
+
+    bindings[1].binding = 1;
+    bindings[1].descriptorType = vk::DescriptorType::eSampler;
+    bindings[1].descriptorCount = 1;
+    bindings[1].stageFlags = vk::ShaderStageFlagBits::eFragment;
 
     vk::DescriptorSetLayoutCreateInfo layoutInfo{};
-    layoutInfo.bindingCount = 1;
-    layoutInfo.pBindings = &samplerBinding;
+    layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
+    layoutInfo.pBindings = bindings.data();
 
     descriptorSetLayout = vk::raii::DescriptorSetLayout(vkCtx.device, layoutInfo);
 }
 
 void TextRenderer::createDescriptorSet() {
-    constexpr vk::DescriptorPoolSize poolSize{vk::DescriptorType::eCombinedImageSampler, 1};
+    std::array<vk::DescriptorPoolSize, 2> poolSizes{vk::DescriptorPoolSize{vk::DescriptorType::eSampledImage, 1},
+                                                    vk::DescriptorPoolSize{vk::DescriptorType::eSampler, 1}};
 
     vk::DescriptorPoolCreateInfo poolInfo{};
     poolInfo.flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet;
     poolInfo.maxSets = 1;
-    poolInfo.poolSizeCount = 1;
-    poolInfo.pPoolSizes = &poolSize;
+    poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
+    poolInfo.pPoolSizes = poolSizes.data();
     descriptorPool = vk::raii::DescriptorPool(vkCtx.device, poolInfo);
 
     vk::DescriptorSetAllocateInfo allocInfo{};
@@ -36,13 +43,30 @@ void TextRenderer::createDescriptorSet() {
 
     descriptorSet = std::move(vk::raii::DescriptorSets(vkCtx.device, allocInfo).front());
 
-    vk::DescriptorImageInfo imageInfo{};
-    imageInfo.sampler = *font.texture.textureSampler;
-    imageInfo.imageView = *font.texture.textureImageView;
-    imageInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+    vk::DescriptorImageInfo textureInfo{};
+    textureInfo.imageView = *font.texture.textureImageView;
+    textureInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
 
-    const vk::WriteDescriptorSet write{*descriptorSet, 0, 0, 1, vk::DescriptorType::eCombinedImageSampler, &imageInfo};
-    vkCtx.device.updateDescriptorSets(write, {});
+    vk::DescriptorImageInfo samplerInfo{};
+    samplerInfo.sampler = *font.texture.textureSampler;
+
+    std::array<vk::WriteDescriptorSet, 2> descriptorWrites{};
+
+    descriptorWrites[0].dstSet = *descriptorSet;
+    descriptorWrites[0].dstBinding = 0;
+    descriptorWrites[0].dstArrayElement = 0;
+    descriptorWrites[0].descriptorCount = 1;
+    descriptorWrites[0].descriptorType = vk::DescriptorType::eSampledImage;
+    descriptorWrites[0].pImageInfo = &textureInfo;
+
+    descriptorWrites[1].dstSet = *descriptorSet;
+    descriptorWrites[1].dstBinding = 1;
+    descriptorWrites[1].dstArrayElement = 0;
+    descriptorWrites[1].descriptorCount = 1;
+    descriptorWrites[1].descriptorType = vk::DescriptorType::eSampler;
+    descriptorWrites[1].pImageInfo = &samplerInfo;
+
+    vkCtx.device.updateDescriptorSets(descriptorWrites, {});
 }
 
 void TextRenderer::createVertexBuffers() {

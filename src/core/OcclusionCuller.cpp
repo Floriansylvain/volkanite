@@ -202,8 +202,11 @@ void OcclusionCuller::createCullPipeline(const vk::PipelineShaderStageCreateInfo
     layoutInfo.pPushConstantRanges = &pushConstantRange;
     cullPipelineLayout = vk::raii::PipelineLayout(vkCtx.device, layoutInfo);
 
+    vk::PipelineShaderStageCreateInfo stageInfoCopy = cullStage;
+    stageInfoCopy.pName = "main";
+
     vk::ComputePipelineCreateInfo pipelineInfo{};
-    pipelineInfo.stage = cullStage;
+    pipelineInfo.stage = stageInfoCopy;
     pipelineInfo.layout = cullPipelineLayout;
     cullPipeline = vk::raii::Pipeline(vkCtx.device, nullptr, pipelineInfo);
 }
@@ -304,13 +307,19 @@ void OcclusionCuller::createPipelines(const vk::PipelineShaderStageCreateInfo &d
     downsampleLayoutInfo.pPushConstantRanges = &pushConstantRange;
     downsamplePipelineLayout = vk::raii::PipelineLayout(vkCtx.device, downsampleLayoutInfo);
 
+    vk::PipelineShaderStageCreateInfo mip0StageCopy = depthToMip0Stage;
+    mip0StageCopy.pName = "main";
+
+    vk::PipelineShaderStageCreateInfo downsampleStageCopy = downsampleStage;
+    downsampleStageCopy.pName = "main";
+
     vk::ComputePipelineCreateInfo mip0PipelineInfo{};
-    mip0PipelineInfo.stage = depthToMip0Stage;
+    mip0PipelineInfo.stage = mip0StageCopy;
     mip0PipelineInfo.layout = mip0PipelineLayout;
     depthToMip0Pipeline = vk::raii::Pipeline(vkCtx.device, nullptr, mip0PipelineInfo);
 
     vk::ComputePipelineCreateInfo downsamplePipelineInfo{};
-    downsamplePipelineInfo.stage = downsampleStage;
+    downsamplePipelineInfo.stage = downsampleStageCopy;
     downsamplePipelineInfo.layout = downsamplePipelineLayout;
     downsamplePipeline = vk::raii::Pipeline(vkCtx.device, nullptr, downsamplePipelineInfo);
 }

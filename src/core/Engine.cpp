@@ -8,10 +8,8 @@
 #include "Window.hpp"
 
 #include <SDL3_image/SDL_image.h>
-#include <chrono>
 #include <filesystem>
 #include <fstream>
-#include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
 Engine::Engine(Window *_window, VulkanContext *_vkCtx)
@@ -768,27 +766,32 @@ void Engine::createOcclusionCuller() {
     occlusionCuller.init();
     occlusionCuller.createResources(swapChainHandler.extent2D, swapChainHandler.findDepthFormat());
 
-    const vk::raii::ShaderModule cullingShaderModule =
-        ShaderUtils::createShaderModule(vkCtx, ShaderUtils::readFile("shaders/culling.spv"));
+    const vk::raii::ShaderModule depthToMip0Module =
+        ShaderUtils::createShaderModule(vkCtx, ShaderUtils::readFile("shaders/cull/DepthToMip0.spv"));
 
-    vk::PipelineShaderStageCreateInfo mip0Stage{};
-    mip0Stage.stage = vk::ShaderStageFlagBits::eCompute;
-    mip0Stage.module = cullingShaderModule;
-    mip0Stage.pName = "csDepthToMip0";
+    const vk::raii::ShaderModule downsampleModule =
+        ShaderUtils::createShaderModule(vkCtx, ShaderUtils::readFile("shaders/cull/Downsample.spv"));
 
-    vk::PipelineShaderStageCreateInfo downsampleStage{};
-    downsampleStage.stage = vk::ShaderStageFlagBits::eCompute;
-    downsampleStage.module = cullingShaderModule;
-    downsampleStage.pName = "csDownsample";
+    const vk::raii::ShaderModule cullInstancesModule =
+        ShaderUtils::createShaderModule(vkCtx, ShaderUtils::readFile("shaders/cull/CullInstances.spv"));
 
-    occlusionCuller.createPipelines(mip0Stage, downsampleStage);
+    vk::PipelineShaderStageCreateInfo depthToMip0StageInfo{};
+    depthToMip0StageInfo.stage = vk::ShaderStageFlagBits::eCompute;
+    depthToMip0StageInfo.module = *depthToMip0Module;
+    depthToMip0StageInfo.pName = "main";
 
-    vk::PipelineShaderStageCreateInfo cullStage{};
-    cullStage.stage = vk::ShaderStageFlagBits::eCompute;
-    cullStage.module = cullingShaderModule;
-    cullStage.pName = "csCullInstances";
+    vk::PipelineShaderStageCreateInfo downsampleStageInfo{};
+    downsampleStageInfo.stage = vk::ShaderStageFlagBits::eCompute;
+    downsampleStageInfo.module = *downsampleModule;
+    downsampleStageInfo.pName = "main";
 
-    occlusionCuller.createCullPipeline(cullStage);
+    vk::PipelineShaderStageCreateInfo cullStageInfo{};
+    cullStageInfo.stage = vk::ShaderStageFlagBits::eCompute;
+    cullStageInfo.module = *cullInstancesModule;
+    cullStageInfo.pName = "main";
+
+    occlusionCuller.createPipelines(depthToMip0StageInfo, downsampleStageInfo);
+    occlusionCuller.createCullPipeline(cullStageInfo);
 }
 
 DebugFrameInfo Engine::makeDebugFrameInfo() const {

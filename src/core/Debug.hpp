@@ -3,9 +3,6 @@
 
 #pragma once
 #include <array>
-#include <chrono>
-#include <string>
-#include <vector>
 
 enum class GpuPass : uint32_t { FrameSetup, HiZBuild, Culling, OpaqueGeometry, Xray, TextOverlay, Present, Total, Count };
 enum class CpuPass : uint32_t {

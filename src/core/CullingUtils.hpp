@@ -1,9 +1,6 @@
 #ifndef CULLING_UTILS_HPP
 #define CULLING_UTILS_HPP
 
-#pragma once
-#include <glm/glm.hpp>
-
 namespace CullingUtils {
 
 struct Frustum {

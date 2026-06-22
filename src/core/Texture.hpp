@@ -1,9 +1,6 @@
 #ifndef TEXTURE_HPP
 #define TEXTURE_HPP
 
-#pragma once
-#include "VulkanContext.hpp"
-
 class Texture {
   public:
     explicit Texture(const VulkanContext &context);

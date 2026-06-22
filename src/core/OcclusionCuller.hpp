@@ -1,17 +1,6 @@
 #ifndef OCCLUSION_CULLER_HPP
 #define OCCLUSION_CULLER_HPP
 
-#pragma once
-#include "VulkanContext.hpp"
-#include <glm/glm.hpp>
-#include <vector>
-
-#if defined(__INTELLISENSE__) || !defined(USE_CPP20_MODULES)
-#include <vulkan/vulkan_raii.hpp>
-#else
-import vulkan_hpp;
-#endif
-
 class OcclusionCuller {
   public:
     explicit OcclusionCuller(VulkanContext &context, int maxFramesInFlight);

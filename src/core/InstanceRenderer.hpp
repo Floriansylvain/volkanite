@@ -6,15 +6,7 @@
 #include "Mesh.hpp"
 #include "RenderObject.hpp"
 #include "Texture.hpp"
-#include "VulkanContext.hpp"
-#include <glm/glm.hpp>
 #include <unordered_map>
-
-#if defined(__INTELLISENSE__) || !defined(USE_CPP20_MODULES)
-#include <vulkan/vulkan_raii.hpp>
-#else
-import vulkan_hpp;
-#endif
 
 class InstanceRenderer {
   public:

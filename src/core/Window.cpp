@@ -3,8 +3,6 @@
 #include "Exceptions.hpp"
 #include "SDL3/SDL_vulkan.h"
 
-#include <iostream>
-#include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_core.h>
 
 Window::Window() = default;

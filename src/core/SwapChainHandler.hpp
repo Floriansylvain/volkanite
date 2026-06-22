@@ -1,15 +1,6 @@
 #ifndef SWAP_CHAIN_HANDLER_HPP
 #define SWAP_CHAIN_HANDLER_HPP
 
-#pragma once
-#include "VulkanContext.hpp"
-
-#if defined(__INTELLISENSE__) || !defined(USE_CPP20_MODULES)
-#include <vulkan/vulkan_raii.hpp>
-#else
-import vulkan_hpp;
-#endif
-
 class SwapChainHandler {
   public:
     explicit SwapChainHandler(const VulkanContext &context, Window &window);

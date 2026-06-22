@@ -4,11 +4,8 @@
 #define GLM_ENABLE_EXPERIMENTAL
 
 #pragma once
-#include "VulkanContext.hpp"
 #include <array>
-#include <glm/glm.hpp>
 #include <glm/gtx/hash.hpp>
-#include <vector>
 
 class Mesh {
   public:

@@ -1,10 +1,6 @@
 #ifndef VULKAN_UTILS_HPP
 #define VULKAN_UTILS_HPP
 
-#pragma once
-#include "VulkanContext.hpp"
-#include <vulkan/vulkan_raii.hpp>
-
 namespace VulkanUtils {
 using ImageAllocation = std::pair<vk::raii::Image, vk::raii::DeviceMemory>;
 using BufferAllocation = std::pair<vk::raii::Buffer, vk::raii::DeviceMemory>;

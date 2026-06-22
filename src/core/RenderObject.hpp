@@ -4,7 +4,6 @@
 #pragma once
 #include "Mesh.hpp"
 #include "Texture.hpp"
-#include <memory>
 
 struct RenderObject {
     glm::vec3 position{0.0f};

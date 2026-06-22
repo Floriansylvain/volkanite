@@ -3,8 +3,6 @@
 
 #pragma once
 #include "Mesh.hpp"
-#include <string>
-#include <vector>
 
 struct SubMesh {
     std::string filename;

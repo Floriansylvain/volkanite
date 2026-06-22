@@ -2,7 +2,6 @@
 #include "OcclusionCuller.hpp"
 #include "VulkanUtils.hpp"
 #include <array>
-#include <chrono>
 
 InstanceRenderer::InstanceRenderer(VulkanContext &vkCtx, const int maxFramesInFlight)
     : vkCtx(vkCtx), maxFramesInFlight(maxFramesInFlight) {}
