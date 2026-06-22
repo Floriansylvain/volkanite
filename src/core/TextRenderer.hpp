@@ -12,9 +12,7 @@ class TextRenderer {
                   float wordSpacing = 1.0f);
 
     void createDescriptorSetLayout();
-    void createPipeline(const vk::PipelineShaderStageCreateInfo &vertStage, const vk::PipelineShaderStageCreateInfo &fragStage,
-                        const vk::PipelineRenderingCreateInfo &pipelineRenderingCreateInfo,
-                        vk::SampleCountFlagBits msaaSamples);
+    void createPipeline(vk::Format colorFormat, vk::Format depthFormat);
 
     void drawText(const std::string &text, float pixelX, float pixelY, float pixelHeight, const glm::vec3 &color,
                   vk::Extent2D screenExtent);

@@ -6,10 +6,9 @@ class OcclusionCuller {
     explicit OcclusionCuller(VulkanContext &context, int maxFramesInFlight);
 
     void createResources(vk::Extent2D _extent, vk::Format depthFormat);
-    void createPipelines(const vk::PipelineShaderStageCreateInfo &depthToMip0Stage,
-                         const vk::PipelineShaderStageCreateInfo &downsampleStage);
+    void createPipelines();
+    void createCullPipeline();
 
-    void createCullPipeline(const vk::PipelineShaderStageCreateInfo &cullStage);
     vk::raii::DescriptorSetLayout cullSetLayout = nullptr;
     vk::raii::PipelineLayout cullPipelineLayout = nullptr;
     vk::raii::Pipeline cullPipeline = nullptr;

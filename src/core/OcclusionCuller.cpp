@@ -1,4 +1,5 @@
 #include "OcclusionCuller.hpp"
+#include "PipelineBuilder.hpp"
 #include "VulkanUtils.hpp"
 #include <array>
 #include <cmath>
@@ -189,26 +190,15 @@ void OcclusionCuller::createDescriptorSetLayouts() {
     cullSetLayout = vk::raii::DescriptorSetLayout(vkCtx.device, cullLayoutInfo);
 }
 
-void OcclusionCuller::createCullPipeline(const vk::PipelineShaderStageCreateInfo &cullStage) {
+void OcclusionCuller::createCullPipeline() {
     vk::PushConstantRange pushConstantRange{};
     pushConstantRange.stageFlags = vk::ShaderStageFlagBits::eCompute;
     pushConstantRange.size = sizeof(PyramidPushConstants);
 
-    const std::array cullSetLayouts{*emptySetLayout, *emptySetLayout, *cullSetLayout};
-    vk::PipelineLayoutCreateInfo layoutInfo{};
-    layoutInfo.setLayoutCount = static_cast<uint32_t>(cullSetLayouts.size());
-    layoutInfo.pSetLayouts = cullSetLayouts.data();
-    layoutInfo.pushConstantRangeCount = 1;
-    layoutInfo.pPushConstantRanges = &pushConstantRange;
-    cullPipelineLayout = vk::raii::PipelineLayout(vkCtx.device, layoutInfo);
+    cullPipelineLayout =
+        VulkanUtils::createPipelineLayout(vkCtx, {*emptySetLayout, *emptySetLayout, *cullSetLayout}, {pushConstantRange});
 
-    vk::PipelineShaderStageCreateInfo stageInfoCopy = cullStage;
-    stageInfoCopy.pName = "main";
-
-    vk::ComputePipelineCreateInfo pipelineInfo{};
-    pipelineInfo.stage = stageInfoCopy;
-    pipelineInfo.layout = cullPipelineLayout;
-    cullPipeline = vk::raii::Pipeline(vkCtx.device, nullptr, pipelineInfo);
+    cullPipeline = ComputePipelineBuilder(vkCtx).build("shaders/cull/CullInstances.spv", *cullPipelineLayout);
 }
 
 void OcclusionCuller::createDescriptorSets() {
@@ -284,44 +274,18 @@ void OcclusionCuller::createDescriptorSets() {
     }
 }
 
-void OcclusionCuller::createPipelines(const vk::PipelineShaderStageCreateInfo &depthToMip0Stage,
-                                      const vk::PipelineShaderStageCreateInfo &downsampleStage) {
+void OcclusionCuller::createPipelines() {
     vk::PushConstantRange pushConstantRange{};
     pushConstantRange.stageFlags = vk::ShaderStageFlagBits::eCompute;
-    pushConstantRange.offset = 0;
     pushConstantRange.size = sizeof(PyramidPushConstants);
 
-    vk::PipelineLayoutCreateInfo mip0LayoutInfo{};
-    mip0LayoutInfo.setLayoutCount = 1;
-    mip0LayoutInfo.pSetLayouts = &*mip0SetLayout;
-    mip0LayoutInfo.pushConstantRangeCount = 1;
-    mip0LayoutInfo.pPushConstantRanges = &pushConstantRange;
-    mip0PipelineLayout = vk::raii::PipelineLayout(vkCtx.device, mip0LayoutInfo);
+    mip0PipelineLayout = VulkanUtils::createPipelineLayout(vkCtx, {*mip0SetLayout}, {pushConstantRange});
+    downsamplePipelineLayout =
+        VulkanUtils::createPipelineLayout(vkCtx, {*emptySetLayout, *downsampleSetLayout}, {pushConstantRange});
 
-    const std::array downsampleSetLayouts{*emptySetLayout, *downsampleSetLayout};
-
-    vk::PipelineLayoutCreateInfo downsampleLayoutInfo{};
-    downsampleLayoutInfo.setLayoutCount = static_cast<uint32_t>(downsampleSetLayouts.size());
-    downsampleLayoutInfo.pSetLayouts = downsampleSetLayouts.data();
-    downsampleLayoutInfo.pushConstantRangeCount = 1;
-    downsampleLayoutInfo.pPushConstantRanges = &pushConstantRange;
-    downsamplePipelineLayout = vk::raii::PipelineLayout(vkCtx.device, downsampleLayoutInfo);
-
-    vk::PipelineShaderStageCreateInfo mip0StageCopy = depthToMip0Stage;
-    mip0StageCopy.pName = "main";
-
-    vk::PipelineShaderStageCreateInfo downsampleStageCopy = downsampleStage;
-    downsampleStageCopy.pName = "main";
-
-    vk::ComputePipelineCreateInfo mip0PipelineInfo{};
-    mip0PipelineInfo.stage = mip0StageCopy;
-    mip0PipelineInfo.layout = mip0PipelineLayout;
-    depthToMip0Pipeline = vk::raii::Pipeline(vkCtx.device, nullptr, mip0PipelineInfo);
-
-    vk::ComputePipelineCreateInfo downsamplePipelineInfo{};
-    downsamplePipelineInfo.stage = downsampleStageCopy;
-    downsamplePipelineInfo.layout = downsamplePipelineLayout;
-    downsamplePipeline = vk::raii::Pipeline(vkCtx.device, nullptr, downsamplePipelineInfo);
+    const ComputePipelineBuilder builder(vkCtx);
+    depthToMip0Pipeline = builder.build("shaders/cull/DepthToMip0.spv", *mip0PipelineLayout);
+    downsamplePipeline = builder.build("shaders/cull/Downsample.spv", *downsamplePipelineLayout);
 }
 
 void OcclusionCuller::buildPyramid(const vk::raii::CommandBuffer &commandBuffer, const uint32_t frameIndex) const {

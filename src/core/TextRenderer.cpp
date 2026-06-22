@@ -1,4 +1,5 @@
 #include "TextRenderer.hpp"
+#include "PipelineBuilder.hpp"
 #include "VulkanUtils.hpp"
 #include <cstring>
 
@@ -6,23 +7,10 @@ TextRenderer::TextRenderer(VulkanContext &context, const int maxFramesInFlight)
     : vkCtx(context), maxFramesInFlight(maxFramesInFlight), font(context) {}
 
 void TextRenderer::createDescriptorSetLayout() {
-    std::array<vk::DescriptorSetLayoutBinding, 2> bindings{};
-
-    bindings[0].binding = 0;
-    bindings[0].descriptorType = vk::DescriptorType::eSampledImage;
-    bindings[0].descriptorCount = 1;
-    bindings[0].stageFlags = vk::ShaderStageFlagBits::eFragment;
-
-    bindings[1].binding = 1;
-    bindings[1].descriptorType = vk::DescriptorType::eSampler;
-    bindings[1].descriptorCount = 1;
-    bindings[1].stageFlags = vk::ShaderStageFlagBits::eFragment;
-
-    vk::DescriptorSetLayoutCreateInfo layoutInfo{};
-    layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
-    layoutInfo.pBindings = bindings.data();
-
-    descriptorSetLayout = vk::raii::DescriptorSetLayout(vkCtx.device, layoutInfo);
+    const vk::DescriptorSetLayoutBinding imageBinding{0, vk::DescriptorType::eSampledImage, 1,
+                                                      vk::ShaderStageFlagBits::eFragment};
+    const vk::DescriptorSetLayoutBinding samplerBinding{1, vk::DescriptorType::eSampler, 1, vk::ShaderStageFlagBits::eFragment};
+    descriptorSetLayout = VulkanUtils::createDescriptorSetLayout(vkCtx, {imageBinding, samplerBinding});
 }
 
 void TextRenderer::createDescriptorSet() {
@@ -92,83 +80,24 @@ void TextRenderer::loadFont(const std::string &path, const vk::raii::CommandPool
     createVertexBuffers();
 }
 
-void TextRenderer::createPipeline(const vk::PipelineShaderStageCreateInfo &vertStage,
-                                  const vk::PipelineShaderStageCreateInfo &fragStage,
-                                  const vk::PipelineRenderingCreateInfo &pipelineRenderingCreateInfo,
-                                  const vk::SampleCountFlagBits msaaSamples) {
-    const std::array shaderStages = {vertStage, fragStage};
+void TextRenderer::createPipeline(const vk::Format colorFormat, const vk::Format depthFormat) {
+    pipelineLayout = VulkanUtils::createPipelineLayout(vkCtx, {*descriptorSetLayout});
 
-    auto bindingDescription = Font::TextVertex::getBindingDescription();
-    auto attributeDescriptions = Font::TextVertex::getAttributeDescriptions();
+    const auto bindingDescription = Font::TextVertex::getBindingDescription();
+    const auto attributeDescriptions = Font::TextVertex::getAttributeDescriptions();
+    const std::vector attrs(attributeDescriptions.begin(), attributeDescriptions.end());
 
-    vk::PipelineVertexInputStateCreateInfo vertexInputInfo{};
-    vertexInputInfo.vertexBindingDescriptionCount = 1;
-    vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
-    vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
-    vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
-
-    vk::PipelineInputAssemblyStateCreateInfo inputAssembly{};
-    inputAssembly.topology = vk::PrimitiveTopology::eTriangleList;
-
-    const std::vector dynamicStates = {vk::DynamicState::eViewport, vk::DynamicState::eScissor};
-    vk::PipelineDynamicStateCreateInfo dynamicState{};
-    dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
-    dynamicState.pDynamicStates = dynamicStates.data();
-
-    vk::PipelineViewportStateCreateInfo viewportState{};
-    viewportState.viewportCount = 1;
-    viewportState.scissorCount = 1;
-
-    vk::PipelineRasterizationStateCreateInfo rasterizer{};
-    rasterizer.polygonMode = vk::PolygonMode::eFill;
-    rasterizer.cullMode = vk::CullModeFlagBits::eNone;
-    rasterizer.frontFace = vk::FrontFace::eCounterClockwise;
-    rasterizer.lineWidth = 1.0f;
-
-    vk::PipelineMultisampleStateCreateInfo multisampling{};
-    multisampling.rasterizationSamples = msaaSamples;
-
-    using enum vk::ColorComponentFlagBits;
-    vk::PipelineColorBlendAttachmentState colorBlendAttachment{};
-    colorBlendAttachment.blendEnable = vk::True;
-    colorBlendAttachment.srcColorBlendFactor = vk::BlendFactor::eSrcAlpha;
-    colorBlendAttachment.dstColorBlendFactor = vk::BlendFactor::eOneMinusSrcAlpha;
-    colorBlendAttachment.colorBlendOp = vk::BlendOp::eAdd;
-    colorBlendAttachment.srcAlphaBlendFactor = vk::BlendFactor::eOne;
-    colorBlendAttachment.dstAlphaBlendFactor = vk::BlendFactor::eZero;
-    colorBlendAttachment.alphaBlendOp = vk::BlendOp::eAdd;
-    colorBlendAttachment.colorWriteMask = eR | eG | eB | eA;
-
-    vk::PipelineColorBlendStateCreateInfo colorBlending{};
-    colorBlending.attachmentCount = 1;
-    colorBlending.pAttachments = &colorBlendAttachment;
-
-    vk::PipelineDepthStencilStateCreateInfo depthStencil{};
-    depthStencil.depthTestEnable = vk::False;
-    depthStencil.depthWriteEnable = vk::False;
-
-    vk::PipelineLayoutCreateInfo pipelineLayoutInfo{};
-    pipelineLayoutInfo.setLayoutCount = 1;
-    pipelineLayoutInfo.pSetLayouts = &*descriptorSetLayout;
-
-    pipelineLayout = vk::raii::PipelineLayout(vkCtx.device, pipelineLayoutInfo);
-
-    vk::GraphicsPipelineCreateInfo pipelineInfo{};
-    pipelineInfo.stageCount = 2;
-    pipelineInfo.pStages = shaderStages.data();
-    pipelineInfo.pVertexInputState = &vertexInputInfo;
-    pipelineInfo.pInputAssemblyState = &inputAssembly;
-    pipelineInfo.pViewportState = &viewportState;
-    pipelineInfo.pRasterizationState = &rasterizer;
-    pipelineInfo.pMultisampleState = &multisampling;
-    pipelineInfo.pColorBlendState = &colorBlending;
-    pipelineInfo.pDepthStencilState = &depthStencil;
-    pipelineInfo.pDynamicState = &dynamicState;
-    pipelineInfo.layout = pipelineLayout;
-    pipelineInfo.renderPass = nullptr;
-
-    vk::StructureChain chain = {pipelineInfo, pipelineRenderingCreateInfo};
-    pipeline = vk::raii::Pipeline(vkCtx.device, nullptr, chain.get<vk::GraphicsPipelineCreateInfo>());
+    pipeline = GraphicsPipelineBuilder(vkCtx)
+                   .addShaderStage(vk::ShaderStageFlagBits::eVertex, "shaders/text.spv", "vertMainText")
+                   .addShaderStage(vk::ShaderStageFlagBits::eFragment, "shaders/text.spv", "fragMainText")
+                   .setVertexInput({bindingDescription}, attrs)
+                   .setCullMode(vk::CullModeFlagBits::eNone)
+                   .setDepthTest(false, false)
+                   .setLayout(*pipelineLayout)
+                   .setColorFormats({colorFormat})
+                   .setDepthFormat(depthFormat)
+                   .setMSAA(vkCtx.msaaSamples)
+                   .build();
 }
 
 void TextRenderer::drawText(const std::string &text, const float pixelX, const float pixelY, const float pixelHeight,

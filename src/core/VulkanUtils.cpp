@@ -206,3 +206,23 @@ void VulkanUtils::transitionImageLayout(const vk::raii::CommandBuffer &commandBu
 
     commandBuffer.pipelineBarrier(sourceStage, destinationStage, {}, {}, {}, barrier);
 }
+
+vk::raii::DescriptorSetLayout
+VulkanUtils::createDescriptorSetLayout(const VulkanContext &vkCtx,
+                                       const std::vector<vk::DescriptorSetLayoutBinding> &bindings) {
+    vk::DescriptorSetLayoutCreateInfo layoutInfo{};
+    layoutInfo.bindingCount = static_cast<uint32_t>(bindings.size());
+    layoutInfo.pBindings = bindings.data();
+    return {vkCtx.device, layoutInfo};
+}
+
+vk::raii::PipelineLayout VulkanUtils::createPipelineLayout(const VulkanContext &vkCtx,
+                                                           const std::vector<vk::DescriptorSetLayout> &setLayouts,
+                                                           const std::vector<vk::PushConstantRange> &pushConstantRanges) {
+    vk::PipelineLayoutCreateInfo layoutInfo{};
+    layoutInfo.setLayoutCount = static_cast<uint32_t>(setLayouts.size());
+    layoutInfo.pSetLayouts = setLayouts.data();
+    layoutInfo.pushConstantRangeCount = static_cast<uint32_t>(pushConstantRanges.size());
+    layoutInfo.pPushConstantRanges = pushConstantRanges.data();
+    return {vkCtx.device, layoutInfo};
+}

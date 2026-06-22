@@ -6,105 +6,37 @@
 InstanceRenderer::InstanceRenderer(VulkanContext &vkCtx, const int maxFramesInFlight)
     : vkCtx(vkCtx), maxFramesInFlight(maxFramesInFlight) {}
 
-void InstanceRenderer::createPipelines(const vk::PipelineShaderStageCreateInfo &vertShaderStageInfo,
-                                       const vk::PipelineShaderStageCreateInfo &fragShaderStageInfo,
-                                       vk::GraphicsPipelineCreateInfo basePipelineInfo,
-                                       const vk::PipelineRenderingCreateInfo &pipelineRenderingCreateInfo,
-                                       vk::PipelineRasterizationStateCreateInfo rasterizer) {
+void InstanceRenderer::createPipelines(const vk::PipelineLayout pipelineLayout, const vk::Format colorFormat,
+                                       const vk::Format depthFormat) {
     const auto bindingDescription = Mesh::Vertex::getBindingDescription();
     const auto attributeDescriptions = Mesh::Vertex::getAttributeDescriptions();
 
-    vk::VertexInputBindingDescription instanceBindingDescription{};
-    instanceBindingDescription.binding = 1;
-    instanceBindingDescription.stride = sizeof(InstanceData);
-    instanceBindingDescription.inputRate = vk::VertexInputRate::eInstance;
+    const vk::VertexInputBindingDescription instanceBinding{1, sizeof(InstanceData), vk::VertexInputRate::eInstance};
+    const vk::VertexInputAttributeDescription instancePos{3, 1, vk::Format::eR32G32B32Sfloat, offsetof(InstanceData, position)};
+    const vk::VertexInputAttributeDescription instanceRot{4, 1, vk::Format::eR32Sfloat, offsetof(InstanceData, rotation)};
 
-    vk::VertexInputAttributeDescription instancePosDescription{};
-    instancePosDescription.location = 3;
-    instancePosDescription.binding = 1;
-    instancePosDescription.format = vk::Format::eR32G32B32Sfloat;
-    instancePosDescription.offset = offsetof(InstanceData, position);
+    std::vector attrs(attributeDescriptions.begin(), attributeDescriptions.end());
+    attrs.push_back(instancePos);
+    attrs.push_back(instanceRot);
 
-    vk::VertexInputAttributeDescription instanceRotationDescription{};
-    instanceRotationDescription.location = 4;
-    instanceRotationDescription.binding = 1;
-    instanceRotationDescription.format = vk::Format::eR32Sfloat;
-    instanceRotationDescription.offset = offsetof(InstanceData, rotation);
+    GraphicsPipelineBuilder builder(vkCtx);
+    builder.addShaderStage(vk::ShaderStageFlagBits::eVertex, "shaders/shader.spv", "vertMainInstanced")
+        .addShaderStage(vk::ShaderStageFlagBits::eFragment, "shaders/shader.spv", "fragMain")
+        .setVertexInput({bindingDescription, instanceBinding}, attrs)
+        .setLayout(pipelineLayout)
+        .setColorFormats({colorFormat})
+        .setDepthFormat(depthFormat)
+        .setMSAA(vkCtx.msaaSamples);
 
-    vk::VertexInputBindingDescription debugBindingDescription{};
-    debugBindingDescription.binding = 2;
-    debugBindingDescription.stride = sizeof(float);
-    debugBindingDescription.inputRate = vk::VertexInputRate::eInstance;
+    solidPipeline = builder.build();
 
-    vk::VertexInputAttributeDescription culledDescription{};
-    culledDescription.location = 5;
-    culledDescription.binding = 2;
-    culledDescription.format = vk::Format::eR32Sfloat;
-    culledDescription.offset = 0;
+    builder.setPolygonMode(vk::PolygonMode::eLine);
+    wireframePipeline = builder.build();
 
-    const std::array debugBindings{bindingDescription, instanceBindingDescription, debugBindingDescription};
-    std::vector debugAttributes(attributeDescriptions.begin(), attributeDescriptions.end());
-    debugAttributes.push_back(instancePosDescription);
-    debugAttributes.push_back(instanceRotationDescription);
-    debugAttributes.push_back(culledDescription);
-
-    vk::PipelineVertexInputStateCreateInfo debugVertexInputInfo;
-    debugVertexInputInfo.vertexBindingDescriptionCount = static_cast<uint32_t>(debugBindings.size());
-    debugVertexInputInfo.pVertexBindingDescriptions = debugBindings.data();
-    debugVertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(debugAttributes.size());
-    debugVertexInputInfo.pVertexAttributeDescriptions = debugAttributes.data();
-
-    vk::PipelineShaderStageCreateInfo debugVertStage = vertShaderStageInfo;
-    debugVertStage.pName = "vertMainInstancedDebug";
-    const std::array debugShaderStages{debugVertStage, fragShaderStageInfo};
-
-    basePipelineInfo.pStages = debugShaderStages.data();
-    basePipelineInfo.pVertexInputState = &debugVertexInputInfo;
-    basePipelineInfo.pRasterizationState = &rasterizer;
-
-    const std::array instancedBindings = {bindingDescription, instanceBindingDescription};
-    std::vector instancedAttributes(attributeDescriptions.begin(), attributeDescriptions.end());
-    instancedAttributes.push_back(instancePosDescription);
-    instancedAttributes.push_back(instanceRotationDescription);
-
-    vk::PipelineVertexInputStateCreateInfo instancedVertexInputInfo;
-    instancedVertexInputInfo.vertexBindingDescriptionCount = static_cast<uint32_t>(instancedBindings.size());
-    instancedVertexInputInfo.pVertexBindingDescriptions = instancedBindings.data();
-    instancedVertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(instancedAttributes.size());
-    instancedVertexInputInfo.pVertexAttributeDescriptions = instancedAttributes.data();
-
-    vk::PipelineShaderStageCreateInfo instancedVertStage = vertShaderStageInfo;
-    instancedVertStage.pName = "vertMainInstanced";
-    const std::array instancedShaderStages = {instancedVertStage, fragShaderStageInfo};
-
-    basePipelineInfo.pStages = instancedShaderStages.data();
-    basePipelineInfo.pVertexInputState = &instancedVertexInputInfo;
-
-    vk::StructureChain solidChain = {basePipelineInfo, pipelineRenderingCreateInfo};
-    solidPipeline = vk::raii::Pipeline(vkCtx.device, nullptr, solidChain.get<vk::GraphicsPipelineCreateInfo>());
-
-    rasterizer.polygonMode = vk::PolygonMode::eLine;
-    basePipelineInfo.pRasterizationState = &rasterizer;
-
-    vk::StructureChain wireframeChain = {basePipelineInfo, pipelineRenderingCreateInfo};
-    wireframePipeline = vk::raii::Pipeline(vkCtx.device, nullptr, wireframeChain.get<vk::GraphicsPipelineCreateInfo>());
-
-    vk::PipelineShaderStageCreateInfo xrayFragStage = fragShaderStageInfo;
-    xrayFragStage.pName = "fragMainXray";
-    const std::array xrayShaderStages{instancedVertStage, xrayFragStage};
-
-    vk::PipelineDepthStencilStateCreateInfo xrayDepthStencil{};
-    xrayDepthStencil.depthTestEnable = vk::False;
-    xrayDepthStencil.depthWriteEnable = vk::False;
-
-    rasterizer.polygonMode = vk::PolygonMode::eFill;
-    basePipelineInfo.pStages = xrayShaderStages.data();
-    basePipelineInfo.pVertexInputState = &instancedVertexInputInfo;
-    basePipelineInfo.pDepthStencilState = &xrayDepthStencil;
-    basePipelineInfo.pRasterizationState = &rasterizer;
-
-    vk::StructureChain xrayChain = {basePipelineInfo, pipelineRenderingCreateInfo};
-    xrayPipeline = vk::raii::Pipeline(vkCtx.device, nullptr, xrayChain.get<vk::GraphicsPipelineCreateInfo>());
+    builder.setPolygonMode(vk::PolygonMode::eFill)
+        .setDepthTest(false, false)
+        .overrideEntryPoint(vk::ShaderStageFlagBits::eFragment, "fragMainXray");
+    xrayPipeline = builder.build();
 }
 
 size_t InstanceRenderer::addObject(RenderObject object) {

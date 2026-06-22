@@ -54,6 +54,13 @@ void transitionImageLayout(const vk::raii::CommandBuffer &commandBuffer, const v
 void copyBufferToImage(const vk::raii::CommandBuffer &commandBuffer, const vk::raii::Buffer &buffer,
                        const vk::raii::Image &image, uint32_t width, uint32_t height);
 
+[[nodiscard]] vk::raii::DescriptorSetLayout
+createDescriptorSetLayout(const VulkanContext &vkCtx, const std::vector<vk::DescriptorSetLayoutBinding> &bindings);
+
+[[nodiscard]] vk::raii::PipelineLayout createPipelineLayout(const VulkanContext &vkCtx,
+                                                            const std::vector<vk::DescriptorSetLayout> &setLayouts,
+                                                            const std::vector<vk::PushConstantRange> &pushConstantRanges = {});
+
 } // namespace VulkanUtils
 
 #endif

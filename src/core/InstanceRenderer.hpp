@@ -4,6 +4,7 @@
 #pragma once
 #include "CullingUtils.hpp"
 #include "Mesh.hpp"
+#include "PipelineBuilder.hpp"
 #include "RenderObject.hpp"
 #include "Texture.hpp"
 #include <unordered_map>
@@ -12,11 +13,7 @@ class InstanceRenderer {
   public:
     explicit InstanceRenderer(VulkanContext &vkCtx, int maxFramesInFlight);
 
-    void createPipelines(const vk::PipelineShaderStageCreateInfo &vertShaderStageInfo,
-                         const vk::PipelineShaderStageCreateInfo &fragShaderStageInfo,
-                         vk::GraphicsPipelineCreateInfo basePipelineInfo,
-                         const vk::PipelineRenderingCreateInfo &pipelineRenderingCreateInfo,
-                         vk::PipelineRasterizationStateCreateInfo rasterizer);
+    void createPipelines(vk::PipelineLayout pipelineLayout, vk::Format colorFormat, vk::Format depthFormat);
 
     size_t addObject(RenderObject object);
     [[nodiscard]] RenderObject &getObject(const size_t index) { return objects[index]; }
