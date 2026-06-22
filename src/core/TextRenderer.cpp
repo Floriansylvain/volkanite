@@ -1,4 +1,5 @@
 #include "TextRenderer.hpp"
+#include "DescriptorWriter.hpp"
 #include "PipelineBuilder.hpp"
 #include "VulkanUtils.hpp"
 #include <cstring>
@@ -31,30 +32,10 @@ void TextRenderer::createDescriptorSet() {
 
     descriptorSet = std::move(vk::raii::DescriptorSets(vkCtx.device, allocInfo).front());
 
-    vk::DescriptorImageInfo textureInfo{};
-    textureInfo.imageView = *font.texture.textureImageView;
-    textureInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-
-    vk::DescriptorImageInfo samplerInfo{};
-    samplerInfo.sampler = *font.texture.textureSampler;
-
-    std::array<vk::WriteDescriptorSet, 2> descriptorWrites{};
-
-    descriptorWrites[0].dstSet = *descriptorSet;
-    descriptorWrites[0].dstBinding = 0;
-    descriptorWrites[0].dstArrayElement = 0;
-    descriptorWrites[0].descriptorCount = 1;
-    descriptorWrites[0].descriptorType = vk::DescriptorType::eSampledImage;
-    descriptorWrites[0].pImageInfo = &textureInfo;
-
-    descriptorWrites[1].dstSet = *descriptorSet;
-    descriptorWrites[1].dstBinding = 1;
-    descriptorWrites[1].dstArrayElement = 0;
-    descriptorWrites[1].descriptorCount = 1;
-    descriptorWrites[1].descriptorType = vk::DescriptorType::eSampler;
-    descriptorWrites[1].pImageInfo = &samplerInfo;
-
-    vkCtx.device.updateDescriptorSets(descriptorWrites, {});
+    DescriptorWriter(vkCtx)
+        .writeImage(*descriptorSet, 0, vk::DescriptorType::eSampledImage, *font.texture.textureImageView)
+        .writeImage(*descriptorSet, 1, vk::DescriptorType::eSampler, nullptr, *font.texture.textureSampler)
+        .update();
 }
 
 void TextRenderer::createVertexBuffers() {

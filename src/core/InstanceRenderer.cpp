@@ -1,4 +1,5 @@
 #include "InstanceRenderer.hpp"
+#include "DescriptorWriter.hpp"
 #include "OcclusionCuller.hpp"
 #include "VulkanUtils.hpp"
 #include <array>
@@ -163,42 +164,32 @@ void InstanceRenderer::createCullDescriptorSets(const vk::DescriptorSetLayout cu
             allocInfo.descriptorPool = *cullDescriptorPool;
             allocInfo.descriptorSetCount = 1;
             allocInfo.pSetLayouts = &cullSetLayout;
-            vk::raii::DescriptorSet set = std::move(vk::raii::DescriptorSets(vkCtx.device, allocInfo).front());
 
-            vk::DescriptorBufferInfo inputInfo{*batch.buffers[f], 0, VK_WHOLE_SIZE};
-            vk::DescriptorBufferInfo outputInfo{*batch.culledBuffers[f], 0, VK_WHOLE_SIZE};
-            vk::DescriptorBufferInfo indirectInfo{*batch.indirectBuffers[f], 0, VK_WHOLE_SIZE};
+            DescriptorWriter writer(vkCtx);
 
-            const std::vector<vk::WriteDescriptorSet> writes{
-                {*set, 0, 0, 1, eStorageBuffer, nullptr, &inputInfo},
-                {*set, 1, 0, 1, eStorageBuffer, nullptr, &outputInfo},
-                {*set, 2, 0, 1, eStorageBuffer, nullptr, &indirectInfo},
-            };
-            vkCtx.device.updateDescriptorSets(writes, {});
+            for (auto &batch : batches) {
+                batch.cullDescriptorSets.clear();
+                for (uint32_t f = 0; f < framesU; ++f) {
+                    vk::DescriptorSetAllocateInfo allocInfo{};
+                    allocInfo.descriptorPool = *cullDescriptorPool;
+                    allocInfo.descriptorSetCount = 1;
+                    allocInfo.pSetLayouts = &cullSetLayout;
+                    vk::raii::DescriptorSet set = std::move(vk::raii::DescriptorSets(vkCtx.device, allocInfo).front());
 
-            vk::DescriptorImageInfo hiZInfo{};
-            hiZInfo.sampler = hiZSampler;
-            hiZInfo.imageView = hiZViews[f];
-            hiZInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+                    writer.writeBuffer(*set, 0, *batch.buffers[f], vk::WholeSize, vk::DescriptorType::eStorageBuffer)
+                        .writeBuffer(*set, 1, *batch.culledBuffers[f], vk::WholeSize, vk::DescriptorType::eStorageBuffer)
+                        .writeBuffer(*set, 2, *batch.indirectBuffers[f], vk::WholeSize, vk::DescriptorType::eStorageBuffer)
+                        .writeImage(*set, 3, vk::DescriptorType::eCombinedImageSampler, hiZViews[f], hiZSampler)
+                        .writeBuffer(*set, 4, cameraUniformBuffers[f], vk::WholeSize, vk::DescriptorType::eUniformBuffer)
+                        .writeBuffer(*set, 6, *batch.culledOnlyBuffers[f], vk::WholeSize, vk::DescriptorType::eStorageBuffer)
+                        .writeBuffer(*set, 7, *batch.culledOnlyIndirectBuffers[f], vk::WholeSize,
+                                     vk::DescriptorType::eStorageBuffer);
 
-            vk::DescriptorBufferInfo cameraInfo{cameraUniformBuffers[f], 0, VK_WHOLE_SIZE};
+                    batch.cullDescriptorSets.push_back(std::move(set));
+                }
+            }
 
-            const std::vector<vk::WriteDescriptorSet> extraWrites{
-                {*set, 3, 0, 1, eCombinedImageSampler, &hiZInfo},
-                {*set, 4, 0, 1, eUniformBuffer, nullptr, &cameraInfo},
-            };
-            vkCtx.device.updateDescriptorSets(extraWrites, {});
-
-            vk::DescriptorBufferInfo culledOutputInfo{*batch.culledOnlyBuffers[f], 0, VK_WHOLE_SIZE};
-            vk::DescriptorBufferInfo culledIndirectInfo{*batch.culledOnlyIndirectBuffers[f], 0, VK_WHOLE_SIZE};
-
-            const std::vector<vk::WriteDescriptorSet> debugWrites{
-                {*set, 6, 0, 1, eStorageBuffer, nullptr, &culledOutputInfo},
-                {*set, 7, 0, 1, eStorageBuffer, nullptr, &culledIndirectInfo},
-            };
-            vkCtx.device.updateDescriptorSets(debugWrites, {});
-
-            batch.cullDescriptorSets.push_back(std::move(set));
+            writer.update();
         }
     }
 }
@@ -367,16 +358,12 @@ uint64_t InstanceRenderer::getVisibleVertexEstimate(const uint32_t frameIndex) c
 }
 
 void InstanceRenderer::updateHiZViews(const std::vector<vk::ImageView> &hiZViews, const vk::Sampler hiZSampler) const {
+    DescriptorWriter writer(vkCtx);
     for (auto &batch : batches) {
         for (uint32_t f = 0; f < static_cast<uint32_t>(maxFramesInFlight); ++f) {
-            vk::DescriptorImageInfo hiZInfo{};
-            hiZInfo.sampler = hiZSampler;
-            hiZInfo.imageView = hiZViews[f];
-            hiZInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-
-            const vk::WriteDescriptorSet write{
-                *batch.cullDescriptorSets[f], 3, 0, 1, vk::DescriptorType::eCombinedImageSampler, &hiZInfo};
-            vkCtx.device.updateDescriptorSets(write, {});
+            writer.writeImage(*batch.cullDescriptorSets[f], 3, vk::DescriptorType::eCombinedImageSampler, hiZViews[f],
+                              hiZSampler);
         }
     }
+    writer.update();
 }

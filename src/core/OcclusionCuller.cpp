@@ -1,4 +1,5 @@
 #include "OcclusionCuller.hpp"
+#include "DescriptorWriter.hpp"
 #include "PipelineBuilder.hpp"
 #include "VulkanUtils.hpp"
 #include <array>
@@ -226,6 +227,8 @@ void OcclusionCuller::createDescriptorSets() {
     downsampleDescriptorSets.clear();
     downsampleDescriptorSets.resize(maxFramesInFlight);
 
+    DescriptorWriter writer(vkCtx);
+
     for (uint32_t f = 0; f < framesU; ++f) {
         vk::DescriptorSetAllocateInfo mip0AllocInfo{};
         mip0AllocInfo.descriptorPool = *descriptorPool;
@@ -233,20 +236,11 @@ void OcclusionCuller::createDescriptorSets() {
         mip0AllocInfo.pSetLayouts = &*mip0SetLayout;
         mip0DescriptorSets.push_back(std::move(vk::raii::DescriptorSets(vkCtx.device, mip0AllocInfo).front()));
 
-        vk::DescriptorImageInfo depthImageInfo{};
-        depthImageInfo.sampler = *depthSampler;
-        depthImageInfo.imageView = *resolvedDepthImageViews[f];
-        depthImageInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-
-        vk::DescriptorImageInfo mip0ImageInfo{};
-        mip0ImageInfo.imageView = *hiZMipViews[f][0];
-        mip0ImageInfo.imageLayout = vk::ImageLayout::eGeneral;
-
-        const std::array mip0Writes{
-            vk::WriteDescriptorSet{*mip0DescriptorSets[f], 0, 0, 1, vk::DescriptorType::eCombinedImageSampler, &depthImageInfo},
-            vk::WriteDescriptorSet{*mip0DescriptorSets[f], 1, 0, 1, vk::DescriptorType::eStorageImage, &mip0ImageInfo},
-        };
-        vkCtx.device.updateDescriptorSets(mip0Writes, {});
+        writer
+            .writeImage(*mip0DescriptorSets[f], 0, vk::DescriptorType::eCombinedImageSampler, *resolvedDepthImageViews[f],
+                        *depthSampler)
+            .writeImage(*mip0DescriptorSets[f], 1, vk::DescriptorType::eStorageImage, *hiZMipViews[f][0], nullptr,
+                        vk::ImageLayout::eGeneral);
 
         for (uint32_t i = 1; i < mipLevels; ++i) {
             vk::DescriptorSetAllocateInfo allocInfo{};
@@ -255,23 +249,16 @@ void OcclusionCuller::createDescriptorSets() {
             allocInfo.pSetLayouts = &*downsampleSetLayout;
             vk::raii::DescriptorSet set = std::move(vk::raii::DescriptorSets(vkCtx.device, allocInfo).front());
 
-            vk::DescriptorImageInfo srcInfo{};
-            srcInfo.imageView = *hiZMipViews[f][i - 1];
-            srcInfo.imageLayout = vk::ImageLayout::eGeneral;
-
-            vk::DescriptorImageInfo dstInfo{};
-            dstInfo.imageView = *hiZMipViews[f][i];
-            dstInfo.imageLayout = vk::ImageLayout::eGeneral;
-
-            const std::array writes{
-                vk::WriteDescriptorSet{*set, 0, 0, 1, vk::DescriptorType::eStorageImage, &srcInfo},
-                vk::WriteDescriptorSet{*set, 1, 0, 1, vk::DescriptorType::eStorageImage, &dstInfo},
-            };
-            vkCtx.device.updateDescriptorSets(writes, {});
+            writer
+                .writeImage(*set, 0, vk::DescriptorType::eStorageImage, *hiZMipViews[f][i - 1], nullptr,
+                            vk::ImageLayout::eGeneral)
+                .writeImage(*set, 1, vk::DescriptorType::eStorageImage, *hiZMipViews[f][i], nullptr, vk::ImageLayout::eGeneral);
 
             downsampleDescriptorSets[f].push_back(std::move(set));
         }
     }
+
+    writer.update();
 }
 
 void OcclusionCuller::createPipelines() {

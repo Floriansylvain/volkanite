@@ -1,13 +1,13 @@
 #include "Engine.hpp"
 #include "Constants.hpp"
 #include "CullingUtils.hpp"
+#include "DescriptorWriter.hpp"
 #include "Exceptions.hpp"
 #include "MeshUtils.hpp"
 #include "PipelineBuilder.hpp"
 #include "ShaderUtils.hpp"
 #include "VulkanUtils.hpp"
 #include "Window.hpp"
-
 #include <SDL3_image/SDL_image.h>
 #include <filesystem>
 #include <fstream>
@@ -548,19 +548,14 @@ void Engine::registerTexture(const std::shared_ptr<Texture> &texture) {
 
     std::vector<vk::raii::DescriptorSet> sets = vkCtx.device.allocateDescriptorSets(allocInfo);
 
+    DescriptorWriter writer(vkCtx);
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        vk::DescriptorBufferInfo bufferInfo{*cameraUniformBuffers[i], 0, sizeof(UniformBufferObject)};
-
-        vk::DescriptorImageInfo imageInfo{};
-        imageInfo.sampler = *texture->textureSampler;
-        imageInfo.imageView = *texture->textureImageView;
-        imageInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
-
-        const vk::WriteDescriptorSet uboWrite{sets[i], 0, 0, 1, vk::DescriptorType::eUniformBuffer, nullptr, &bufferInfo};
-        const vk::WriteDescriptorSet samplerWrite{sets[i], 1, 0, 1, vk::DescriptorType::eCombinedImageSampler, &imageInfo};
-        const std::array writes = {uboWrite, samplerWrite};
-        vkCtx.device.updateDescriptorSets(writes, {});
+        writer
+            .writeBuffer(*sets[i], 0, *cameraUniformBuffers[i], sizeof(UniformBufferObject), vk::DescriptorType::eUniformBuffer)
+            .writeImage(*sets[i], 1, vk::DescriptorType::eCombinedImageSampler, *texture->textureImageView,
+                        *texture->textureSampler);
     }
+    writer.update();
 
     textureDescriptorSets.try_emplace(texture, std::move(sets));
 }
