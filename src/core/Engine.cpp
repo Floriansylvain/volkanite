@@ -869,6 +869,15 @@ void Engine::run() {
             debugLines.push_back(std::format("draws: {}", drawCallCount));
             debugLines.push_back(std::format("verts: {}", vertexCount));
 
+            debugLines.emplace_back("");
+
+            debugLines.emplace_back("KEYBINDS");
+            debugLines.push_back(
+                std::format("W A S D: Movements (x: {:.2f}, y: {:.2f}, z: {:.2f})", camera.x, camera.y, camera.z));
+            debugLines.push_back(std::format("T: Wireframe ({})", isWireframe ? "ON" : "OFF"));
+            debugLines.push_back(std::format("C: Occlusion Culling ({})", isOcclusionCulled ? "ON" : "OFF"));
+            debugLines.push_back(std::format("X: X-RAY ({})", isXray ? "ON" : "OFF"));
+
             frameTimeAccumulator = 0.0f;
             frameCountAccumulator = 0;
         }
