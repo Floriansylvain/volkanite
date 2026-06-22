@@ -3,6 +3,7 @@
 
 #pragma once
 #include "Camera.hpp"
+#include "Debug.hpp"
 #include "InstanceRenderer.hpp"
 #include "Mesh.hpp"
 #include "OcclusionCuller.hpp"
@@ -30,6 +31,7 @@ class Engine {
 
   private:
     constexpr static float DEBUG_FONT_SIZE = 38.f;
+    constexpr static float PERF_PANEL_LEFT_MARGIN = 450.f;
     constexpr static int MAX_FRAMES_IN_FLIGHT = 2;
     constexpr static int MAX_TEXTURES = 16;
 
@@ -41,11 +43,15 @@ class Engine {
     TextRenderer textRenderer;
     OcclusionCuller occlusionCuller;
 
-    std::vector<std::string> debugLines;
-    float frameTimeAccumulator = 0.0f;
-    uint32_t frameCountAccumulator = 0;
     uint32_t drawCallCount = 0;
     uint64_t vertexCount = 0;
+
+    Debug debug;
+
+    constexpr static uint32_t GPU_QUERY_COUNT = static_cast<uint32_t>(GpuPass::Count) * 2;
+    std::vector<vk::raii::QueryPool> gpuQueryPools;
+    uint64_t totalFramesRendered = 0;
+    float timestampPeriodNs = 1.0f;
 
     vk::raii::DescriptorSetLayout descriptorSetLayout = nullptr;
     vk::raii::PipelineLayout pipelineLayout = nullptr;
@@ -74,6 +80,7 @@ class Engine {
     bool isWireframe = false;
     bool isXray = false;
     bool isOcclusionCulled = true;
+    bool isPerfOverlayVisible = false;
 
     std::chrono::high_resolution_clock::time_point engineStartTime;
 
@@ -104,6 +111,11 @@ class Engine {
     void recordCommandBuffer(uint32_t imageIndex);
     void createSyncObjects();
     void drawFrame();
+
+    void createQueryPools();
+    void writeTimestamp(GpuPass pass, bool isStart, vk::PipelineStageFlagBits2 stage) const;
+    void collectGpuTimings(uint32_t slot);
+    DebugFrameInfo makeDebugFrameInfo() const;
 
     struct UniformBufferObject {
         glm::mat4 view;

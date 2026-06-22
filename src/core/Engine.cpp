@@ -173,26 +173,65 @@ void Engine::createCommandBuffers() {
     commandBuffers = vk::raii::CommandBuffers(vkCtx.device, allocInfo);
 }
 
+void Engine::createQueryPools() {
+    timestampPeriodNs = vkCtx.physicalDevice.getProperties().limits.timestampPeriod;
+
+    vk::QueryPoolCreateInfo poolInfo{};
+    poolInfo.queryType = vk::QueryType::eTimestamp;
+    poolInfo.queryCount = GPU_QUERY_COUNT;
+
+    gpuQueryPools.clear();
+    gpuQueryPools.reserve(MAX_FRAMES_IN_FLIGHT);
+    for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        gpuQueryPools.emplace_back(vkCtx.device, poolInfo);
+    }
+}
+
+void Engine::writeTimestamp(const GpuPass pass, const bool isStart, const vk::PipelineStageFlagBits2 stage) const {
+    const uint32_t query = static_cast<uint32_t>(pass) * 2 + (isStart ? 0u : 1u);
+    commandBuffers[frameIndex].writeTimestamp2(stage, *gpuQueryPools[frameIndex], query);
+}
+
+void Engine::collectGpuTimings(const uint32_t slot) {
+    std::vector<uint64_t> timestamps;
+    vk::Result result;
+
+    std::tie(result, timestamps) = gpuQueryPools[slot].getResults<uint64_t>(
+        0, GPU_QUERY_COUNT, GPU_QUERY_COUNT * sizeof(uint64_t), sizeof(uint64_t), vk::QueryResultFlagBits::e64);
+
+    if (result != vk::Result::eSuccess)
+        return;
+
+    for (size_t i = 0; i < static_cast<size_t>(GpuPass::Count); ++i) {
+        const uint64_t startTick = timestamps[i * 2];
+        const uint64_t endTick = timestamps[i * 2 + 1];
+        const float ms = static_cast<float>(endTick - startTick) * timestampPeriodNs / 1'000'000.0f;
+        debug.recordGpuPass(static_cast<GpuPass>(i), ms);
+    }
+    debug.endGpuSample();
+}
+
 void Engine::transition_image_layouts(const std::vector<TransitionImageLayoutCommand> &commands) const {
     std::vector<vk::ImageMemoryBarrier2> barriers;
     barriers.reserve(commands.size());
 
-    for (const auto &command : commands) {
+    for (const auto &[image, old_layout, new_layout, src_access_mask, dst_access_mask, src_stage_mask, dst_stage_mask,
+                      image_aspect_flags] : commands) {
         vk::ImageSubresourceRange subresourceRange{};
-        subresourceRange.aspectMask = command.image_aspect_flags;
+        subresourceRange.aspectMask = image_aspect_flags;
         subresourceRange.levelCount = 1;
         subresourceRange.layerCount = 1;
 
         vk::ImageMemoryBarrier2 barrier{};
-        barrier.srcStageMask = command.src_stage_mask;
-        barrier.srcAccessMask = command.src_access_mask;
-        barrier.dstStageMask = command.dst_stage_mask;
-        barrier.dstAccessMask = command.dst_access_mask;
-        barrier.oldLayout = command.old_layout;
-        barrier.newLayout = command.new_layout;
+        barrier.srcStageMask = src_stage_mask;
+        barrier.srcAccessMask = src_access_mask;
+        barrier.dstStageMask = dst_stage_mask;
+        barrier.dstAccessMask = dst_access_mask;
+        barrier.oldLayout = old_layout;
+        barrier.newLayout = new_layout;
         barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = command.image;
+        barrier.image = image;
         barrier.subresourceRange = subresourceRange;
         barriers.push_back(barrier);
     }
@@ -238,6 +277,9 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
 
     commandBuffers[frameIndex].begin({});
 
+    commandBuffers[frameIndex].resetQueryPool(*gpuQueryPools[frameIndex], 0, GPU_QUERY_COUNT);
+    writeTimestamp(GpuPass::Total, true, eTopOfPipe);
+
     const float time = std::chrono::duration<float>(std::chrono::high_resolution_clock::now() - engineStartTime).count();
 
     TransitionImageLayoutCommand colorTransition{};
@@ -270,10 +312,14 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
     depthTransition.dst_stage_mask = eEarlyFragmentTests | eLateFragmentTests;
     depthTransition.image_aspect_flags = vk::ImageAspectFlagBits::eDepth;
 
+    writeTimestamp(GpuPass::FrameSetup, true, eTopOfPipe);
     transition_image_layouts({colorTransition, msaaColorTransition, depthTransition});
+    writeTimestamp(GpuPass::FrameSetup, false, eAllCommands);
 
+    writeTimestamp(GpuPass::HiZBuild, true, eComputeShader);
     occlusionCuller.prepareDepthResolveTarget(commandBuffers[frameIndex], frameIndex);
     occlusionCuller.buildPyramid(commandBuffers[frameIndex], frameIndex);
+    writeTimestamp(GpuPass::HiZBuild, false, eComputeShader);
 
     InstanceRenderer::CullCommand cullCommand = {};
     cullCommand.commandBuffer = &commandBuffers[frameIndex];
@@ -285,7 +331,9 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
     cullCommand.time = time;
     cullCommand.occlusionEnabled = isOcclusionCulled;
 
+    writeTimestamp(GpuPass::Culling, true, eComputeShader);
     instanceRenderer.cull(cullCommand);
+    writeTimestamp(GpuPass::Culling, false, eComputeShader);
 
     constexpr vk::ClearValue clearColor = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 1.0f);
     vk::RenderingAttachmentInfo attachmentInfo = {};
@@ -331,21 +379,39 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
                                                            static_cast<float>(swapChainHandler.extent2D.height), 0.0f, 1.0f));
     commandBuffers[frameIndex].setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainHandler.extent2D));
 
+    writeTimestamp(GpuPass::OpaqueGeometry, true, eColorAttachmentOutput);
     instanceRenderer.draw(commandBuffers[frameIndex], frameIndex, *pipelineLayout, textureDescriptorSets, isWireframe,
                           drawCallCount);
     vertexCount = instanceRenderer.getVisibleVertexEstimate(frameIndex);
+    writeTimestamp(GpuPass::OpaqueGeometry, false, eColorAttachmentOutput);
 
+    writeTimestamp(GpuPass::Xray, true, eColorAttachmentOutput);
     if (isXray) {
         instanceRenderer.drawXray(commandBuffers[frameIndex], frameIndex, *pipelineLayout, textureDescriptorSets);
     }
+    writeTimestamp(GpuPass::Xray, false, eColorAttachmentOutput);
 
+    writeTimestamp(GpuPass::TextOverlay, true, eColorAttachmentOutput);
     float offset = 10.f;
+    const auto &debugLines = debug.lines();
     for (size_t i = 0; i < debugLines.size(); i++) {
         textRenderer.drawText(debugLines[i], 10.0f, static_cast<float>(i) + offset, DEBUG_FONT_SIZE,
                               glm::vec3(1.0f, 1.0f, 1.0f), swapChainHandler.extent2D);
         offset += DEBUG_FONT_SIZE - 10.f;
     }
+
+    if (isPerfOverlayVisible) {
+        float perfOffset = 10.f;
+        const auto &perfDebugLines = debug.perfLines();
+        for (size_t i = 0; i < perfDebugLines.size(); i++) {
+            textRenderer.drawText(perfDebugLines[i], PERF_PANEL_LEFT_MARGIN, static_cast<float>(i) + perfOffset,
+                                  DEBUG_FONT_SIZE, glm::vec3(1.0f, 1.0f, 1.0f), swapChainHandler.extent2D);
+            perfOffset += DEBUG_FONT_SIZE - 10.f;
+        }
+    }
+
     textRenderer.render(commandBuffers[frameIndex], frameIndex);
+    writeTimestamp(GpuPass::TextOverlay, false, eColorAttachmentOutput);
 
     commandBuffers[frameIndex].endRendering();
 
@@ -359,7 +425,12 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
     presentTransition.dst_stage_mask = eBottomOfPipe;
     presentTransition.image_aspect_flags = vk::ImageAspectFlagBits::eColor;
 
+    writeTimestamp(GpuPass::Present, true, eColorAttachmentOutput);
     transition_image_layouts({presentTransition});
+    writeTimestamp(GpuPass::Present, false, eBottomOfPipe);
+
+    writeTimestamp(GpuPass::Total, false, eBottomOfPipe);
+
     commandBuffers[frameIndex].end();
 }
 
@@ -393,14 +464,22 @@ void Engine::recreateSwapChain() {
 }
 
 void Engine::drawFrame() {
+    const auto fenceWaitStart = std::chrono::high_resolution_clock::now();
     if (auto const fenceResult = vkCtx.device.waitForFences(*inFlightFences[frameIndex], vk::True, UINT64_MAX);
         fenceResult != vk::Result::eSuccess) {
         throw EngineExceptions::Render("Failed to wait for fence");
     }
+    debug.addCpuTime(CpuPass::FenceWait, fenceWaitStart);
+
+    if (totalFramesRendered >= static_cast<uint64_t>(MAX_FRAMES_IN_FLIGHT)) {
+        collectGpuTimings(frameIndex);
+    }
+    totalFramesRendered++;
 
     vk::Result result;
     uint32_t imageIndex;
 
+    const auto acquireStart = std::chrono::high_resolution_clock::now();
     try {
         std::tie(result, imageIndex) =
             swapChainHandler.swapChainKHR.acquireNextImage(UINT64_MAX, *presentCompleteSemaphores[frameIndex], nullptr);
@@ -408,19 +487,24 @@ void Engine::drawFrame() {
         recreateSwapChain();
         return;
     }
+    debug.addCpuTime(CpuPass::AcquireImage, acquireStart);
     if (result != vk::Result::eSuccess && result != vk::Result::eSuboptimalKHR) {
         assert(result == vk::Result::eTimeout || result == vk::Result::eNotReady);
         throw EngineExceptions::Render("Failed to acquire swap chain image");
     }
 
+    const auto bufferUpdateStart = std::chrono::high_resolution_clock::now();
     vkCtx.device.resetFences(*inFlightFences[frameIndex]);
 
     commandBuffers[frameIndex].reset();
 
     updateUniformBuffer(frameIndex);
     updateInstanceBuffers(frameIndex);
+    debug.addCpuTime(CpuPass::BufferUpdate, bufferUpdateStart);
 
+    const auto recordStart = std::chrono::high_resolution_clock::now();
     recordCommandBuffer(imageIndex);
+    debug.addCpuTime(CpuPass::RecordCmd, recordStart);
 
     constexpr vk::PipelineStageFlags waitDestinationStageMask(vk::PipelineStageFlagBits::eColorAttachmentOutput);
     vk::SubmitInfo submitInfo{};
@@ -432,7 +516,9 @@ void Engine::drawFrame() {
     submitInfo.signalSemaphoreCount = 1;
     submitInfo.pSignalSemaphores = &*renderFinishedSemaphores[imageIndex];
 
+    const auto submitStart = std::chrono::high_resolution_clock::now();
     vkCtx.queue.submit(submitInfo, *inFlightFences[frameIndex]);
+    debug.addCpuTime(CpuPass::Submit, submitStart);
 
     vk::SubpassDependency dependency{};
     dependency.srcSubpass = vk::SubpassExternal;
@@ -449,14 +535,17 @@ void Engine::drawFrame() {
     presentInfoKHR.pSwapchains = &*swapChainHandler.swapChainKHR;
     presentInfoKHR.pImageIndices = &imageIndex;
 
+    const auto presentStart = std::chrono::high_resolution_clock::now();
     try {
         result = vkCtx.queue.presentKHR(presentInfoKHR);
     } catch (const vk::OutOfDateKHRError &) {
+        debug.addCpuTime(CpuPass::Present, presentStart);
         framebufferResized = false;
         recreateSwapChain();
         frameIndex = (frameIndex + 1) % MAX_FRAMES_IN_FLIGHT;
         return;
     }
+    debug.addCpuTime(CpuPass::Present, presentStart);
 
     if (result == vk::Result::eSuboptimalKHR || framebufferResized) {
         framebufferResized = false;
@@ -702,6 +791,26 @@ void Engine::createOcclusionCuller() {
     occlusionCuller.createCullPipeline(cullStage);
 }
 
+DebugFrameInfo Engine::makeDebugFrameInfo() const {
+    DebugFrameInfo info;
+    info.msaaSamples = static_cast<uint32_t>(vkCtx.msaaSamples);
+    info.maxAnisotropy = vkCtx.physicalDevice.getProperties().limits.maxSamplerAnisotropy;
+    info.vsyncOn = swapChainHandler.presentMode != vk::PresentModeKHR::eImmediate;
+    info.presentModeName = vk::to_string(swapChainHandler.presentMode);
+    info.drawCallCount = drawCallCount;
+    info.vertexCount = vertexCount;
+    info.cameraX = camera.x;
+    info.cameraY = camera.y;
+    info.cameraZ = camera.z;
+    info.cameraYaw = camera.yaw;
+    info.cameraPitch = camera.pitch;
+    info.wireframe = isWireframe;
+    info.occlusionCulling = isOcclusionCulled;
+    info.xray = isXray;
+    info.perfOverlayVisible = isPerfOverlayVisible;
+    return info;
+}
+
 void Engine::init() {
     if (!window.isRunning()) {
         throw EngineExceptions::NotInitialized("Failed to run Engine : Window is not running");
@@ -713,6 +822,7 @@ void Engine::init() {
     window.setWireframeCallback([this] { isWireframe = !isWireframe; });
     window.setOcclusionCullCallback([this] { isOcclusionCulled = !isOcclusionCulled; });
     window.setXrayCallback([this] { isXray = !isXray; });
+    window.setPerfOverlayCallback([this] { isPerfOverlayVisible = !isPerfOverlayVisible; });
 
     vkCtx.init(window);
     swapChainHandler.create();
@@ -721,6 +831,7 @@ void Engine::init() {
     textRenderer.createDescriptorSetLayout();
     createGraphicsPipeline();
     createCommandPool();
+    createQueryPools();
     swapChainHandler.createColorResources();
     swapChainHandler.createDepthResources();
     createOcclusionCuller();
@@ -839,48 +950,16 @@ void Engine::run() {
     while (window.isRunning()) {
         const auto frameStart = std::chrono::high_resolution_clock::now();
 
+        const auto pollStart = std::chrono::high_resolution_clock::now();
         window.pollEvents();
+        debug.addCpuTime(CpuPass::PollEvents, pollStart);
+
+        const auto updateStart = std::chrono::high_resolution_clock::now();
         update();
+        debug.addCpuTime(CpuPass::CameraUpdate, updateStart);
+
         drawFrame();
-
-        const float frameTimeMs =
-            std::chrono::duration<float, std::milli>(std::chrono::high_resolution_clock::now() - frameStart).count();
-
-        frameTimeAccumulator += frameTimeMs;
-        frameCountAccumulator++;
-
-        if (frameTimeAccumulator >= 100.0f) {
-            const float avgFrameTimeMs = frameTimeAccumulator / static_cast<float>(frameCountAccumulator);
-            const float fps = 1000.0f / avgFrameTimeMs;
-
-            const bool vsyncOn = swapChainHandler.presentMode != vk::PresentModeKHR::eImmediate;
-
-            debugLines.clear();
-
-            debugLines.push_back(std::format("MSAA: {}x", static_cast<uint32_t>(vkCtx.msaaSamples)));
-            debugLines.push_back(
-                std::format("ANISOTROPY: {:.0f}x", vkCtx.physicalDevice.getProperties().limits.maxSamplerAnisotropy));
-            debugLines.push_back(
-                std::format("V-SYNC: {} ({})", vsyncOn ? "ON" : "OFF", vk::to_string(swapChainHandler.presentMode)));
-
-            debugLines.emplace_back("");
-
-            debugLines.push_back(std::format("frametime: {:.2f}ms ({:.0f} fps)", avgFrameTimeMs, fps));
-            debugLines.push_back(std::format("draws: {}", drawCallCount));
-            debugLines.push_back(std::format("verts: {}", vertexCount));
-
-            debugLines.emplace_back("");
-
-            debugLines.emplace_back("KEYBINDS");
-            debugLines.push_back(
-                std::format("W A S D: Movements (x: {:.2f}, y: {:.2f}, z: {:.2f})", camera.x, camera.y, camera.z));
-            debugLines.push_back(std::format("T: Wireframe ({})", isWireframe ? "ON" : "OFF"));
-            debugLines.push_back(std::format("C: Occlusion Culling ({})", isOcclusionCulled ? "ON" : "OFF"));
-            debugLines.push_back(std::format("X: X-RAY ({})", isXray ? "ON" : "OFF"));
-
-            frameTimeAccumulator = 0.0f;
-            frameCountAccumulator = 0;
-        }
+        debug.update(frameStart, makeDebugFrameInfo());
     }
 
     vkCtx.device.waitIdle();

@@ -88,6 +88,9 @@ Window::Action Window::action_user_should_take(const SDL_Event *e) {
     if (e->key.scancode == SDL_SCANCODE_X) {
         return ACTION_XRAY;
     }
+    if (e->key.scancode == SDL_SCANCODE_P) {
+        return ACTION_PERF_OVERLAY;
+    }
     return ACTION_NONE;
 }
 
@@ -109,6 +112,8 @@ void Window::pollEvents() {
             onOcclusionCullToggle();
         } else if (action == ACTION_XRAY) {
             onXrayToggle();
+        } else if (action == ACTION_PERF_OVERLAY) {
+            onPerfOverlayToggle();
         }
     }
 }

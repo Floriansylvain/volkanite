@@ -21,10 +21,12 @@ class Window {
     [[nodiscard]] bool isMinimized() const;
     void pollEvents();
     void waitEvents();
+
     void setChangeCallback(const std::function<void()> &callback) { onChange = callback; }
     void setWireframeCallback(const std::function<void()> &callback) { onWireframeToggle = callback; }
     void setOcclusionCullCallback(const std::function<void()> &callback) { onOcclusionCullToggle = callback; }
     void setXrayCallback(const std::function<void()> &callback) { onXrayToggle = callback; }
+    void setPerfOverlayCallback(const std::function<void()> &callback) { onPerfOverlayToggle = callback; }
 
     void setWindowTitle(const std::string &title) const;
 
@@ -33,7 +35,7 @@ class Window {
   private:
     SDL_Window *SDL_Window = nullptr;
 
-    enum Action { ACTION_NONE, ACTION_WIREFRAME, ACTION_BLUR, ACTION_CULLING, ACTION_XRAY };
+    enum Action { ACTION_NONE, ACTION_WIREFRAME, ACTION_BLUR, ACTION_CULLING, ACTION_XRAY, ACTION_PERF_OVERLAY };
     static Action action_user_should_take(const SDL_Event *e);
 
     bool running = false;
@@ -43,6 +45,7 @@ class Window {
     std::function<void()> onWireframeToggle;
     std::function<void()> onOcclusionCullToggle;
     std::function<void()> onXrayToggle;
+    std::function<void()> onPerfOverlayToggle;
 };
 
 #endif
