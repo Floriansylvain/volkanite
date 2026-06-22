@@ -1,7 +1,7 @@
-#include "core/Engine.hpp"
+#include "engine/Engine.hpp"
 
-#include <core/DemoGame.hpp>
-#include <core/Window.hpp>
+#include <engine/internal/Window.hpp>
+#include <game/DemoGame.hpp>
 #include <iostream>
 
 int main() {

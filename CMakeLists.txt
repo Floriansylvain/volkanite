@@ -44,7 +44,12 @@ endforeach ()
 add_custom_target(generate_shaders DEPENDS ${SLANG_SPV_FILES})
 
 add_executable(${PROJECT_NAME} ${SOURCES})
-target_include_directories(${PROJECT_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_include_directories(${PROJECT_NAME} PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/engine"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/internal"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/game"
+)
 add_dependencies(${PROJECT_NAME} generate_shaders)
 
 add_library(ufbx STATIC external/ufbx/ufbx.c)
@@ -78,7 +83,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     ufbx
 )
 
-target_precompile_headers(${PROJECT_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/pch.hpp")
+target_precompile_headers(${PROJECT_NAME} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/pch.hpp")
 
 if (APPLE)
     target_link_libraries(${PROJECT_NAME} PRIVATE "-framework Cocoa" "-framework IOKit" "-framework QuartzCore")
