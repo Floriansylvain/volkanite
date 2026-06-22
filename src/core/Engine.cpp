@@ -374,6 +374,12 @@ void Engine::createSyncObjects() {
 void Engine::recreateSwapChain() {
     swapChainHandler.recreate();
     occlusionCuller.createResources(swapChainHandler.extent2D, swapChainHandler.findDepthFormat());
+
+    std::vector<vk::ImageView> hiZViews;
+    for (uint32_t f = 0; f < MAX_FRAMES_IN_FLIGHT; ++f) {
+        hiZViews.push_back(*occlusionCuller.hiZFullViews[f]);
+    }
+    instanceRenderer.updateHiZViews(hiZViews, *occlusionCuller.hiZSampler);
 }
 
 void Engine::drawFrame() {
@@ -659,6 +665,7 @@ void Engine::placeFBXModel(const FBXModel &model, const glm::vec3 &position, con
 }
 
 void Engine::createOcclusionCuller() {
+    occlusionCuller.init();
     occlusionCuller.createResources(swapChainHandler.extent2D, swapChainHandler.findDepthFormat());
 
     const vk::raii::ShaderModule cullingShaderModule =

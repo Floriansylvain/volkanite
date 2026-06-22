@@ -48,6 +48,8 @@ class InstanceRenderer {
 
     [[nodiscard]] uint64_t getVisibleVertexEstimate(uint32_t frameIndex) const;
 
+    void updateHiZViews(const std::vector<vk::ImageView> &hiZViews, vk::Sampler hiZSampler);
+
   private:
     struct InstanceData {
         glm::vec3 position;

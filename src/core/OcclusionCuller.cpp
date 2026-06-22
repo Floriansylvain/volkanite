@@ -3,6 +3,29 @@
 #include <array>
 #include <cmath>
 
+void OcclusionCuller::init() {
+    createDescriptorSetLayouts();
+
+    vk::SamplerCreateInfo depthSamplerInfo{};
+    depthSamplerInfo.magFilter = vk::Filter::eNearest;
+    depthSamplerInfo.minFilter = vk::Filter::eNearest;
+    depthSamplerInfo.mipmapMode = vk::SamplerMipmapMode::eNearest;
+    depthSamplerInfo.addressModeU = vk::SamplerAddressMode::eClampToEdge;
+    depthSamplerInfo.addressModeV = vk::SamplerAddressMode::eClampToEdge;
+    depthSamplerInfo.addressModeW = vk::SamplerAddressMode::eClampToEdge;
+    depthSampler = vk::raii::Sampler(vkCtx.device, depthSamplerInfo);
+
+    vk::SamplerCreateInfo hiZSamplerInfo{};
+    hiZSamplerInfo.magFilter = vk::Filter::eNearest;
+    hiZSamplerInfo.minFilter = vk::Filter::eNearest;
+    hiZSamplerInfo.mipmapMode = vk::SamplerMipmapMode::eNearest;
+    hiZSamplerInfo.addressModeU = vk::SamplerAddressMode::eClampToEdge;
+    hiZSamplerInfo.addressModeV = vk::SamplerAddressMode::eClampToEdge;
+    hiZSamplerInfo.minLod = 0.0f;
+    hiZSamplerInfo.maxLod = 16.0f;
+    hiZSampler = vk::raii::Sampler(vkCtx.device, hiZSamplerInfo);
+}
+
 OcclusionCuller::OcclusionCuller(VulkanContext &context, const int maxFramesInFlight)
     : vkCtx(context), maxFramesInFlight(maxFramesInFlight) {}
 
@@ -16,21 +39,13 @@ void OcclusionCuller::createResources(const vk::Extent2D ext, const vk::Format d
         mipExtents.push_back({std::max(1u, extent.width >> i), std::max(1u, extent.height >> i)});
     }
 
-    vk::SamplerCreateInfo samplerInfo{};
-    samplerInfo.magFilter = vk::Filter::eNearest;
-    samplerInfo.minFilter = vk::Filter::eNearest;
-    samplerInfo.mipmapMode = vk::SamplerMipmapMode::eNearest;
-    samplerInfo.addressModeU = vk::SamplerAddressMode::eClampToEdge;
-    samplerInfo.addressModeV = vk::SamplerAddressMode::eClampToEdge;
-    samplerInfo.addressModeW = vk::SamplerAddressMode::eClampToEdge;
-    depthSampler = vk::raii::Sampler(vkCtx.device, samplerInfo);
-
     resolvedDepthImages.clear();
     resolvedDepthImageMemories.clear();
     resolvedDepthImageViews.clear();
     hiZImages.clear();
     hiZImageMemories.clear();
     hiZMipViews.clear();
+    hiZFullViews.clear();
     hiZMipViews.resize(maxFramesInFlight);
 
     for (int f = 0; f < maxFramesInFlight; ++f) {
@@ -62,17 +77,6 @@ void OcclusionCuller::createResources(const vk::Extent2D ext, const vk::Format d
                                                             vk::ImageAspectFlagBits::eColor, mipLevels, 0));
     }
 
-    vk::SamplerCreateInfo hiZSamplerInfo{};
-    hiZSamplerInfo.magFilter = vk::Filter::eNearest;
-    hiZSamplerInfo.minFilter = vk::Filter::eNearest;
-    hiZSamplerInfo.mipmapMode = vk::SamplerMipmapMode::eNearest;
-    hiZSamplerInfo.addressModeU = vk::SamplerAddressMode::eClampToEdge;
-    hiZSamplerInfo.addressModeV = vk::SamplerAddressMode::eClampToEdge;
-    hiZSamplerInfo.minLod = 0.0f;
-    hiZSamplerInfo.maxLod = static_cast<float>(mipLevels - 1);
-    hiZSampler = vk::raii::Sampler(vkCtx.device, hiZSamplerInfo);
-
-    createDescriptorSetLayouts();
     createDescriptorSets();
 }
 
@@ -187,26 +191,31 @@ void OcclusionCuller::createCullPipeline(const vk::PipelineShaderStageCreateInfo
 }
 
 void OcclusionCuller::createDescriptorSets() {
-    const uint32_t downsampleCount = mipLevels - 1;
     const auto framesU = static_cast<uint32_t>(maxFramesInFlight);
 
-    const std::array poolSizes{
-        vk::DescriptorPoolSize{vk::DescriptorType::eCombinedImageSampler, framesU},
-        vk::DescriptorPoolSize{vk::DescriptorType::eStorageImage, framesU * (1 + downsampleCount * 2)},
-    };
+    if (!poolCreated) {
+        constexpr uint32_t MAX_POSSIBLE_MIP_LEVELS = 16;
 
-    vk::DescriptorPoolCreateInfo poolInfo{};
-    poolInfo.flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet;
-    poolInfo.maxSets = framesU * (1 + downsampleCount);
-    poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
-    poolInfo.pPoolSizes = poolSizes.data();
-    descriptorPool = vk::raii::DescriptorPool(vkCtx.device, poolInfo);
+        const std::array poolSizes{
+            vk::DescriptorPoolSize{vk::DescriptorType::eCombinedImageSampler, framesU},
+            vk::DescriptorPoolSize{vk::DescriptorType::eStorageImage, framesU * (1 + (MAX_POSSIBLE_MIP_LEVELS - 1) * 2)},
+        };
+
+        vk::DescriptorPoolCreateInfo poolInfo{};
+        poolInfo.flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet;
+        poolInfo.maxSets = framesU * MAX_POSSIBLE_MIP_LEVELS;
+        poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
+        poolInfo.pPoolSizes = poolSizes.data();
+        descriptorPool = vk::raii::DescriptorPool(vkCtx.device, poolInfo);
+
+        poolCreated = true;
+    }
 
     mip0DescriptorSets.clear();
     downsampleDescriptorSets.clear();
     downsampleDescriptorSets.resize(maxFramesInFlight);
 
-    for (int f = 0; f < maxFramesInFlight; ++f) {
+    for (uint32_t f = 0; f < framesU; ++f) {
         vk::DescriptorSetAllocateInfo mip0AllocInfo{};
         mip0AllocInfo.descriptorPool = *descriptorPool;
         mip0AllocInfo.descriptorSetCount = 1;
@@ -331,7 +340,7 @@ void OcclusionCuller::buildPyramid(const vk::raii::CommandBuffer &commandBuffer,
     for (uint32_t i = 1; i < mipLevels; ++i) {
         VulkanUtils::ImageBarrierCommand hiZCommand2 = {};
         hiZCommand2.image = *hiZImages[frameIndex];
-        hiZCommand2.old_layout = vk::ImageLayout::eGeneral; // Mip levels are already eGeneral now
+        hiZCommand2.old_layout = vk::ImageLayout::eGeneral;
         hiZCommand2.new_layout = vk::ImageLayout::eGeneral;
         hiZCommand2.src_access_mask = vk::AccessFlagBits2::eShaderWrite;
         hiZCommand2.dst_access_mask = vk::AccessFlagBits2::eShaderRead;

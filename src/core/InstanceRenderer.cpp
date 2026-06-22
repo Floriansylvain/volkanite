@@ -435,3 +435,18 @@ uint64_t InstanceRenderer::getVisibleVertexEstimate(const uint32_t frameIndex) c
     }
     return total;
 }
+
+void InstanceRenderer::updateHiZViews(const std::vector<vk::ImageView> &hiZViews, const vk::Sampler hiZSampler) {
+    for (auto &batch : batches) {
+        for (uint32_t f = 0; f < static_cast<uint32_t>(maxFramesInFlight); ++f) {
+            vk::DescriptorImageInfo hiZInfo{};
+            hiZInfo.sampler = hiZSampler;
+            hiZInfo.imageView = hiZViews[f];
+            hiZInfo.imageLayout = vk::ImageLayout::eShaderReadOnlyOptimal;
+
+            const vk::WriteDescriptorSet write{
+                *batch.cullDescriptorSets[f], 3, 0, 1, vk::DescriptorType::eCombinedImageSampler, &hiZInfo};
+            vkCtx.device.updateDescriptorSets(write, {});
+        }
+    }
+}

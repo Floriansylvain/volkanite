@@ -48,7 +48,12 @@ class OcclusionCuller {
         uint32_t occlusionEnabled;
     };
 
+    void init();
+
   private:
+    bool resourcesAllocated = false;
+    bool poolCreated = false;
+
     struct MipLevelInfo {
         uint32_t width;
         uint32_t height;
