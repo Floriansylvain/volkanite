@@ -35,12 +35,21 @@ class InstanceRenderer {
     void createCullDescriptorSets(vk::DescriptorSetLayout cullSetLayout, const std::vector<vk::ImageView> &hiZViews,
                                   vk::Sampler hiZSampler, const std::vector<vk::Buffer> &cameraUniformBuffers);
 
-    void cull(const vk::raii::CommandBuffer &commandBuffer, uint32_t frameIndex, vk::PipelineLayout pipelineLayout,
-              vk::Pipeline pipeline, float time, uint32_t maxMip, const vk::Extent2D &extent, bool occlusionEnabled);
+    struct CullCommand {
+        vk::raii::CommandBuffer *commandBuffer;
+        vk::Extent2D *extent;
+        vk::PipelineLayout pipelineLayout;
+        vk::Pipeline pipeline;
+        uint32_t frameIndex;
+        uint32_t maxMip;
+        float time;
+        bool occlusionEnabled;
+    };
+    void cull(const CullCommand &command) const;
 
     void draw(const vk::raii::CommandBuffer &commandBuffer, uint32_t frameIndex, vk::PipelineLayout pipelineLayout,
               const std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>> &textureDescriptorSets,
-              bool wireframe, uint32_t &drawCallCount, uint64_t &vertexCount) const;
+              bool wireframe, uint32_t &drawCallCount) const;
 
     void drawXray(
         const vk::raii::CommandBuffer &commandBuffer, uint32_t frameIndex, vk::PipelineLayout pipelineLayout,
@@ -48,7 +57,7 @@ class InstanceRenderer {
 
     [[nodiscard]] uint64_t getVisibleVertexEstimate(uint32_t frameIndex) const;
 
-    void updateHiZViews(const std::vector<vk::ImageView> &hiZViews, vk::Sampler hiZSampler);
+    void updateHiZViews(const std::vector<vk::ImageView> &hiZViews, vk::Sampler hiZSampler) const;
 
   private:
     struct InstanceData {

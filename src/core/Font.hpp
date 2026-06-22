@@ -32,7 +32,7 @@ class Font {
 
     void load(const std::string &path, const vk::raii::CommandPool &commandPool) { texture.loadFromFile(path, commandPool); }
 
-    [[nodiscard]] std::array<float, 4> glyphUV(char c) const {
+    static std::array<float, 4> glyphUV(const char c) {
         int index = static_cast<unsigned char>(c) - FIRST_CHAR;
         if (index < 0 || index >= COLS * ROWS) {
             index = 0;

@@ -72,12 +72,8 @@ class Engine {
     bool isInitialized = false;
     bool framebufferResized = false;
     bool isWireframe = false;
-
-    // -----------------------------------------------
-    // TODO: replace by window actions callback system
-    bool showCullingDebug = false;
-    bool occlusionEnabled = true;
-    // -----------------------------------------------
+    bool isXray = false;
+    bool isOcclusionCulled = true;
 
     std::chrono::high_resolution_clock::time_point engineStartTime;
 
@@ -127,6 +123,10 @@ class Engine {
     struct FBXModel {
         std::vector<std::shared_ptr<Mesh>> meshes;
         std::vector<std::shared_ptr<Texture>> textures;
+    };
+    struct StringHash {
+        using is_transparent = void;
+        std::size_t operator()(const std::string_view sv) const { return std::hash<std::string_view>{}(sv); }
     };
     FBXModel createFBXModel(const std::string &fbxPath, const std::string &fileExtension);
     void placeFBXModel(const FBXModel &model, const glm::vec3 &position, bool instanced = false);

@@ -41,7 +41,7 @@ struct VulkanContext {
 
     bool isDeviceSuitable(const vk::raii::PhysicalDevice &_physicalDevice);
 
-    vk::SampleCountFlagBits getMaxUsableSampleCount();
+    vk::SampleCountFlagBits getMaxUsableSampleCount() const;
 };
 
 #endif

@@ -16,7 +16,7 @@ class OcclusionCuller {
   public:
     explicit OcclusionCuller(VulkanContext &context, int maxFramesInFlight);
 
-    void createResources(vk::Extent2D extent, vk::Format depthFormat);
+    void createResources(vk::Extent2D _extent, vk::Format depthFormat);
     void createPipelines(const vk::PipelineShaderStageCreateInfo &depthToMip0Stage,
                          const vk::PipelineShaderStageCreateInfo &downsampleStage);
 
@@ -32,8 +32,8 @@ class OcclusionCuller {
 
     [[nodiscard]] vk::ImageView resolvedDepthView(uint32_t frameIndex) const { return *resolvedDepthImageViews[frameIndex]; }
 
-    void buildPyramid(const vk::raii::CommandBuffer &commandBuffer, uint32_t frameIndex);
-    void prepareDepthResolveTarget(const vk::raii::CommandBuffer &commandBuffer, uint32_t frameIndex);
+    void buildPyramid(const vk::raii::CommandBuffer &commandBuffer, uint32_t frameIndex) const;
+    void prepareDepthResolveTarget(const vk::raii::CommandBuffer &commandBuffer, uint32_t frameIndex) const;
 
     struct PyramidPushConstants {
         glm::ivec2 srcSize;

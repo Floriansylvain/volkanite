@@ -107,18 +107,36 @@ vk::Format SwapChainHandler::findDepthFormat() const {
 void SwapChainHandler::createColorResources() {
     const vk::Format colorFormat = surfaceFormat.format;
 
-    std::tie(colorImage, colorImageMemory) = VulkanUtils::createImage(
-        vkCtx, {extent2D.width, extent2D.height, 1, vkCtx.msaaSamples, colorFormat, vk::ImageTiling::eOptimal,
-                vk::ImageUsageFlagBits::eTransientAttachment | vk::ImageUsageFlagBits::eColorAttachment,
-                vk::MemoryPropertyFlagBits::eDeviceLocal});
+    using enum vk::ImageUsageFlagBits;
+    VulkanUtils::CreateImageCommand createImageCommand = {};
+    createImageCommand.width = extent2D.width;
+    createImageCommand.height = extent2D.height;
+    createImageCommand.mipLevels = 1;
+    createImageCommand.samples = vkCtx.msaaSamples;
+    createImageCommand.format = colorFormat;
+    createImageCommand.tiling = vk::ImageTiling::eOptimal;
+    createImageCommand.usage = eTransientAttachment | eColorAttachment;
+    createImageCommand.properties = vk::MemoryPropertyFlagBits::eDeviceLocal;
+
+    std::tie(colorImage, colorImageMemory) = VulkanUtils::createImage(vkCtx, createImageCommand);
     colorImageView = VulkanUtils::createImageView(vkCtx, colorImage, colorFormat, vk::ImageAspectFlagBits::eColor, 1);
 }
 
 void SwapChainHandler::createDepthResources() {
     const vk::Format depthFormat = findDepthFormat();
-    std::tie(depthImage, depthImageMemory) = VulkanUtils::createImage(
-        vkCtx, {extent2D.width, extent2D.height, 1, vkCtx.msaaSamples, depthFormat, vk::ImageTiling::eOptimal,
-                vk::ImageUsageFlagBits::eDepthStencilAttachment, vk::MemoryPropertyFlagBits::eDeviceLocal});
+
+    using enum vk::ImageUsageFlagBits;
+    VulkanUtils::CreateImageCommand createImageCommand = {};
+    createImageCommand.width = extent2D.width;
+    createImageCommand.height = extent2D.height;
+    createImageCommand.mipLevels = 1;
+    createImageCommand.samples = vkCtx.msaaSamples;
+    createImageCommand.format = depthFormat;
+    createImageCommand.tiling = vk::ImageTiling::eOptimal;
+    createImageCommand.usage = eDepthStencilAttachment;
+    createImageCommand.properties = vk::MemoryPropertyFlagBits::eDeviceLocal;
+
+    std::tie(depthImage, depthImageMemory) = VulkanUtils::createImage(vkCtx, createImageCommand);
     depthImageView = VulkanUtils::createImageView(vkCtx, depthImage, depthFormat, vk::ImageAspectFlagBits::eDepth, 1);
 }
 

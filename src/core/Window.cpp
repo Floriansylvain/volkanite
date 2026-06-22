@@ -42,7 +42,7 @@ void Window::init(const char *title, const int width, const int height) {
 
 SDL_Window *Window::getSDL_window() const { return SDL_Window; }
 
-void Window::createSurface(const VkInstance instance, const VkAllocationCallbacks *allocator, VkSurfaceKHR *surface) const {
+void Window::createSurface(VkInstance instance, const VkAllocationCallbacks *allocator, VkSurfaceKHR *surface) const {
     if (!SDL_Vulkan_CreateSurface(SDL_Window, instance, allocator, surface)) {
         throw EngineExceptions::Compatibility(std::string("Failed to create vulkan surface : ") + SDL_GetError());
     }
@@ -82,6 +82,12 @@ Window::Action Window::action_user_should_take(const SDL_Event *e) {
     if (e->key.scancode == SDL_SCANCODE_ESCAPE) {
         return ACTION_BLUR;
     }
+    if (e->key.scancode == SDL_SCANCODE_C) {
+        return ACTION_CULLING;
+    }
+    if (e->key.scancode == SDL_SCANCODE_X) {
+        return ACTION_XRAY;
+    }
     return ACTION_NONE;
 }
 
@@ -94,13 +100,15 @@ void Window::pollEvents() {
             onChange();
         }
 
-        const auto action = action_user_should_take(&event);
-
-        if (onWireframeToggle && action == ACTION_WIREFRAME) {
+        if (const auto action = action_user_should_take(&event); onWireframeToggle && action == ACTION_WIREFRAME) {
             onWireframeToggle();
         } else if (action == ACTION_BLUR) {
             focusToggle = !focusToggle;
-            SDL_SetWindowRelativeMouseMode(SDL_Window, focusToggle);     
+            SDL_SetWindowRelativeMouseMode(SDL_Window, focusToggle);
+        } else if (action == ACTION_CULLING) {
+            onOcclusionCullToggle();
+        } else if (action == ACTION_XRAY) {
+            onXrayToggle();
         }
     }
 }

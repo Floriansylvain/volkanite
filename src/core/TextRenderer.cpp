@@ -165,7 +165,7 @@ void TextRenderer::drawText(const std::string &text, const float pixelX, const f
             continue;
         }
 
-        const auto [u0, v0, u1, v1] = font.glyphUV(c);
+        const auto [u0, v0, u1, v1] = Font::glyphUV(c);
         auto toNdc = [&](const float px, const float py) {
             return glm::vec2((px / static_cast<float>(screenExtent.width)) * 2.0f - 1.0f,
                              (py / static_cast<float>(screenExtent.height)) * 2.0f - 1.0f);

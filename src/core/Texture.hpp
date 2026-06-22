@@ -30,7 +30,7 @@ class Texture {
 
     void createImageView();
     void createSampler();
-    void generateMipmaps(vk::Format imageFormat, const vk::raii::CommandBuffer &commandBuffer);
+    void generateMipmaps(vk::Format imageFormat, const vk::raii::CommandBuffer &commandBuffer) const;
 };
 
 #endif

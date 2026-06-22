@@ -275,9 +275,17 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
     occlusionCuller.prepareDepthResolveTarget(commandBuffers[frameIndex], frameIndex);
     occlusionCuller.buildPyramid(commandBuffers[frameIndex], frameIndex);
 
-    instanceRenderer.cull(commandBuffers[frameIndex], frameIndex, occlusionCuller.cullPipelineLayout,
-                          occlusionCuller.cullPipeline, time, occlusionCuller.mipLevels - 1, swapChainHandler.extent2D,
-                          occlusionEnabled);
+    InstanceRenderer::CullCommand cullCommand = {};
+    cullCommand.commandBuffer = &commandBuffers[frameIndex];
+    cullCommand.extent = &swapChainHandler.extent2D;
+    cullCommand.pipelineLayout = occlusionCuller.cullPipelineLayout;
+    cullCommand.pipeline = occlusionCuller.cullPipeline;
+    cullCommand.frameIndex = frameIndex;
+    cullCommand.maxMip = occlusionCuller.mipLevels - 1;
+    cullCommand.time = time;
+    cullCommand.occlusionEnabled = isOcclusionCulled;
+
+    instanceRenderer.cull(cullCommand);
 
     constexpr vk::ClearValue clearColor = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 1.0f);
     vk::RenderingAttachmentInfo attachmentInfo = {};
@@ -324,17 +332,17 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
     commandBuffers[frameIndex].setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainHandler.extent2D));
 
     instanceRenderer.draw(commandBuffers[frameIndex], frameIndex, *pipelineLayout, textureDescriptorSets, isWireframe,
-                          drawCallCount, vertexCount);
+                          drawCallCount);
     vertexCount = instanceRenderer.getVisibleVertexEstimate(frameIndex);
 
-    if (showCullingDebug) {
+    if (isXray) {
         instanceRenderer.drawXray(commandBuffers[frameIndex], frameIndex, *pipelineLayout, textureDescriptorSets);
     }
 
     float offset = 10.f;
     for (size_t i = 0; i < debugLines.size(); i++) {
-        textRenderer.drawText(debugLines[i], 10.0f, i + offset, DEBUG_FONT_SIZE, glm::vec3(1.0f, 1.0f, 1.0f),
-                              swapChainHandler.extent2D);
+        textRenderer.drawText(debugLines[i], 10.0f, static_cast<float>(i) + offset, DEBUG_FONT_SIZE,
+                              glm::vec3(1.0f, 1.0f, 1.0f), swapChainHandler.extent2D);
         offset += DEBUG_FONT_SIZE - 10.f;
     }
     textRenderer.render(commandBuffers[frameIndex], frameIndex);
@@ -342,7 +350,8 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
     commandBuffers[frameIndex].endRendering();
 
     TransitionImageLayoutCommand presentTransition{};
-    presentTransition.image = swapChainHandler.images[imageIndex], presentTransition.old_layout = eColorAttachmentOptimal;
+    presentTransition.image = swapChainHandler.images[imageIndex];
+    presentTransition.old_layout = eColorAttachmentOptimal;
     presentTransition.new_layout = ePresentSrcKHR;
     presentTransition.src_access_mask = vk::AccessFlagBits2::eColorAttachmentWrite;
     presentTransition.dst_access_mask = {};
@@ -357,9 +366,9 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
 void Engine::createSyncObjects() {
     assert(presentCompleteSemaphores.empty() && renderFinishedSemaphores.empty() && inFlightFences.empty());
 
-    for (auto _ : swapChainHandler.images) {
+    std::ranges::for_each(swapChainHandler.images, [&](const auto &) {
         renderFinishedSemaphores.emplace_back(vkCtx.device, vk::SemaphoreCreateInfo());
-    }
+    });
 
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         presentCompleteSemaphores.emplace_back(vkCtx.device, vk::SemaphoreCreateInfo());
@@ -376,6 +385,7 @@ void Engine::recreateSwapChain() {
     occlusionCuller.createResources(swapChainHandler.extent2D, swapChainHandler.findDepthFormat());
 
     std::vector<vk::ImageView> hiZViews;
+    hiZViews.reserve(MAX_FRAMES_IN_FLIGHT);
     for (uint32_t f = 0; f < MAX_FRAMES_IN_FLIGHT; ++f) {
         hiZViews.push_back(*occlusionCuller.hiZFullViews[f]);
     }
@@ -607,19 +617,20 @@ Engine::FBXModel Engine::createFBXModel(const std::string &fbxPath, const std::s
         std::vector<Mesh::Vertex> vertices;
         std::vector<uint32_t> indices;
     };
-    std::unordered_map<std::string, MergedGroup> merged;
 
-    for (const auto &sub : subMeshes) {
-        if (sub.vertices.empty() || sub.filename.empty())
+    std::unordered_map<std::string, MergedGroup, StringHash, std::equal_to<>> merged;
+
+    for (const auto &[filename, vertices, indices] : subMeshes) {
+        if (vertices.empty() || filename.empty())
             continue;
 
-        auto &group = merged[sub.filename];
-        const auto vertexOffset = static_cast<uint32_t>(group.vertices.size());
+        auto &[gVertices, gIndices] = merged[filename];
+        const auto vertexOffset = static_cast<uint32_t>(gVertices.size());
 
-        group.vertices.insert(group.vertices.end(), sub.vertices.begin(), sub.vertices.end());
-        group.indices.reserve(group.indices.size() + sub.indices.size());
-        for (const uint32_t idx : sub.indices) {
-            group.indices.push_back(idx + vertexOffset);
+        gVertices.insert(gVertices.end(), vertices.begin(), vertices.end());
+        gIndices.reserve(gIndices.size() + indices.size());
+        for (const uint32_t idx : indices) {
+            gIndices.push_back(idx + vertexOffset);
         }
     }
 
@@ -637,7 +648,7 @@ Engine::FBXModel Engine::createFBXModel(const std::string &fbxPath, const std::s
 
             texture = std::make_shared<Texture>(vkCtx);
             texture->loadFromFile(texPath.string(), commandPool);
-            textureCache.emplace(filename, texture);
+            textureCache.try_emplace(filename, texture);
         }
 
         auto mesh = std::make_shared<Mesh>(vkCtx);
@@ -700,6 +711,8 @@ void Engine::init() {
 
     window.setChangeCallback([this] { framebufferResized = true; });
     window.setWireframeCallback([this] { isWireframe = !isWireframe; });
+    window.setOcclusionCullCallback([this] { isOcclusionCulled = !isOcclusionCulled; });
+    window.setXrayCallback([this] { isXray = !isXray; });
 
     vkCtx.init(window);
     swapChainHandler.create();
@@ -717,13 +730,13 @@ void Engine::init() {
     const FBXModel house = createFBXModel("models/House_scene_01.fbx", ".png");
     placeFBXModel(house, glm::vec3(0.f, 0.f, 0.f), true);
 
-    textRenderer.loadFont("textures/consolas.png", commandPool, 0.38, 0.2);
+    textRenderer.loadFont("textures/consolas.png", commandPool, 0.38f, 0.2f);
 
     const auto mesh = std::make_shared<Mesh>(vkCtx);
     MeshUtils::generateCube(*mesh, 1.f);
     mesh->createGeometryBuffers(commandPool);
 
-    auto texture = std::make_shared<Texture>(vkCtx);
+    const auto texture = std::make_shared<Texture>(vkCtx);
     texture->loadFromFile("textures/bricks.jpg", commandPool);
 
     constexpr int SIZE = 100;
@@ -807,23 +820,6 @@ void Engine::update() {
     if (key_states[SDL_SCANCODE_SPACE])
         input.z += 1;
 
-    // -----------------------------------------------------------
-    // TODO: replace by window actions callback system
-    static bool gKeyWasDown = false;
-    const bool gKeyDown = key_states[SDL_SCANCODE_G];
-    if (gKeyDown && !gKeyWasDown) {
-        showCullingDebug = !showCullingDebug;
-    }
-    gKeyWasDown = gKeyDown;
-
-    static bool cKeyWasDown = false;
-    const bool cKeyDown = key_states[SDL_SCANCODE_C];
-    if (cKeyDown && !cKeyWasDown) {
-        occlusionEnabled = !occlusionEnabled;
-    }
-    cKeyWasDown = cKeyDown;
-    // -----------------------------------------------------------
-
     glm::vec3 movement = flatForward * input.y + right * input.x;
     if (glm::length(movement) > 0.0f) {
         movement = glm::normalize(movement);
@@ -867,7 +863,7 @@ void Engine::run() {
             debugLines.push_back(
                 std::format("V-SYNC: {} ({})", vsyncOn ? "ON" : "OFF", vk::to_string(swapChainHandler.presentMode)));
 
-            debugLines.push_back("");
+            debugLines.emplace_back("");
 
             debugLines.push_back(std::format("frametime: {:.2f}ms ({:.0f} fps)", avgFrameTimeMs, fps));
             debugLines.push_back(std::format("draws: {}", drawCallCount));

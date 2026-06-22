@@ -67,28 +67,34 @@ void Texture::loadFromFile(const std::string &filepath, const vk::raii::CommandP
 
     SDL_DestroySurface(imgSurface);
 
-    std::tie(textureImage, textureImageMemory) = VulkanUtils::createImage(
-        vkCtx,
-        {texWidth, texHeight, mipLevels, vk::SampleCountFlagBits::e1, vk::Format::eR8G8B8A8Srgb, vk::ImageTiling::eOptimal,
-         vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled,
-         vk::MemoryPropertyFlagBits::eDeviceLocal});
+    using enum vk::ImageUsageFlagBits;
+    VulkanUtils::CreateImageCommand createImageCommand = {};
+    createImageCommand.width = texWidth;
+    createImageCommand.height = texHeight;
+    createImageCommand.mipLevels = mipLevels;
+    createImageCommand.samples = vk::SampleCountFlagBits::e1;
+    createImageCommand.format = vk::Format::eR8G8B8A8Srgb;
+    createImageCommand.tiling = vk::ImageTiling::eOptimal;
+    createImageCommand.usage = eTransferSrc | eTransferDst | eSampled;
+    createImageCommand.properties = vk::MemoryPropertyFlagBits::eDeviceLocal;
 
-    vk::raii::CommandBuffer commandBuffer = VulkanUtils::beginSingleTimeCommands(vkCtx, commandPool);
+    std::tie(textureImage, textureImageMemory) = VulkanUtils::createImage(vkCtx, createImageCommand);
+
+    const vk::raii::CommandBuffer commandBuffer = VulkanUtils::beginSingleTimeCommands(vkCtx, commandPool);
     VulkanUtils::transitionImageLayout(commandBuffer, textureImage, vk::ImageLayout::eUndefined,
                                        vk::ImageLayout::eTransferDstOptimal, mipLevels);
     VulkanUtils::copyBufferToImage(commandBuffer, stagingBuffer, textureImage, texWidth, texHeight);
     generateMipmaps(vk::Format::eR8G8B8A8Srgb, commandBuffer);
-    VulkanUtils::endSingleTimeCommands(vkCtx, std::move(commandBuffer));
+    VulkanUtils::endSingleTimeCommands(vkCtx, commandBuffer);
 
     createImageView();
     createSampler();
 }
 
-void Texture::generateMipmaps(vk::Format imageFormat, const vk::raii::CommandBuffer &commandBuffer) {
-    vk::FormatProperties formatProperties = vkCtx.physicalDevice.getFormatProperties(imageFormat);
-
-    if (!(formatProperties.optimalTilingFeatures & vk::FormatFeatureFlagBits::eSampledImageFilterLinear)) {
-        throw std::runtime_error("Texture image format does not support linear blitting.");
+void Texture::generateMipmaps(const vk::Format imageFormat, const vk::raii::CommandBuffer &commandBuffer) const {
+    if (const vk::FormatProperties formatProperties = vkCtx.physicalDevice.getFormatProperties(imageFormat);
+        !(formatProperties.optimalTilingFeatures & vk::FormatFeatureFlagBits::eSampledImageFilterLinear)) {
+        throw EngineExceptions::Compatibility("Texture image format does not support linear blitting.");
     }
 
     vk::ImageMemoryBarrier barrier = {};
@@ -104,8 +110,8 @@ void Texture::generateMipmaps(vk::Format imageFormat, const vk::raii::CommandBuf
     barrier.subresourceRange.layerCount = 1;
     barrier.subresourceRange.levelCount = 1;
 
-    int32_t mipWidth = width;
-    int32_t mipHeight = height;
+    auto mipWidth = static_cast<int32_t>(width);
+    auto mipHeight = static_cast<int32_t>(height);
 
     for (uint32_t i = 1; i < mipLevels; i++) {
         barrier.subresourceRange.baseMipLevel = i - 1;
@@ -117,7 +123,8 @@ void Texture::generateMipmaps(vk::Format imageFormat, const vk::raii::CommandBuf
         commandBuffer.pipelineBarrier(vk::PipelineStageFlagBits::eTransfer, vk::PipelineStageFlagBits::eTransfer, {}, {}, {},
                                       barrier);
 
-        vk::ArrayWrapper1D<vk::Offset3D, 2> offsets, dstOffsets;
+        vk::ArrayWrapper1D<vk::Offset3D, 2> offsets;
+        vk::ArrayWrapper1D<vk::Offset3D, 2> dstOffsets;
         offsets[0] = vk::Offset3D(0, 0, 0);
         offsets[1] = vk::Offset3D(mipWidth, mipHeight, 1);
         dstOffsets[0] = vk::Offset3D(0, 0, 0);

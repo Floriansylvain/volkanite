@@ -66,7 +66,7 @@ uint32_t VulkanUtils::findMemoryType(VulkanContext const &vkCtx, const uint32_t 
 }
 
 std::pair<vk::raii::Image, vk::raii::DeviceMemory> VulkanUtils::createImage(VulkanContext const &vkCtx,
-                                                                            VulkanUtils::CreateImageCommand command) {
+                                                                            const CreateImageCommand &command) {
     vk::ImageCreateInfo imageInfo{};
     imageInfo.imageType = vk::ImageType::e2D;
     imageInfo.format = command.format;

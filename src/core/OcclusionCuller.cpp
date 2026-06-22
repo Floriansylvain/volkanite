@@ -4,23 +4,25 @@
 #include <cmath>
 
 void OcclusionCuller::init() {
+    using enum vk::SamplerAddressMode;
+
     createDescriptorSetLayouts();
 
     vk::SamplerCreateInfo depthSamplerInfo{};
     depthSamplerInfo.magFilter = vk::Filter::eNearest;
     depthSamplerInfo.minFilter = vk::Filter::eNearest;
     depthSamplerInfo.mipmapMode = vk::SamplerMipmapMode::eNearest;
-    depthSamplerInfo.addressModeU = vk::SamplerAddressMode::eClampToEdge;
-    depthSamplerInfo.addressModeV = vk::SamplerAddressMode::eClampToEdge;
-    depthSamplerInfo.addressModeW = vk::SamplerAddressMode::eClampToEdge;
+    depthSamplerInfo.addressModeU = eClampToEdge;
+    depthSamplerInfo.addressModeV = eClampToEdge;
+    depthSamplerInfo.addressModeW = eClampToEdge;
     depthSampler = vk::raii::Sampler(vkCtx.device, depthSamplerInfo);
 
     vk::SamplerCreateInfo hiZSamplerInfo{};
     hiZSamplerInfo.magFilter = vk::Filter::eNearest;
     hiZSamplerInfo.minFilter = vk::Filter::eNearest;
     hiZSamplerInfo.mipmapMode = vk::SamplerMipmapMode::eNearest;
-    hiZSamplerInfo.addressModeU = vk::SamplerAddressMode::eClampToEdge;
-    hiZSamplerInfo.addressModeV = vk::SamplerAddressMode::eClampToEdge;
+    hiZSamplerInfo.addressModeU = eClampToEdge;
+    hiZSamplerInfo.addressModeV = eClampToEdge;
     hiZSamplerInfo.minLod = 0.0f;
     hiZSamplerInfo.maxLod = 16.0f;
     hiZSampler = vk::raii::Sampler(vkCtx.device, hiZSamplerInfo);
@@ -29,8 +31,8 @@ void OcclusionCuller::init() {
 OcclusionCuller::OcclusionCuller(VulkanContext &context, const int maxFramesInFlight)
     : vkCtx(context), maxFramesInFlight(maxFramesInFlight) {}
 
-void OcclusionCuller::createResources(const vk::Extent2D ext, const vk::Format depthFormat) {
-    extent = ext;
+void OcclusionCuller::createResources(const vk::Extent2D _extent, const vk::Format depthFormat) {
+    extent = _extent;
 
     mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(extent.width, extent.height)))) + 1;
     mipExtents.clear();
@@ -49,10 +51,19 @@ void OcclusionCuller::createResources(const vk::Extent2D ext, const vk::Format d
     hiZMipViews.resize(maxFramesInFlight);
 
     for (int f = 0; f < maxFramesInFlight; ++f) {
-        auto [depthImage, depthMemory] = VulkanUtils::createImage(
-            vkCtx, {extent.width, extent.height, 1, vk::SampleCountFlagBits::e1, depthFormat, vk::ImageTiling::eOptimal,
-                    vk::ImageUsageFlagBits::eDepthStencilAttachment | vk::ImageUsageFlagBits::eSampled,
-                    vk::MemoryPropertyFlagBits::eDeviceLocal});
+        using enum vk::ImageUsageFlagBits;
+
+        VulkanUtils::CreateImageCommand depthImageCommand = {};
+        depthImageCommand.width = extent.width;
+        depthImageCommand.height = extent.height;
+        depthImageCommand.mipLevels = 1;
+        depthImageCommand.samples = vk::SampleCountFlagBits::e1;
+        depthImageCommand.format = depthFormat;
+        depthImageCommand.tiling = vk::ImageTiling::eOptimal;
+        depthImageCommand.usage = eDepthStencilAttachment | eSampled;
+        depthImageCommand.properties = vk::MemoryPropertyFlagBits::eDeviceLocal;
+
+        auto [depthImage, depthMemory] = VulkanUtils::createImage(vkCtx, depthImageCommand);
         vk::raii::ImageView depthView =
             VulkanUtils::createImageView(vkCtx, depthImage, depthFormat, vk::ImageAspectFlagBits::eDepth, 1);
 
@@ -60,10 +71,17 @@ void OcclusionCuller::createResources(const vk::Extent2D ext, const vk::Format d
         resolvedDepthImageMemories.push_back(std::move(depthMemory));
         resolvedDepthImageViews.push_back(std::move(depthView));
 
-        auto [pyramidImage, pyramidMemory] = VulkanUtils::createImage(
-            vkCtx, {extent.width, extent.height, mipLevels, vk::SampleCountFlagBits::e1, vk::Format::eR32Sfloat,
-                    vk::ImageTiling::eOptimal, vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled,
-                    vk::MemoryPropertyFlagBits::eDeviceLocal});
+        VulkanUtils::CreateImageCommand pyramidImageCommand = {};
+        pyramidImageCommand.width = extent.width;
+        pyramidImageCommand.height = extent.height;
+        pyramidImageCommand.mipLevels = mipLevels;
+        pyramidImageCommand.samples = vk::SampleCountFlagBits::e1;
+        pyramidImageCommand.format = vk::Format::eR32Sfloat;
+        pyramidImageCommand.tiling = vk::ImageTiling::eOptimal;
+        pyramidImageCommand.usage = eStorage | eSampled;
+        pyramidImageCommand.properties = vk::MemoryPropertyFlagBits::eDeviceLocal;
+
+        auto [pyramidImage, pyramidMemory] = VulkanUtils::createImage(vkCtx, pyramidImageCommand);
 
         hiZImages.push_back(std::move(pyramidImage));
         hiZImageMemories.push_back(std::move(pyramidMemory));
@@ -297,7 +315,7 @@ void OcclusionCuller::createPipelines(const vk::PipelineShaderStageCreateInfo &d
     downsamplePipeline = vk::raii::Pipeline(vkCtx.device, nullptr, downsamplePipelineInfo);
 }
 
-void OcclusionCuller::buildPyramid(const vk::raii::CommandBuffer &commandBuffer, const uint32_t frameIndex) {
+void OcclusionCuller::buildPyramid(const vk::raii::CommandBuffer &commandBuffer, const uint32_t frameIndex) const {
     using enum vk::PipelineStageFlagBits2;
     constexpr uint32_t GROUP = 8;
 
@@ -376,7 +394,7 @@ void OcclusionCuller::buildPyramid(const vk::raii::CommandBuffer &commandBuffer,
     VulkanUtils::imageBarriers(commandBuffer, {endHiZCommand});
 }
 
-void OcclusionCuller::prepareDepthResolveTarget(const vk::raii::CommandBuffer &commandBuffer, const uint32_t frameIndex) {
+void OcclusionCuller::prepareDepthResolveTarget(const vk::raii::CommandBuffer &commandBuffer, const uint32_t frameIndex) const {
     using enum vk::PipelineStageFlagBits2;
 
     VulkanUtils::ImageBarrierCommand depthCommand = {};

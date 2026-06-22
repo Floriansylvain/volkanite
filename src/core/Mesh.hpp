@@ -46,15 +46,13 @@ class Mesh {
     const VulkanContext &vkCtx;
 };
 
-namespace std {
-template <> struct hash<Mesh::Vertex> {
+template <> struct std::hash<Mesh::Vertex> {
     size_t operator()(const Mesh::Vertex &vertex) const noexcept {
         const size_t h1 = hash<glm::vec3>()(vertex.pos);
         const size_t h2 = hash<glm::vec3>()(vertex.color);
         const size_t h3 = hash<glm::vec2>()(vertex.texCoord);
         return ((h1 ^ (h2 << 1)) >> 1) ^ (h3 << 1);
     }
-};
-} // namespace std
+}; // namespace std
 
 #endif

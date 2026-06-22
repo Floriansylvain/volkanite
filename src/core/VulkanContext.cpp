@@ -109,20 +109,21 @@ bool VulkanContext::isDeviceSuitable(vk::raii::PhysicalDevice const &_physicalDe
     return supportsVulkan1_3 && supportsGraphics && supportsAllRequiredExtensions && supportsRequiredFeatures;
 }
 
-vk::SampleCountFlagBits VulkanContext::getMaxUsableSampleCount() {
-    vk::PhysicalDeviceProperties physicalDeviceProperties = physicalDevice.getProperties();
+vk::SampleCountFlagBits VulkanContext::getMaxUsableSampleCount() const {
+    using enum vk::SampleCountFlagBits;
 
-    vk::SampleCountFlags counts = physicalDeviceProperties.limits.framebufferColorSampleCounts &
-                                  physicalDeviceProperties.limits.framebufferDepthSampleCounts;
+    const vk::PhysicalDeviceProperties physicalDeviceProperties = physicalDevice.getProperties();
 
-    if (counts & vk::SampleCountFlagBits::e4) {
-        return vk::SampleCountFlagBits::e4;
+    const vk::SampleCountFlags counts = physicalDeviceProperties.limits.framebufferColorSampleCounts &
+                                        physicalDeviceProperties.limits.framebufferDepthSampleCounts;
+
+    if (counts & e4) {
+        return e4;
     }
-    if (counts & vk::SampleCountFlagBits::e2) {
-        return vk::SampleCountFlagBits::e2;
+    if (counts & e2) {
+        return e2;
     }
-
-    return vk::SampleCountFlagBits::e1;
+    return e1;
 }
 
 void VulkanContext::pickPhysicalDevice() {

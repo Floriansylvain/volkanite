@@ -37,7 +37,7 @@ struct ImageBarrierCommand {
 
 void imageBarriers(const vk::raii::CommandBuffer &commandBuffer, const std::vector<ImageBarrierCommand> &commands);
 
-ImageAllocation createImage(const VulkanContext &vkCtx, CreateImageCommand command);
+ImageAllocation createImage(const VulkanContext &vkCtx, const CreateImageCommand &command);
 
 vk::raii::ImageView createImageView(const VulkanContext &vkCtx, const vk::Image &image, vk::Format format,
                                     vk::ImageAspectFlags aspectFlags, uint32_t mipLevels, uint32_t baseMipLevel = 0);
