@@ -2,6 +2,7 @@ struct InstancedVSInput {
     float3 inPos;
     float3 inColor;
     float2 inTexCoord;
+    float3 inNormal;        
     float3 instancePos;
     float3 instanceRotation;
 };
@@ -11,13 +12,13 @@ struct CameraUniform {
     float4x4 proj;
 };
 
-[[vk::binding(0, 0)]]
-ConstantBuffer<CameraUniform> ubo;
+[[vk::binding(0, 0)]] ConstantBuffer<CameraUniform> ubo;
 
 struct VSOutput {
     float4 pos : SV_Position;
     float3 fragColor;
     float2 fragTexCoord;
+    float3 fragNormal;      
 };
 
 float4x4 rotationMatrix(float3 axis, float angle) {
@@ -48,20 +49,33 @@ VSOutput vertMainInstanced(InstancedVSInput input) {
     float4 rotatedPos = mul(rot, float4(input.inPos, 1.0));
     float4 worldPos = float4(rotatedPos.xyz + input.instancePos, 1.0);
     output.pos = mul(ubo.proj, mul(ubo.view, worldPos));
+    float3 rotatedNormal = mul((float3x3)rot, input.inNormal);
+    output.fragNormal = normalize(rotatedNormal);
+    
     output.fragColor = input.inColor;
     output.fragTexCoord = input.inTexCoord;
     return output;
 }
 
-[[vk::binding(1, 0)]]
-Sampler2D texture;
+[[vk::binding(1, 0)]] Sampler2D texture;
 
 [shader("fragment")]
 float4 fragMain(VSOutput vertIn) : SV_TARGET {
     float4 texColor = texture.Sample(vertIn.fragTexCoord);
     if (texColor.a < 0.5)
         discard;
-    return float4(vertIn.fragColor * texColor.rgb, 1.0);
+
+    float3 lightDir = normalize(float3(0.5, -1.0, 0.3));
+    
+    float3 normal = normalize(vertIn.fragNormal);
+    float diffuse = max(dot(normal, -lightDir), 0.0);
+    
+    float ambient = 0.25;
+    float lightingFactor = diffuse + ambient;
+    
+    float3 finalColor =  texColor.rgb * lightingFactor;
+    
+    return float4(finalColor, 1.0);
 }
 
 [shader("fragment")]

@@ -13,12 +13,13 @@ class Mesh {
         glm::vec3 pos;
         glm::vec3 color;
         glm::vec2 texCoord;
+        glm::vec3 normal;
 
         static vk::VertexInputBindingDescription getBindingDescription();
-        static std::array<vk::VertexInputAttributeDescription, 3> getAttributeDescriptions();
+        static std::array<vk::VertexInputAttributeDescription, 4> getAttributeDescriptions();
 
         bool operator==(const Vertex &other) const {
-            return pos == other.pos && color == other.color && texCoord == other.texCoord;
+            return pos == other.pos && color == other.color && texCoord == other.texCoord && normal == other.normal;
         }
     };
 
@@ -48,7 +49,8 @@ template <> struct std::hash<Mesh::Vertex> {
         const size_t h1 = hash<glm::vec3>()(vertex.pos);
         const size_t h2 = hash<glm::vec3>()(vertex.color);
         const size_t h3 = hash<glm::vec2>()(vertex.texCoord);
-        return ((h1 ^ (h2 << 1)) >> 1) ^ (h3 << 1);
+        const size_t h4 = hash<glm::vec3>()(vertex.normal);
+        return ((h1 ^ (h2 << 1)) >> 1) ^ ((h3 << 1) ^ (h4 << 2));
     }
 }; // namespace std
 

@@ -31,10 +31,10 @@ void MeshUtils::generateCube(Mesh &mesh, const float &size) {
     uint16_t vertexOffset = 0;
 
     for (const auto &face : faces) {
-        mesh.vertices.push_back({face.v0, face.color, {0.0f, 0.0f}});
-        mesh.vertices.push_back({face.v1, face.color, {1.0f, 0.0f}});
-        mesh.vertices.push_back({face.v2, face.color, {1.0f, 1.0f}});
-        mesh.vertices.push_back({face.v3, face.color, {0.0f, 1.0f}});
+        mesh.vertices.push_back({face.v0, face.color, {0.0f, 0.0f}, face.normal});
+        mesh.vertices.push_back({face.v1, face.color, {1.0f, 0.0f}, face.normal});
+        mesh.vertices.push_back({face.v2, face.color, {1.0f, 1.0f}, face.normal});
+        mesh.vertices.push_back({face.v3, face.color, {0.0f, 1.0f}, face.normal});
 
         mesh.indices.push_back(vertexOffset + 0);
         mesh.indices.push_back(vertexOffset + 1);
@@ -92,6 +92,15 @@ Mesh::Vertex MeshUtils::processVertex(const ufbx_mesh *mesh, const ufbx_node *no
         vertex.color = {static_cast<float>(col.x), static_cast<float>(col.y), static_cast<float>(col.z)};
     } else {
         vertex.color = {1.0f, 1.0f, 1.0f};
+    }
+
+    if (mesh->vertex_normal.exists) {
+        const ufbx_vec3 localNormal = ufbx_get_vertex_vec3(&mesh->vertex_normal, corner);
+        const ufbx_vec3 worldNormal = ufbx_transform_direction(&node->geometry_to_world, localNormal);
+        vertex.normal = glm::normalize(
+            glm::vec3{static_cast<float>(worldNormal.x), static_cast<float>(worldNormal.y), static_cast<float>(worldNormal.z)});
+    } else {
+        vertex.normal = {0.0f, 1.0f, 0.0f};
     }
 
     return vertex;

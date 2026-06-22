@@ -377,7 +377,7 @@ vk::VertexInputBindingDescription Mesh::Vertex::getBindingDescription() {
     return bindingDescription;
 }
 
-std::array<vk::VertexInputAttributeDescription, 3> Mesh::Vertex::getAttributeDescriptions() {
+std::array<vk::VertexInputAttributeDescription, 4> Mesh::Vertex::getAttributeDescriptions() {
     vk::VertexInputAttributeDescription positionDescription = {};
     positionDescription.location = 0;
     positionDescription.binding = 0;
@@ -396,7 +396,13 @@ std::array<vk::VertexInputAttributeDescription, 3> Mesh::Vertex::getAttributeDes
     texCoordDescription.format = vk::Format::eR32G32Sfloat;
     texCoordDescription.offset = offsetof(Vertex, texCoord);
 
-    return {positionDescription, colorDescription, texCoordDescription};
+    vk::VertexInputAttributeDescription normalDescription = {};
+    normalDescription.location = 3;
+    normalDescription.binding = 0;
+    normalDescription.format = vk::Format::eR32G32B32Sfloat;
+    normalDescription.offset = offsetof(Vertex, normal);
+
+    return {positionDescription, colorDescription, texCoordDescription, normalDescription};
 }
 
 void Engine::createDescriptorSetLayout() {

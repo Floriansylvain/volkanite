@@ -14,8 +14,8 @@ void InstanceRenderer::createPipelines(const vk::PipelineLayout pipelineLayout, 
     const auto attributeDescriptions = Mesh::Vertex::getAttributeDescriptions();
 
     const vk::VertexInputBindingDescription instanceBinding{1, sizeof(InstanceData), vk::VertexInputRate::eInstance};
-    const vk::VertexInputAttributeDescription instancePos{3, 1, vk::Format::eR32G32B32Sfloat, offsetof(InstanceData, position)};
-    const vk::VertexInputAttributeDescription instanceRot{4, 1, vk::Format::eR32G32B32Sfloat, offsetof(InstanceData, rotation)};
+    const vk::VertexInputAttributeDescription instancePos{4, 1, vk::Format::eR32G32B32Sfloat, offsetof(InstanceData, position)};
+    const vk::VertexInputAttributeDescription instanceRot{5, 1, vk::Format::eR32G32B32Sfloat, offsetof(InstanceData, rotation)};
 
     std::vector attrs(attributeDescriptions.begin(), attributeDescriptions.end());
     attrs.push_back(instancePos);
