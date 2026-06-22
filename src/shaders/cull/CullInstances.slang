@@ -14,7 +14,9 @@ struct PyramidPushConstants {
 
 struct InstanceDataGPU {
     float3 position;
-    float rotation;
+    float pad0;
+    float3 rotation;
+    float pad1;
 };
 
 struct DrawIndexedIndirectCommand {
@@ -25,7 +27,7 @@ struct DrawIndexedIndirectCommand {
     uint32_t firstInstance;
 };
 
-[[vk::binding(0, 2)]] StructuredBuffer<float4> candidates;
+[[vk::binding(0, 2)]] StructuredBuffer<InstanceDataGPU> candidates;
 [[vk::binding(1, 2)]] RWStructuredBuffer<InstanceDataGPU> outputInstances;
 [[vk::binding(2, 2)]] RWStructuredBuffer<DrawIndexedIndirectCommand> indirectCommand;
 [[vk::binding(3, 2)]] Sampler2D hiZPyramid;
@@ -46,10 +48,10 @@ void main(uint3 id : SV_DispatchThreadID) {
     if (id.x >= totalInstances)
         return;
 
-    float4 candidate = candidates[id.x];
+    InstanceDataGPU candidate = candidates[id.x];
     const float radius = pc.boundingRadius;
     const float3 boundingCenter = float3(pc.boundingCenterX, pc.boundingCenterY, pc.boundingCenterZ);
-    float3 worldPos = candidate.xyz + boundingCenter;
+    float3 worldPos = candidate.position + boundingCenter;
 
     float4 viewPos4 = mul(cullCamera.view, float4(worldPos, 1.0));
     float3 viewPos = viewPos4.xyz;
@@ -93,12 +95,10 @@ void main(uint3 id : SV_DispatchThreadID) {
     if (visible) {
         uint slot;
         InterlockedAdd(indirectCommand[0].instanceCount, 1, slot);
-        outputInstances[slot].position = candidate.xyz;
-        outputInstances[slot].rotation = candidate.w;
+        outputInstances[slot] = candidate;
     } else {
         uint culledSlot;
         InterlockedAdd(culledIndirectCommand[0].instanceCount, 1, culledSlot);
-        culledOutputInstances[culledSlot].position = candidate.xyz;
-        culledOutputInstances[culledSlot].rotation = candidate.w;
+        culledOutputInstances[culledSlot] = candidate;
     }
 }

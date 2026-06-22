@@ -19,32 +19,10 @@ Engine::Engine(Window *_window, VulkanContext *_vkCtx)
 Engine::~Engine() = default;
 
 void Engine::createGraphicsPipeline() {
-    vk::PushConstantRange pushConstantRange{};
-    pushConstantRange.stageFlags = vk::ShaderStageFlagBits::eVertex;
-    pushConstantRange.size = sizeof(ModelPushConstant);
-
-    pipelineLayout = VulkanUtils::createPipelineLayout(vkCtx, {*descriptorSetLayout}, {pushConstantRange});
-
-    const auto bindingDescription = Mesh::Vertex::getBindingDescription();
-    const auto attributeDescriptions = Mesh::Vertex::getAttributeDescriptions();
-    const std::vector attributeVec(attributeDescriptions.begin(), attributeDescriptions.end());
+    pipelineLayout = VulkanUtils::createPipelineLayout(vkCtx, {*descriptorSetLayout});
 
     const vk::Format colorFormat = swapChainHandler.surfaceFormat.format;
     const vk::Format depthFormat = swapChainHandler.findDepthFormat();
-
-    GraphicsPipelineBuilder builder(vkCtx);
-    builder.addShaderStage(vk::ShaderStageFlagBits::eVertex, "shaders/shader.spv", "vertMain")
-        .addShaderStage(vk::ShaderStageFlagBits::eFragment, "shaders/shader.spv", "fragMain")
-        .setVertexInput({bindingDescription}, attributeVec)
-        .setLayout(*pipelineLayout)
-        .setColorFormats({colorFormat})
-        .setDepthFormat(depthFormat)
-        .setMSAA(vkCtx.msaaSamples);
-
-    solidGraphicsPipeline = builder.build();
-
-    builder.setPolygonMode(vk::PolygonMode::eLine);
-    wireframeGraphicsPipeline = builder.build();
 
     textRenderer.createPipeline(colorFormat, depthFormat);
     instanceRenderer.createPipelines(*pipelineLayout, colorFormat, depthFormat);
@@ -78,6 +56,7 @@ void Engine::createQueryPools() {
     gpuQueryPools.reserve(MAX_FRAMES_IN_FLIGHT);
     for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         gpuQueryPools.emplace_back(vkCtx.device, poolInfo);
+        gpuQueryPools.back().reset(0, GPU_QUERY_COUNT);
     }
 }
 
@@ -93,16 +72,22 @@ void Engine::collectGpuTimings(const uint32_t slot) {
     std::tie(result, timestamps) = gpuQueryPools[slot].getResults<uint64_t>(
         0, GPU_QUERY_COUNT, GPU_QUERY_COUNT * sizeof(uint64_t), sizeof(uint64_t), vk::QueryResultFlagBits::e64);
 
-    if (result != vk::Result::eSuccess)
+    if (result != vk::Result::eSuccess) {
+        gpuQueryPools[slot].reset(0, GPU_QUERY_COUNT);
         return;
-
-    for (size_t i = 0; i < static_cast<size_t>(GpuPass::Count); ++i) {
-        const uint64_t startTick = timestamps[i * 2];
-        const uint64_t endTick = timestamps[i * 2 + 1];
-        const float ms = static_cast<float>(endTick - startTick) * timestampPeriodNs / 1'000'000.0f;
-        debug.recordGpuPass(static_cast<GpuPass>(i), ms);
     }
-    debug.endGpuSample();
+
+    if (!debug.lines().empty()) {
+        for (size_t i = 0; i < static_cast<size_t>(GpuPass::Count); ++i) {
+            const uint64_t startTick = timestamps[i * 2];
+            const uint64_t endTick = timestamps[i * 2 + 1];
+            const float ms = static_cast<float>(endTick - startTick) * timestampPeriodNs / 1'000'000.0f;
+            debug.recordGpuPass(static_cast<GpuPass>(i), ms);
+        }
+        debug.endGpuSample();
+    }
+
+    gpuQueryPools[slot].reset(0, GPU_QUERY_COUNT);
 }
 
 void Engine::recordCommandBuffer(const uint32_t imageIndex) {
@@ -114,7 +99,6 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
 
     commandBuffers[frameIndex].begin({});
 
-    commandBuffers[frameIndex].resetQueryPool(*gpuQueryPools[frameIndex], 0, GPU_QUERY_COUNT);
     writeTimestamp(GpuPass::Total, true, eTopOfPipe);
 
     const float time = std::chrono::duration<float>(std::chrono::high_resolution_clock::now() - engineStartTime).count();
@@ -207,21 +191,9 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
 
     commandBuffers[frameIndex].beginRendering(renderingInfo);
 
-    if (isWireframe) {
-        commandBuffers[frameIndex].bindPipeline(vk::PipelineBindPoint::eGraphics, *wireframeGraphicsPipeline);
-    } else {
-        commandBuffers[frameIndex].bindPipeline(vk::PipelineBindPoint::eGraphics, *solidGraphicsPipeline);
-    }
     commandBuffers[frameIndex].setViewport(0, vk::Viewport(0.0f, 0.0f, static_cast<float>(swapChainHandler.extent2D.width),
                                                            static_cast<float>(swapChainHandler.extent2D.height), 0.0f, 1.0f));
     commandBuffers[frameIndex].setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainHandler.extent2D));
-
-    writeTimestamp(GpuPass::OpaqueGeometry, true, eColorAttachmentOutput);
-    drawNonInstancedObjects(commandBuffers[frameIndex]);
-    instanceRenderer.draw(commandBuffers[frameIndex], frameIndex, *pipelineLayout, textureDescriptorSets, isWireframe,
-                          drawCallCount);
-    vertexCount += instanceRenderer.getVisibleVertexEstimate(frameIndex);
-    writeTimestamp(GpuPass::OpaqueGeometry, false, eColorAttachmentOutput);
 
     writeTimestamp(GpuPass::OpaqueGeometry, true, eColorAttachmentOutput);
     instanceRenderer.draw(commandBuffers[frameIndex], frameIndex, *pipelineLayout, textureDescriptorSets, isWireframe,
@@ -307,45 +279,27 @@ void Engine::recreateSwapChain() {
     instanceRenderer.updateHiZViews(hiZViews, *occlusionCuller.hiZSampler);
 }
 
-void Engine::drawNonInstancedObjects(const vk::raii::CommandBuffer &commandBuffer) {
-    for (const auto &obj : renderObjects) {
-        if (!obj.isVisible)
-            continue;
-
-        const auto &sets = textureDescriptorSets.at(obj.texture);
-        commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *pipelineLayout, 0, *sets[frameIndex], nullptr);
-
-        const ModelPushConstant pc{glm::translate(glm::mat4(1.0f), obj.position)};
-        commandBuffer.pushConstants<ModelPushConstant>(*pipelineLayout, vk::ShaderStageFlagBits::eVertex, 0, pc);
-
-        const std::vector<vk::DeviceSize> vertexOffsets = {0};
-        commandBuffer.bindVertexBuffers(0, *obj.mesh->unifiedBuffer, vertexOffsets);
-        const vk::DeviceSize vertexSizeOffset = sizeof(Mesh::Vertex) * obj.mesh->vertices.size();
-        commandBuffer.bindIndexBuffer(*obj.mesh->unifiedBuffer, vertexSizeOffset, vk::IndexType::eUint32);
-
-        commandBuffer.drawIndexed(static_cast<uint32_t>(obj.mesh->indices.size()), 1, 0, 0, 0);
-        drawCallCount++;
-        vertexCount += obj.mesh->indices.size();
-    }
+RenderObjectHandle Engine::addRenderObject(RenderObject object) {
+    registerTexture(object.texture);
+    return instanceRenderer.addObject(std::move(object));
 }
 
+RenderObject &Engine::getRenderObject(const RenderObjectHandle handle) { return instanceRenderer.getObject(handle); }
+
 void Engine::drawFrame() {
-    const auto fenceWaitStart = std::chrono::high_resolution_clock::now();
-    if (auto const fenceResult = vkCtx.device.waitForFences(*inFlightFences[frameIndex], vk::True, UINT64_MAX);
-        fenceResult != vk::Result::eSuccess) {
-        throw EngineExceptions::Render("Failed to wait for fence");
-    }
-    debug.addCpuTime(CpuPass::FenceWait, fenceWaitStart);
+    const auto waitStart = std::chrono::high_resolution_clock::now();
 
-    if (totalFramesRendered >= static_cast<uint64_t>(MAX_FRAMES_IN_FLIGHT)) {
-        collectGpuTimings(frameIndex);
-    }
-    totalFramesRendered++;
+    const vk::Result waitResult =
+        vkCtx.device.waitForFences(*inFlightFences[frameIndex], vk::True, std::numeric_limits<uint64_t>::max());
+    debug.addCpuTime(CpuPass::FenceWait, waitStart);
 
-    vk::Result result;
-    uint32_t imageIndex;
+    collectGpuTimings(frameIndex);
 
     const auto acquireStart = std::chrono::high_resolution_clock::now();
+
+    uint32_t imageIndex;
+    vk::Result result;
+
     try {
         std::tie(result, imageIndex) =
             swapChainHandler.swapChainKHR.acquireNextImage(UINT64_MAX, *presentCompleteSemaphores[frameIndex], nullptr);
@@ -385,14 +339,6 @@ void Engine::drawFrame() {
     const auto submitStart = std::chrono::high_resolution_clock::now();
     vkCtx.queue.submit(submitInfo, *inFlightFences[frameIndex]);
     debug.addCpuTime(CpuPass::Submit, submitStart);
-
-    vk::SubpassDependency dependency{};
-    dependency.srcSubpass = vk::SubpassExternal;
-    dependency.dstSubpass = 0;
-    dependency.srcStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
-    dependency.dstStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
-    dependency.srcAccessMask = vk::AccessFlagBits::eNone;
-    dependency.dstAccessMask = vk::AccessFlagBits::eColorAttachmentWrite;
 
     vk::PresentInfoKHR presentInfoKHR{};
     presentInfoKHR.waitSemaphoreCount = 1;
@@ -476,8 +422,7 @@ void Engine::createCameraUniformBuffer() {
 }
 
 void Engine::updateUniformBuffer(const uint32_t currentImage) const {
-    const float aspect =
-        static_cast<float>(swapChainHandler.extent2D.width) / static_cast<float>(swapChainHandler.extent2D.height);
+    const float aspect = swapChainHandler.getAspectRatio();
 
     UniformBufferObject ubo{};
     ubo.view = camera.viewMatrix();
@@ -524,15 +469,6 @@ void Engine::registerTexture(const std::shared_ptr<Texture> &texture) {
     textureDescriptorSets.try_emplace(texture, std::move(sets));
 }
 
-void Engine::addRenderObject(RenderObject object) {
-    registerTexture(object.texture);
-    if (object.isInstanced) {
-        instanceRenderer.addObject(std::move(object));
-    } else {
-        renderObjects.push_back(std::move(object));
-    }
-}
-
 std::shared_ptr<Mesh> Engine::createCubeMesh(const float size) {
     auto mesh = std::make_shared<Mesh>(vkCtx);
     MeshUtils::generateCube(*mesh, size);
@@ -547,17 +483,12 @@ std::shared_ptr<Texture> Engine::loadTexture(const std::string &path) {
 }
 
 void Engine::updateInstanceBuffers(const uint32_t currentImage) {
-    const float aspect =
-        static_cast<float>(swapChainHandler.extent2D.width) / static_cast<float>(swapChainHandler.extent2D.height);
+    const float aspect = swapChainHandler.getAspectRatio();
     constexpr float cullFovMargin = 4.0f;
     const glm::mat4 cullProj = Camera::projMatrix(aspect, 55.0f + cullFovMargin);
     const CullingUtils::Frustum frustum = CullingUtils::extractFrustum(cullProj * camera.viewMatrix());
 
     instanceRenderer.update(currentImage, frustum);
-
-    for (auto &obj : renderObjects) {
-        obj.isVisible = CullingUtils::sphereInFrustum(frustum, obj.position, obj.mesh->boundingRadius);
-    }
 }
 
 Engine::FBXModel Engine::createFBXModel(const std::string &fbxPath, const std::string &fileExtension) {
@@ -613,14 +544,12 @@ Engine::FBXModel Engine::createFBXModel(const std::string &fbxPath, const std::s
     return model;
 }
 
-void Engine::placeFBXModel(const FBXModel &model, const glm::vec3 &position, const bool instanced) {
+void Engine::placeFBXModel(const FBXModel &model, const glm::vec3 &position) {
     for (size_t i = 0; i < model.meshes.size(); ++i) {
         RenderObject object;
         object.mesh = model.meshes[i];
         object.texture = model.textures[i];
         object.position = position;
-        object.isInstanced = instanced;
-        object.rotationSpeed = 0.f;
         addRenderObject(std::move(object));
     }
 }

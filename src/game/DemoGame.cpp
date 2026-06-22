@@ -3,11 +3,15 @@
 #include <SDL3/SDL.h>
 #include <glm/gtc/matrix_transform.hpp>
 
+namespace {
+const glm::vec3 SHOWCASE_ORIGIN{70.0f, 0.0f, 10.0f};
+} // namespace
+
 void DemoGame::init(Engine &engine) {
     const Engine::FBXModel house = engine.createFBXModel("models/House_scene_01.fbx", ".png");
-    engine.placeFBXModel(house, glm::vec3(0.f, 0.f, 0.f), false);
+    engine.placeFBXModel(house, glm::vec3(0.f, 0.f, 0.f));
 
-    const auto mesh = engine.createCubeMesh(1.f);
+    const auto cubeMesh = engine.createCubeMesh(1.f);
     const auto texture = engine.loadTexture("textures/bricks.jpg");
 
     constexpr int SIZE = 100;
@@ -16,19 +20,57 @@ void DemoGame::init(Engine &engine) {
         for (int y = -SIZE / 2; y < SIZE / 2; y += OFFSET) {
             for (int z = -SIZE / 2; z < SIZE / 2; z += OFFSET) {
                 RenderObject cube;
-                cube.mesh = mesh;
+                cube.mesh = cubeMesh;
                 cube.texture = texture;
                 cube.position = {x, y, z};
-                cube.isInstanced = true;
-                cube.rotationSpeed =
-                    glm::sin(static_cast<float>(x)) + glm::sin(static_cast<float>(y)) + glm::sin(static_cast<float>(z));
+                cube.rotation = glm::vec3(glm::sin(static_cast<float>(x)), glm::sin(static_cast<float>(y)),
+                                          glm::sin(static_cast<float>(z)));
                 engine.addRenderObject(std::move(cube));
             }
         }
     }
+
+    {
+        RenderObject obj;
+        obj.mesh = cubeMesh;
+        obj.texture = texture;
+        obj.position = SHOWCASE_ORIGIN + glm::vec3(0.f, -6.f, 0.f);
+        const RenderObjectHandle handle = engine.addRenderObject(std::move(obj));
+        spinningObjects.push_back({handle, glm::vec3(0.6f, 1.0f, 1.4f)});
+    }
+
+    {
+        RenderObject obj;
+        obj.mesh = cubeMesh;
+        obj.texture = texture;
+        obj.position = SHOWCASE_ORIGIN;
+        const RenderObjectHandle handle = engine.addRenderObject(std::move(obj));
+        orbitingObjects.push_back({handle, SHOWCASE_ORIGIN, 6.0f, 1.2f, 0.0f});
+    }
+
+    {
+        const glm::vec3 center = SHOWCASE_ORIGIN + glm::vec3(0.f, 6.f, 0.f);
+        RenderObject obj;
+        obj.mesh = cubeMesh;
+        obj.texture = texture;
+        obj.position = center;
+        const RenderObjectHandle handle = engine.addRenderObject(std::move(obj));
+        spinningObjects.push_back({handle, glm::vec3(2.0f, -1.5f, 0.8f)});
+        orbitingObjects.push_back({handle, center, 4.0f, -0.8f, 0.0f});
+    }
 }
 
 void DemoGame::update(Engine &engine, const float deltaTime) {
+    for (const auto &spinner : spinningObjects) {
+        engine.getRenderObject(spinner.handle).rotation += spinner.spinSpeed * deltaTime;
+    }
+
+    for (auto &orbiter : orbitingObjects) {
+        orbiter.angle += orbiter.speed * deltaTime;
+        engine.getRenderObject(orbiter.handle).position =
+            orbiter.center + glm::vec3(cos(orbiter.angle) * orbiter.radius, sin(orbiter.angle) * orbiter.radius, 0.f);
+    }
+
     Camera &camera = engine.getCamera();
 
     float mouseDx;

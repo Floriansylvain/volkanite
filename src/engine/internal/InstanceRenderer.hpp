@@ -16,8 +16,8 @@ class InstanceRenderer {
 
     void createPipelines(vk::PipelineLayout pipelineLayout, vk::Format colorFormat, vk::Format depthFormat);
 
-    size_t addObject(RenderObject object);
-    [[nodiscard]] RenderObject &getObject(const size_t index) { return objects[index]; }
+    RenderObjectHandle addObject(RenderObject object);
+    [[nodiscard]] RenderObject &getObject(const RenderObjectHandle handle) { return objects[handle]; }
 
     void build(const vk::raii::CommandPool &commandPool);
     void update(uint32_t currentImage, const CullingUtils::Frustum &frustum);
@@ -52,8 +52,11 @@ class InstanceRenderer {
   private:
     struct InstanceData {
         glm::vec3 position;
-        float rotation;
+        float pad0 = 0.0f;
+        glm::vec3 rotation;
+        float pad1 = 0.0f;
     };
+    static_assert(sizeof(InstanceData) == 32, "InstanceData layout must match InstanceDataGPU exactly");
 
     struct InstanceBatch {
         PerFrameBuffer buffers;
@@ -64,9 +67,6 @@ class InstanceRenderer {
 
         PerFrameBuffer culledOnlyBuffers;
         PerFrameBuffer culledOnlyIndirectBuffers;
-
-        vk::raii::Buffer candidateBuffer = nullptr;
-        vk::raii::DeviceMemory candidateBufferMemory = nullptr;
 
         uint32_t instanceCount = 0;
         uint32_t visibleInstanceCount = 0;

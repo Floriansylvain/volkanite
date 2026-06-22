@@ -1,15 +1,9 @@
-struct VSInput {
-    float3 inPos;
-    float3 inColor;
-    float2 inTexCoord;
-};
-
 struct InstancedVSInput {
     float3 inPos;
     float3 inColor;
     float2 inTexCoord;
     float3 instancePos;
-    float instanceRotation;
+    float3 instanceRotation;
 };
 
 struct CameraUniform {
@@ -19,11 +13,6 @@ struct CameraUniform {
 
 [[vk::binding(0, 0)]]
 ConstantBuffer<CameraUniform> ubo;
-
-struct PushConstants {
-    float4x4 model;
-};
-[[vk::push_constant]] ConstantBuffer<PushConstants> pc;
 
 struct VSOutput {
     float4 pos : SV_Position;
@@ -45,19 +34,17 @@ float4x4 rotationMatrix(float3 axis, float angle) {
     return m;
 }
 
-[shader("vertex")]
-VSOutput vertMain(VSInput input) {
-    VSOutput output;
-    output.pos = mul(ubo.proj, mul(ubo.view, mul(pc.model, float4(input.inPos, 1.0))));
-    output.fragColor = input.inColor;
-    output.fragTexCoord = input.inTexCoord;
-    return output;
+float4x4 eulerRotationMatrix(float3 angles) {
+    float4x4 rx = rotationMatrix(float3(1.0, 0.0, 0.0), angles.x);
+    float4x4 ry = rotationMatrix(float3(0.0, 1.0, 0.0), angles.y);
+    float4x4 rz = rotationMatrix(float3(0.0, 0.0, 1.0), angles.z);
+    return mul(rz, mul(ry, rx));
 }
 
 [shader("vertex")]
 VSOutput vertMainInstanced(InstancedVSInput input) {
     VSOutput output;
-    float4x4 rot = rotationMatrix(float3(1.0, 0.0, 1.0), input.instanceRotation);
+    float4x4 rot = eulerRotationMatrix(input.instanceRotation);
     float4 rotatedPos = mul(rot, float4(input.inPos, 1.0));
     float4 worldPos = float4(rotatedPos.xyz + input.instancePos, 1.0);
     output.pos = mul(ubo.proj, mul(ubo.view, worldPos));

@@ -32,6 +32,10 @@ class SwapChainHandler {
     void recreate();
     void cleanup();
 
+    [[nodiscard]] float getAspectRatio() const {
+        return static_cast<float>(extent2D.width) / static_cast<float>(extent2D.height);
+    }
+
   private:
     const VulkanContext &vkCtx;
     Window &window;

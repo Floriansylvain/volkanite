@@ -156,6 +156,9 @@ void VulkanContext::createLogicalDevice() {
     vk::PhysicalDeviceVulkan11Features features11{};
     features11.shaderDrawParameters = true;
 
+    vk::PhysicalDeviceVulkan12Features features12{};
+    features12.hostQueryReset = true;
+
     vk::PhysicalDeviceVulkan13Features features13{};
     features13.dynamicRendering = true;
     features13.synchronization2 = true;
@@ -163,7 +166,7 @@ void VulkanContext::createLogicalDevice() {
     vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT extendedFeatures{};
     extendedFeatures.extendedDynamicState = true;
 
-    vk::StructureChain featureChain(features2, features11, features13, extendedFeatures);
+    vk::StructureChain featureChain(features2, features11, features12, features13, extendedFeatures);
 
     std::vector _requiredDeviceExtension = {vk::KHRSwapchainExtensionName};
     for (auto const availableExtensions = physicalDevice.enumerateDeviceExtensionProperties();

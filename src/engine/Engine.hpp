@@ -25,14 +25,15 @@ class Engine {
 
     [[nodiscard]] Camera &getCamera() { return camera; }
 
-    void addRenderObject(RenderObject object);
+    RenderObjectHandle addRenderObject(RenderObject object);
+    [[nodiscard]] RenderObject &getRenderObject(RenderObjectHandle handle);
 
     struct FBXModel {
         std::vector<std::shared_ptr<Mesh>> meshes;
         std::vector<std::shared_ptr<Texture>> textures;
     };
     FBXModel createFBXModel(const std::string &fbxPath, const std::string &fileExtension);
-    void placeFBXModel(const FBXModel &model, const glm::vec3 &position, bool instanced = false);
+    void placeFBXModel(const FBXModel &model, const glm::vec3 &position);
 
     [[nodiscard]] std::shared_ptr<Mesh> createCubeMesh(float size);
     [[nodiscard]] std::shared_ptr<Texture> loadTexture(const std::string &path);
@@ -60,13 +61,10 @@ class Engine {
 
     constexpr static uint32_t GPU_QUERY_COUNT = static_cast<uint32_t>(GpuPass::Count) * 2;
     std::vector<vk::raii::QueryPool> gpuQueryPools;
-    uint64_t totalFramesRendered = 0;
     float timestampPeriodNs = 1.0f;
 
     vk::raii::DescriptorSetLayout descriptorSetLayout = nullptr;
     vk::raii::PipelineLayout pipelineLayout = nullptr;
-    vk::raii::Pipeline solidGraphicsPipeline = nullptr;
-    vk::raii::Pipeline wireframeGraphicsPipeline = nullptr;
     vk::raii::CommandPool commandPool = nullptr;
     std::vector<vk::raii::CommandBuffer> commandBuffers;
     std::vector<vk::raii::Semaphore> presentCompleteSemaphores;
@@ -80,7 +78,6 @@ class Engine {
 
     std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>> textureDescriptorSets;
 
-    std::vector<RenderObject> renderObjects;
     std::unordered_map<std::string, std::shared_ptr<Texture>> textureCache;
 
     bool isInitialized = false;
@@ -97,7 +94,6 @@ class Engine {
     void createCommandBuffers();
     void recordCommandBuffer(uint32_t imageIndex);
     void createSyncObjects();
-    void drawNonInstancedObjects(const vk::raii::CommandBuffer &commandBuffer);
     void drawFrame();
 
     void createQueryPools();
@@ -108,9 +104,6 @@ class Engine {
     struct UniformBufferObject {
         glm::mat4 view;
         glm::mat4 proj;
-    };
-    struct ModelPushConstant {
-        glm::mat4 model;
     };
     void createDescriptorSetLayout();
     void createCameraUniformBuffer();

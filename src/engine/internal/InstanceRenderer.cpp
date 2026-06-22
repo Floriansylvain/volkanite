@@ -15,7 +15,7 @@ void InstanceRenderer::createPipelines(const vk::PipelineLayout pipelineLayout, 
 
     const vk::VertexInputBindingDescription instanceBinding{1, sizeof(InstanceData), vk::VertexInputRate::eInstance};
     const vk::VertexInputAttributeDescription instancePos{3, 1, vk::Format::eR32G32B32Sfloat, offsetof(InstanceData, position)};
-    const vk::VertexInputAttributeDescription instanceRot{4, 1, vk::Format::eR32Sfloat, offsetof(InstanceData, rotation)};
+    const vk::VertexInputAttributeDescription instanceRot{4, 1, vk::Format::eR32G32B32Sfloat, offsetof(InstanceData, rotation)};
 
     std::vector attrs(attributeDescriptions.begin(), attributeDescriptions.end());
     attrs.push_back(instancePos);
@@ -41,7 +41,7 @@ void InstanceRenderer::createPipelines(const vk::PipelineLayout pipelineLayout, 
     xrayPipeline = builder.build();
 }
 
-size_t InstanceRenderer::addObject(RenderObject object) {
+RenderObjectHandle InstanceRenderer::addObject(RenderObject object) {
     objects.push_back(std::move(object));
     return objects.size() - 1;
 }
@@ -91,25 +91,6 @@ void InstanceRenderer::build(const vk::raii::CommandPool &commandPool) {
                 std::memcpy(batch.culledOnlyIndirectBuffers.mapped(i), &initialCommand, indirectSize);
             }
         }
-
-        std::vector<glm::vec4> candidatePositions;
-        candidatePositions.reserve(batch.instanceCount);
-        for (const size_t idx : batch.objectIndices) {
-            candidatePositions.emplace_back(objects[idx].position, objects[idx].rotationSpeed);
-        }
-
-        const vk::DeviceSize candidateBufferSize = sizeof(glm::vec4) * candidatePositions.size();
-        auto [stagingBuffer, stagingMemory] =
-            VulkanUtils::createBuffer(vkCtx, candidateBufferSize, vk::BufferUsageFlagBits::eTransferSrc,
-                                      vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
-        void *data = stagingMemory.mapMemory(0, candidateBufferSize);
-        std::memcpy(data, candidatePositions.data(), candidateBufferSize);
-        stagingMemory.unmapMemory();
-
-        std::tie(batch.candidateBuffer, batch.candidateBufferMemory) = VulkanUtils::createBuffer(
-            vkCtx, candidateBufferSize, vk::BufferUsageFlagBits::eStorageBuffer | vk::BufferUsageFlagBits::eTransferDst,
-            vk::MemoryPropertyFlagBits::eDeviceLocal);
-        VulkanUtils::copyBuffer(vkCtx, stagingBuffer, batch.candidateBuffer, candidateBufferSize, commandPool);
     }
 
     batches = std::move(newBatches);
@@ -244,9 +225,6 @@ void InstanceRenderer::cull(const CullCommand &command) const {
 }
 
 void InstanceRenderer::update(const uint32_t currentImage, const CullingUtils::Frustum &frustum) {
-    static auto startTime = std::chrono::high_resolution_clock::now();
-    const float time = std::chrono::duration<float>(std::chrono::high_resolution_clock::now() - startTime).count();
-
     for (auto &batch : batches) {
         auto *dst = static_cast<InstanceData *>(batch.buffers.mapped(currentImage));
         uint32_t visibleCount = 0;
@@ -257,7 +235,7 @@ void InstanceRenderer::update(const uint32_t currentImage, const CullingUtils::F
                 continue;
 
             dst[visibleCount].position = obj.position;
-            dst[visibleCount].rotation = time * obj.rotationSpeed;
+            dst[visibleCount].rotation = obj.rotation;
             visibleCount++;
         }
 
