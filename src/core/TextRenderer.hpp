@@ -3,6 +3,7 @@
 
 #pragma once
 #include "Font.hpp"
+#include "PerFrameBuffer.hpp"
 
 class TextRenderer {
   public:
@@ -36,9 +37,8 @@ class TextRenderer {
     vk::raii::PipelineLayout pipelineLayout = nullptr;
     vk::raii::Pipeline pipeline = nullptr;
 
-    std::vector<vk::raii::Buffer> vertexBuffers;
-    std::vector<vk::raii::DeviceMemory> vertexBuffersMemory;
-    std::vector<void *> vertexBuffersMapped;
+    PerFrameBuffer vertexBuffers;
+
     std::vector<Font::TextVertex> pendingVertices;
 
     void createDescriptorSet();

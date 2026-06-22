@@ -57,9 +57,7 @@ class Engine {
 
     vk::raii::DescriptorPool descriptorPool = nullptr;
 
-    std::vector<vk::raii::Buffer> cameraUniformBuffers;
-    std::vector<vk::raii::DeviceMemory> cameraUniformBuffersMemory;
-    std::vector<void *> cameraUniformBuffersMapped;
+    PerFrameBuffer cameraUniformBuffers;
 
     std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>> textureDescriptorSets;
 

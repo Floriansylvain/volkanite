@@ -4,6 +4,7 @@
 #pragma once
 #include "CullingUtils.hpp"
 #include "Mesh.hpp"
+#include "PerFrameBuffer.hpp"
 #include "PipelineBuilder.hpp"
 #include "RenderObject.hpp"
 #include "Texture.hpp"
@@ -55,25 +56,14 @@ class InstanceRenderer {
     };
 
     struct InstanceBatch {
-        std::vector<vk::raii::Buffer> buffers;
-        std::vector<vk::raii::DeviceMemory> buffersMemory;
-        std::vector<void *> buffersMapped;
-
-        std::vector<vk::raii::Buffer> culledBuffers;
-        std::vector<vk::raii::DeviceMemory> culledBuffersMemory;
-
-        std::vector<vk::raii::Buffer> indirectBuffers;
-        std::vector<vk::raii::DeviceMemory> indirectBuffersMemory;
-        std::vector<void *> indirectBuffersMapped;
+        PerFrameBuffer buffers;
+        PerFrameBuffer culledBuffers;
+        PerFrameBuffer indirectBuffers;
 
         std::vector<vk::raii::DescriptorSet> cullDescriptorSets;
 
-        std::vector<vk::raii::Buffer> culledOnlyBuffers;
-        std::vector<vk::raii::DeviceMemory> culledOnlyBuffersMemory;
-
-        std::vector<vk::raii::Buffer> culledOnlyIndirectBuffers;
-        std::vector<vk::raii::DeviceMemory> culledOnlyIndirectBuffersMemory;
-        std::vector<void *> culledOnlyIndirectBuffersMapped;
+        PerFrameBuffer culledOnlyBuffers;
+        PerFrameBuffer culledOnlyIndirectBuffers;
 
         vk::raii::Buffer candidateBuffer = nullptr;
         vk::raii::DeviceMemory candidateBufferMemory = nullptr;

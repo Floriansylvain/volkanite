@@ -39,17 +39,10 @@ void TextRenderer::createDescriptorSet() {
 }
 
 void TextRenderer::createVertexBuffers() {
-    vk::DeviceSize bufferSize = MAX_CHARS * VERTICES_PER_CHAR * sizeof(Font::TextVertex);
-
-    for (int i = 0; i < maxFramesInFlight; i++) {
-        auto [buffer, memory] =
-            VulkanUtils::createBuffer(vkCtx, bufferSize, vk::BufferUsageFlagBits::eVertexBuffer,
-                                      vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
-
-        vertexBuffers.push_back(std::move(buffer));
-        vertexBuffersMemory.push_back(std::move(memory));
-        vertexBuffersMapped.push_back(vertexBuffersMemory.back().mapMemory(0, bufferSize));
-    }
+    const vk::DeviceSize bufferSize = MAX_CHARS * VERTICES_PER_CHAR * sizeof(Font::TextVertex);
+    vertexBuffers =
+        PerFrameBuffer(vkCtx, static_cast<uint32_t>(maxFramesInFlight), bufferSize, vk::BufferUsageFlagBits::eVertexBuffer,
+                       vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
 }
 
 void TextRenderer::loadFont(const std::string &path, const vk::raii::CommandPool &commandPool, const float spacing,
@@ -127,13 +120,13 @@ void TextRenderer::render(const vk::raii::CommandBuffer &commandBuffer, const ui
     }
 
     const vk::DeviceSize copySize = pendingVertices.size() * sizeof(Font::TextVertex);
-    std::memcpy(vertexBuffersMapped[frameIndex], pendingVertices.data(), copySize);
+    std::memcpy(vertexBuffers.mapped(frameIndex), pendingVertices.data(), copySize);
 
     commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *pipeline);
     commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *pipelineLayout, 0, *descriptorSet, nullptr);
 
     const std::vector<vk::DeviceSize> offsets = {0};
-    commandBuffer.bindVertexBuffers(0, *vertexBuffers[frameIndex], offsets);
+    commandBuffer.bindVertexBuffers(0, vertexBuffers[frameIndex], offsets);
     commandBuffer.draw(static_cast<uint32_t>(pendingVertices.size()), 1, 0, 0);
 
     pendingVertices.clear();

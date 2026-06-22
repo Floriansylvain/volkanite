@@ -499,16 +499,9 @@ void Engine::createDescriptorSetLayout() {
 }
 
 void Engine::createCameraUniformBuffer() {
-    for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        constexpr vk::DeviceSize bufferSize = sizeof(UniformBufferObject);
-        auto [buffer, memory] =
-            VulkanUtils::createBuffer(vkCtx, bufferSize, vk::BufferUsageFlagBits::eUniformBuffer,
-                                      vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
-
-        cameraUniformBuffers.push_back(std::move(buffer));
-        cameraUniformBuffersMemory.push_back(std::move(memory));
-        cameraUniformBuffersMapped.push_back(cameraUniformBuffersMemory[i].mapMemory(0, bufferSize));
-    }
+    cameraUniformBuffers = PerFrameBuffer(vkCtx, static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT), sizeof(UniformBufferObject),
+                                          vk::BufferUsageFlagBits::eUniformBuffer,
+                                          vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
 }
 
 void Engine::updateUniformBuffer(const uint32_t currentImage) const {
@@ -518,7 +511,7 @@ void Engine::updateUniformBuffer(const uint32_t currentImage) const {
     UniformBufferObject ubo{};
     ubo.view = camera.viewMatrix();
     ubo.proj = Camera::projMatrix(aspect);
-    std::memcpy(cameraUniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
+    std::memcpy(cameraUniformBuffers.mapped(currentImage), &ubo, sizeof(ubo));
 }
 
 void Engine::createDescriptorPool() {
@@ -551,7 +544,7 @@ void Engine::registerTexture(const std::shared_ptr<Texture> &texture) {
     DescriptorWriter writer(vkCtx);
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
         writer
-            .writeBuffer(*sets[i], 0, *cameraUniformBuffers[i], sizeof(UniformBufferObject), vk::DescriptorType::eUniformBuffer)
+            .writeBuffer(*sets[i], 0, cameraUniformBuffers[i], sizeof(UniformBufferObject), vk::DescriptorType::eUniformBuffer)
             .writeImage(*sets[i], 1, vk::DescriptorType::eCombinedImageSampler, *texture->textureImageView,
                         *texture->textureSampler);
     }
@@ -739,14 +732,8 @@ void Engine::init() {
         hiZViews.push_back(*view);
     }
 
-    std::vector<vk::Buffer> camBuffers;
-    camBuffers.reserve(cameraUniformBuffers.size());
-    for (const auto &buf : cameraUniformBuffers) {
-        camBuffers.push_back(*buf);
-    }
-
     instanceRenderer.createCullDescriptorSets(*occlusionCuller.cullSetLayout, hiZViews, *occlusionCuller.hiZSampler,
-                                              camBuffers);
+                                              cameraUniformBuffers.handles());
 
     createCommandBuffers();
     createSyncObjects();
