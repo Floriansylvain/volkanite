@@ -4,7 +4,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 namespace {
-const glm::vec3 SHOWCASE_ORIGIN{70.0f, 0.0f, 10.0f};
+const glm::vec3 SHOWCASE_ORIGIN{15.0f, -5.0f, 10.0f};
 } // namespace
 
 void DemoGame::init(Engine &engine) {
@@ -14,18 +14,26 @@ void DemoGame::init(Engine &engine) {
     const auto cubeMesh = engine.createCubeMesh(1.f);
     const auto texture = engine.loadTexture("textures/bricks.jpg");
 
-    constexpr int SIZE = 100;
-    constexpr int OFFSET = 5;
-    for (int x = -SIZE / 2; x < SIZE / 2; x += OFFSET) {
-        for (int y = -SIZE / 2; y < SIZE / 2; y += OFFSET) {
-            for (int z = -SIZE / 2; z < SIZE / 2; z += OFFSET) {
-                RenderObject cube;
-                cube.mesh = cubeMesh;
-                cube.texture = texture;
-                cube.position = {x, y, z};
-                cube.rotation = glm::vec3(glm::sin(static_cast<float>(x)), glm::sin(static_cast<float>(y)),
-                                          glm::sin(static_cast<float>(z)));
-                engine.addRenderObject(std::move(cube));
+    constexpr int OFFSET = 3;
+    constexpr float INNER_RADIUS = 25.0f;
+    constexpr float OUTER_RADIUS = 40.0f;
+    constexpr float INNER_RADIUS_SQ = INNER_RADIUS * INNER_RADIUS;
+    constexpr float OUTER_RADIUS_SQ = OUTER_RADIUS * OUTER_RADIUS;
+    constexpr int BOUND = static_cast<int>(OUTER_RADIUS);
+
+    for (int x = -BOUND; x <= BOUND; x += OFFSET) {
+        for (int y = -BOUND; y <= BOUND; y += OFFSET) {
+            for (int z = -BOUND; z <= BOUND; z += OFFSET) {
+                float distSq = static_cast<float>(x * x + y * y + z * z);
+                if (distSq >= INNER_RADIUS_SQ && distSq <= OUTER_RADIUS_SQ) {
+                    RenderObject cube;
+                    cube.mesh = cubeMesh;
+                    cube.texture = texture;
+                    cube.position = {x, y, z};
+                    cube.rotation = glm::vec3(glm::sin(static_cast<float>(x)), glm::sin(static_cast<float>(y)),
+                                              glm::sin(static_cast<float>(z)));
+                    engine.addRenderObject(std::move(cube));
+                }
             }
         }
     }
@@ -34,7 +42,7 @@ void DemoGame::init(Engine &engine) {
         RenderObject obj;
         obj.mesh = cubeMesh;
         obj.texture = texture;
-        obj.position = SHOWCASE_ORIGIN + glm::vec3(0.f, -6.f, 0.f);
+        obj.position = SHOWCASE_ORIGIN + glm::vec3(0.f, -6.f, 2.f);
         const RenderObjectHandle handle = engine.addRenderObject(std::move(obj));
         spinningObjects.push_back({handle, glm::vec3(0.6f, 1.0f, 1.4f)});
     }
@@ -49,7 +57,7 @@ void DemoGame::init(Engine &engine) {
     }
 
     {
-        const glm::vec3 center = SHOWCASE_ORIGIN + glm::vec3(0.f, 6.f, 0.f);
+        const glm::vec3 center = SHOWCASE_ORIGIN + glm::vec3(0.f, 6.f, -2.f);
         RenderObject obj;
         obj.mesh = cubeMesh;
         obj.texture = texture;
