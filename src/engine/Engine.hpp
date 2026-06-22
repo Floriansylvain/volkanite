@@ -97,6 +97,7 @@ class Engine {
     void createCommandBuffers();
     void recordCommandBuffer(uint32_t imageIndex);
     void createSyncObjects();
+    void drawNonInstancedObjects(const vk::raii::CommandBuffer &commandBuffer);
     void drawFrame();
 
     void createQueryPools();

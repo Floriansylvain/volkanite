@@ -217,6 +217,13 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
     commandBuffers[frameIndex].setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainHandler.extent2D));
 
     writeTimestamp(GpuPass::OpaqueGeometry, true, eColorAttachmentOutput);
+    drawNonInstancedObjects(commandBuffers[frameIndex]);
+    instanceRenderer.draw(commandBuffers[frameIndex], frameIndex, *pipelineLayout, textureDescriptorSets, isWireframe,
+                          drawCallCount);
+    vertexCount += instanceRenderer.getVisibleVertexEstimate(frameIndex);
+    writeTimestamp(GpuPass::OpaqueGeometry, false, eColorAttachmentOutput);
+
+    writeTimestamp(GpuPass::OpaqueGeometry, true, eColorAttachmentOutput);
     instanceRenderer.draw(commandBuffers[frameIndex], frameIndex, *pipelineLayout, textureDescriptorSets, isWireframe,
                           drawCallCount);
     vertexCount = instanceRenderer.getVisibleVertexEstimate(frameIndex);
@@ -298,6 +305,28 @@ void Engine::recreateSwapChain() {
         hiZViews.push_back(*occlusionCuller.hiZFullViews[f]);
     }
     instanceRenderer.updateHiZViews(hiZViews, *occlusionCuller.hiZSampler);
+}
+
+void Engine::drawNonInstancedObjects(const vk::raii::CommandBuffer &commandBuffer) {
+    for (const auto &obj : renderObjects) {
+        if (!obj.isVisible)
+            continue;
+
+        const auto &sets = textureDescriptorSets.at(obj.texture);
+        commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *pipelineLayout, 0, *sets[frameIndex], nullptr);
+
+        const ModelPushConstant pc{glm::translate(glm::mat4(1.0f), obj.position)};
+        commandBuffer.pushConstants<ModelPushConstant>(*pipelineLayout, vk::ShaderStageFlagBits::eVertex, 0, pc);
+
+        const std::vector<vk::DeviceSize> vertexOffsets = {0};
+        commandBuffer.bindVertexBuffers(0, *obj.mesh->unifiedBuffer, vertexOffsets);
+        const vk::DeviceSize vertexSizeOffset = sizeof(Mesh::Vertex) * obj.mesh->vertices.size();
+        commandBuffer.bindIndexBuffer(*obj.mesh->unifiedBuffer, vertexSizeOffset, vk::IndexType::eUint32);
+
+        commandBuffer.drawIndexed(static_cast<uint32_t>(obj.mesh->indices.size()), 1, 0, 0, 0);
+        drawCallCount++;
+        vertexCount += obj.mesh->indices.size();
+    }
 }
 
 void Engine::drawFrame() {
@@ -649,9 +678,6 @@ void Engine::init() {
     createOcclusionCuller();
     createCameraUniformBuffer();
     createDescriptorPool();
-
-    const FBXModel house = createFBXModel("models/House_scene_01.fbx", ".png");
-    placeFBXModel(house, glm::vec3(0.f, 0.f, 0.f), true);
 
     textRenderer.loadFont("textures/consolas.png", commandPool, 0.38f, 0.2f);
 

@@ -5,7 +5,7 @@
 
 void DemoGame::init(Engine &engine) {
     const Engine::FBXModel house = engine.createFBXModel("models/House_scene_01.fbx", ".png");
-    engine.placeFBXModel(house, glm::vec3(0.f, 0.f, 0.f), true);
+    engine.placeFBXModel(house, glm::vec3(0.f, 0.f, 0.f), false);
 
     const auto mesh = engine.createCubeMesh(1.f);
     const auto texture = engine.loadTexture("textures/bricks.jpg");
