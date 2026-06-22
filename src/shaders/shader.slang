@@ -65,10 +65,10 @@ float4 fragMain(VSOutput vertIn) : SV_TARGET {
     if (texColor.a < 0.5)
         discard;
 
-    float3 lightDir = normalize(float3(0.5, -1.0, 0.3));
+    float3 lightDir = normalize(float3(1.0, 1.0, 1.0));
     
     float3 normal = normalize(vertIn.fragNormal);
-    float diffuse = max(dot(normal, -lightDir), 0.0);
+    float diffuse = max(dot(normal, lightDir), 0.0);
     
     float ambient = 0.25;
     float lightingFactor = diffuse + ambient;
