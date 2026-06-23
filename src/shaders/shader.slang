@@ -18,11 +18,12 @@ struct CameraUniform {
 
 struct VSOutput {
     float4 pos : SV_Position;
-    float3 fragColor;
+    half3 fragColor;
     float2 fragTexCoord;
-    float3 fragNormal;
-    float3 fragTangent;
-    float3 worldPos;
+    half3 fragNormal;
+    half3 fragTangent;
+    
+    float3 viewDiff; 
 };
 
 float4x4 eulerRotationMatrix(float3 angles) {
@@ -50,31 +51,31 @@ float4x4 eulerRotationMatrix(float3 angles) {
     return mul(rz, mul(ry, rx));
 }
 
-static const float PI = 3.14159265359;
+static const half PI = 3.14159265359h;
 
-float pow5(float x) {
-    float x2 = x * x;
+half pow5(half x) {
+    half x2 = x * x;
     return x2 * x2 * x;
 }
 
-float distributionGGX(float NdotH, float roughness) {
-    float a = roughness * roughness;
-    float a2 = a * a;
-    float d = NdotH * NdotH * (a2 - 1.0) + 1.0;
+half distributionGGX(half NdotH, half roughness) {
+    half a = roughness * roughness;
+    half a2 = a * a;
+    half d = NdotH * NdotH * (a2 - 1.0h) + 1.0h;
     return a2 / (PI * d * d);
 }
 
-float geometrySchlickGGX(float NdotX, float k) {
-    return NdotX / (NdotX * (1.0 - k) + k);
+half geometrySchlickGGX(half NdotX, half k) {
+    return NdotX / (NdotX * (1.0h - k) + k);
 }
 
-float geometrySmith(float NdotV, float NdotL, float roughness) {
-    float k = (roughness + 1.0) * (roughness + 1.0) / 8.0;
+half geometrySmith(half NdotV, half NdotL, half roughness) {
+    half k = (roughness + 1.0h) * (roughness + 1.0h) / 8.0h;
     return geometrySchlickGGX(NdotV, k) * geometrySchlickGGX(NdotL, k);
 }
 
-float3 fresnelSchlick(float VdotH, float3 F0) {
-    return F0 + (1.0 - F0) * pow5(saturate(1.0 - VdotH));
+half3 fresnelSchlick(half VdotH, half3 Fzero) {
+    return Fzero + (1.0h - Fzero) * pow5(saturate(1.0h - VdotH));
 }
 
 [[vk::binding(1, 0)]] Sampler2D texture;
@@ -133,79 +134,82 @@ VSOutput vertMainInstanced(InstancedVSInput input) {
 
     output.pos = mul(ubo.proj, mul(ubo.view, worldPos));
     float3x3 rot3 = (float3x3)rot;
-    output.fragNormal = normalize(mul(rot3, input.inNormal));
-    output.fragTangent = normalize(mul(rot3, input.inTangent));
-    output.fragColor = input.inColor;
+    
+    output.fragNormal = (half3)normalize(mul(rot3, input.inNormal));
+    output.fragTangent = (half3)normalize(mul(rot3, input.inTangent));
+    output.fragColor = (half3)input.inColor;
     output.fragTexCoord = input.inTexCoord;
-    output.worldPos = worldPos.xyz;
+    
+    output.viewDiff = ubo.cameraPos.xyz - worldPos.xyz;
 
     return output;
 }
 
 [shader("fragment")]
-float4 fragMain(VSOutput vertIn) : SV_TARGET {
-    float3 N = normalize(vertIn.fragNormal);
-    float3 T = normalize(vertIn.fragTangent);
+half4 fragMain(VSOutput vertIn) : SV_TARGET {
+    float viewDistance = length(vertIn.viewDiff);
+    float3 V = vertIn.viewDiff / viewDistance;
+
+    half3 N = normalize(vertIn.fragNormal);
+    half3 T = normalize(vertIn.fragTangent);
     T = normalize(T - N * dot(N, T));
-    float3 B = cross(N, T);
-    float3x3 TBN = float3x3(T, B, N);
+    half3 B = cross(N, T);
+    half3x3 TBN = half3x3(T, B, N);
 
-    float3 viewDiff = ubo.cameraPos.xyz - vertIn.worldPos;
-    float viewDistance = length(viewDiff);
-    float3 V = viewDiff / viewDistance;
-
-    float3 viewDirTS = normalize(mul(TBN, V));
+    float3 viewDirTS = normalize(mul((float3x3)TBN, V));
 
     float2 texCoord = parallaxOcclusionMapping(vertIn.fragTexCoord, viewDirTS, viewDistance);
 
-    float4 texColor = texture.Sample(texCoord);
+    half4 texColor = (half4)texture.Sample(texCoord);
     if (texColor.a < 0.5)
         discard;
 
-    float3 tangentNormal = normalMap.Sample(texCoord).rgb * 2.0 - 1.0;
+    half3 tangentNormal = (half3)normalMap.Sample(texCoord).rgb * 2.0h - 1.0h;
     N = normalize(mul(tangentNormal, TBN));
 
-    const float3 L = float3(0.57735026, 0.57735026, 0.57735026);
-    float3 H = normalize(L + V);
+    const half3 L = half3(0.57735h, 0.57735h, 0.57735h);
+    half3 halfV = (half3)V; 
+    half3 H = normalize(L + halfV);
 
-    float NdotL = saturate(dot(N, L));
-    float NdotV = saturate(dot(N, V));
-    float LdotH = saturate(dot(L, H));
-    float NdotH = saturate(dot(N, H));
+    half NdotL = saturate(dot(N, L));
+    half NdotV = saturate(dot(N, halfV));
+    half LdotH = saturate(dot(L, H));
+    half NdotH = saturate(dot(N, H));
 
-    float roughness = roughnessMap.Sample(texCoord).r;
+    half roughness = (half)roughnessMap.Sample(texCoord).r;
 
-    float fd90 = 0.5 + 2.0 * roughness * LdotH * LdotH;
-    float lightScatter = 1.0 + (fd90 - 1.0) * pow5(saturate(1.0 - NdotL));
-    float viewScatter = 1.0 + (fd90 - 1.0) * pow5(saturate(1.0 - NdotV));
-    float burleyDiffuse = lightScatter * viewScatter * NdotL;
+    half fd90 = 0.5h + 2.0h * roughness * LdotH * LdotH;
+    half lightScatter = 1.0h + (fd90 - 1.0h) * pow5(saturate(1.0h - NdotL));
+    half viewScatter = 1.0h + (fd90 - 1.0h) * pow5(saturate(1.0h - NdotV));
+    half burleyDiffuse = lightScatter * viewScatter * NdotL;
 
-    float metallic = metallicMap.Sample(texCoord).r;
-    const float3 F0 = lerp(float3(0.04, 0.04, 0.04), texColor.rgb, metallic);
+    half metallic = (half)metallicMap.Sample(texCoord).r;
+    const half3 Fzero = lerp(half3(0.04h, 0.04h, 0.04h), texColor.rgb, metallic);
 
-    float D = distributionGGX(NdotH, roughness);
-    float G = geometrySmith(NdotV, NdotL, roughness);
-    float3 F = fresnelSchlick(saturate(dot(V, H)), F0);
-    float3 specular = (D * G * F) / max(4.0 * NdotV * NdotL, 0.001);
+    half D = distributionGGX(NdotH, roughness);
+    half G = geometrySmith(NdotV, NdotL, roughness);
+    half3 F = fresnelSchlick(saturate(dot(halfV, H)), Fzero);
+    
+    half3 specular = (D * G * F) / max(4.0h * NdotV * NdotL, (half)0.001);
 
-    const float3 skyColor = float3(0.35, 0.38, 0.42);
-    const float3 groundColor = float3(0.15, 0.13, 0.11);
-    const float ambientDiffuseIntensity = 0.2;
-    const float ambientSpecularIntensity = 0.1;
+    const half3 skyColor = half3(0.35h, 0.38h, 0.42h);
+    const half3 groundColor = half3(0.15h, 0.13h, 0.11h);
+    const half ambientDiffuseIntensity = 0.2h;
+    const half ambientSpecularIntensity = 0.1h;
 
-    float skyFactor = N.z * 0.5 + 0.5;
-    float3 ambientDiffuseColor = lerp(groundColor, skyColor, skyFactor) * ambientDiffuseIntensity;
-    float3 ambientSpecular = skyColor * fresnelSchlick(NdotV, F0) * ambientSpecularIntensity;
+    half skyFactor = N.z * 0.5h + 0.5h;
+    half3 ambientDiffuseColor = lerp(groundColor, skyColor, skyFactor) * ambientDiffuseIntensity;
+    half3 ambientSpecular = skyColor * fresnelSchlick(NdotV, Fzero) * ambientSpecularIntensity;
 
-    float3 diffuseColor = texColor.rgb * (1.0 - metallic);
-    float3 directLighting = diffuseColor * burleyDiffuse + specular * NdotL;
-    float3 ambientLighting = diffuseColor * ambientDiffuseColor + ambientSpecular;
-    float3 finalColor = directLighting + ambientLighting;
+    half3 diffuseColor = texColor.rgb * (1.0h - metallic);
+    half3 directLighting = diffuseColor * burleyDiffuse + specular * NdotL;
+    half3 ambientLighting = diffuseColor * ambientDiffuseColor + ambientSpecular;
+    half3 finalColor = directLighting + ambientLighting;
 
-    return float4(finalColor, 1.0);
+    return half4(finalColor, 1.0h);
 }
 
 [shader("fragment")]
-float4 fragMainXray(VSOutput vertIn) : SV_TARGET {
-    return float4(1.0, 0.0, 0.0, 0.35);
+half4 fragMainXray(VSOutput vertIn) : SV_TARGET {
+    return half4(1.0h, 0.0h, 0.0h, 0.35h);
 }
