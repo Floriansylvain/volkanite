@@ -9,15 +9,14 @@ const glm::vec3 SHOWCASE_ORIGIN{15.0f, -5.0f, 10.0f};
 
 void DemoGame::init(Engine &engine) {
     const Engine::FBXModel house = engine.createFBXModel("models/House_scene_01.fbx", ".png");
-    const Engine::FBXModel car = engine.createFBXModel("models/FINAL_MODEL_Bronco.fbx", ".png");
 
     engine.placeFBXModel(house, glm::vec3(0.f, 0.f, 0.f));
-    engine.placeFBXModel(car, glm::vec3(15.f, -5.f, 2.f));
 
     const auto cubeMesh = engine.createCubeMesh(1.f);
     const auto albedo = engine.loadTexture("textures/oxidized-metal-clad_albedo.png");
     const auto normalMap = engine.loadNormalMap("textures/oxidized-metal-clad_normal-ogl.png");
-    const auto roughnessMap = engine.loadNormalMap("textures/oxidized-metal-clad_roughness.png");
+    const auto roughnessMap = engine.loadRoughnessMap("textures/oxidized-metal-clad_roughness.png");
+    const auto metallicMap = engine.loadRoughnessMap("textures/oxidized-metal-clad_metallic.png");
 
     constexpr int OFFSET = 3;
     constexpr float INNER_RADIUS = 25.0f;
@@ -37,6 +36,7 @@ void DemoGame::init(Engine &engine) {
                 cube.material.albedo = albedo;
                 cube.material.normalMap = normalMap;
                 cube.material.roughnessMap = roughnessMap;
+                cube.material.metallicMap = metallicMap;
                 cube.position = {x, y, z};
                 cube.rotation = glm::vec3(glm::sin(float(x)), glm::sin(float(y)), glm::sin(float(z)));
                 engine.addRenderObject(std::move(cube));

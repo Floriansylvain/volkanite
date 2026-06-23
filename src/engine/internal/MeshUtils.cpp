@@ -129,6 +129,14 @@ void MeshUtils::extractMaterial(const ufbx_mesh *mesh, const ufbx_mesh_part &par
     if (normalMap.texture && normalMap.texture_enabled) {
         sub.normalMapFilename = bareFilename(normalMap.texture);
     }
+
+    const ufbx_material_map &metalness = material->pbr.metalness;
+    if (metalness.has_value) {
+        sub.metallic = static_cast<float>(metalness.value_real);
+    }
+    if (metalness.texture && metalness.texture_enabled) {
+        sub.metallicMapFilename = bareFilename(metalness.texture);
+    }
 }
 
 Mesh::Vertex MeshUtils::processVertex(const ufbx_mesh *mesh, const ufbx_node *node, uint32_t corner) {

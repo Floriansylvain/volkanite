@@ -37,16 +37,17 @@ class InstanceRenderer {
     };
     void cull(const CullCommand &command) const;
 
-    using mapDescriptorSets = const std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>>;
+    using MapDescriptorSets = std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>>;
 
     struct DrawCommand {
         vk::raii::CommandBuffer *commandBuffer;
         vk::PipelineLayout pipelineLayout;
         uint32_t frameIndex;
 
-        mapDescriptorSets *textureDescriptorSets;
-        mapDescriptorSets *normalMapDescriptorSets;
-        mapDescriptorSets *roughnessMapDescriptorSets;
+        MapDescriptorSets *textureDescriptorSets;
+        MapDescriptorSets *normalMapDescriptorSets;
+        MapDescriptorSets *roughnessMapDescriptorSets;
+        MapDescriptorSets *metallicMapDescriptorSets;
     };
 
     void draw(DrawCommand command, bool wireframe, uint32_t &drawCallCount) const;
@@ -84,6 +85,7 @@ class InstanceRenderer {
         std::shared_ptr<Texture> texture;
         std::shared_ptr<Texture> normalMap;
         std::shared_ptr<Texture> roughnessMap;
+        std::shared_ptr<Texture> metallicMap;
 
         std::vector<size_t> objectIndices;
     };

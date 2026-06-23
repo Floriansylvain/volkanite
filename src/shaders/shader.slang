@@ -89,6 +89,7 @@ VSOutput vertMainInstanced(InstancedVSInput input) {
 [[vk::binding(1, 0)]] Sampler2D texture;
 [[vk::binding(0, 1)]] Sampler2D normalMap;
 [[vk::binding(0, 2)]] Sampler2D roughnessMap;
+[[vk::binding(0, 3)]] Sampler2D metallicMap;
 
 [shader("fragment")]
 float4 fragMain(VSOutput vertIn) : SV_TARGET {
@@ -122,8 +123,8 @@ float4 fragMain(VSOutput vertIn) : SV_TARGET {
 
     float burleyDiffuse = lightScatter * viewScatter * NdotL;
 
-    const float3 Fzero = float3(0.04, 0.04, 0.04);
-    float D = distributionGGX(NdotH, roughness);
+    float metallic = metallicMap.Sample(vertIn.fragTexCoord).r;
+    const float3 Fzero = lerp(float3(0.04, 0.04, 0.04), texColor.rgb, metallic);    float D = distributionGGX(NdotH, roughness);
     float G = geometrySmith(NdotV, NdotL, roughness);
     float3 F = fresnelSchlick(max(dot(V, H), 0.0), Fzero);
 
@@ -132,7 +133,8 @@ float4 fragMain(VSOutput vertIn) : SV_TARGET {
     float ambient = 0.25;
     float lightingFactor = burleyDiffuse + ambient;
 
-    float3 finalColor = texColor.rgb * lightingFactor + specular * NdotL;
+    float3 diffuseColor = texColor.rgb * (1.0 - metallic);
+    float3 finalColor = diffuseColor * lightingFactor + specular * NdotL;
 
     return float4(finalColor, 1.0);
 }

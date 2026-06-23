@@ -19,8 +19,8 @@ Engine::Engine(Window *_window, VulkanContext *_vkCtx)
 Engine::~Engine() = default;
 
 void Engine::createGraphicsPipeline() {
-    pipelineLayout =
-        VulkanUtils::createPipelineLayout(vkCtx, {*descriptorSetLayout, *normalMapSetLayout, *roughnessMapSetLayout});
+    pipelineLayout = VulkanUtils::createPipelineLayout(
+        vkCtx, {*descriptorSetLayout, *normalMapSetLayout, *roughnessMapSetLayout, *metallicMapSetLayout});
     const vk::Format colorFormat = swapChainHandler.surfaceFormat.format;
     const vk::Format depthFormat = swapChainHandler.findDepthFormat();
 
@@ -202,6 +202,7 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
     drawCommand.textureDescriptorSets = &textureDescriptorSets;
     drawCommand.normalMapDescriptorSets = &normalMapDescriptorSets;
     drawCommand.roughnessMapDescriptorSets = &roughnessMapDescriptorSets;
+    drawCommand.metallicMapDescriptorSets = &metallicMapDescriptorSets;
 
     writeTimestamp(GpuPass::OpaqueGeometry, true, eColorAttachmentOutput);
     instanceRenderer.draw(drawCommand, isWireframe, drawCallCount);
@@ -291,10 +292,14 @@ RenderObjectHandle Engine::addRenderObject(RenderObject object) {
     if (!object.material.roughnessMap) {
         object.material.roughnessMap = getOrCreateFlatRoughnessMap(object.material.roughness);
     }
+    if (!object.material.metallicMap) {
+        object.material.metallicMap = getOrCreateFlatMetallicMap(object.material.metallic);
+    }
 
     registerTexture(object.material.albedo);
     registerNormalMap(object.material.normalMap);
     registerRoughnessMap(object.material.roughnessMap);
+    registerMetallicMap(object.material.metallicMap);
 
     return instanceRenderer.addObject(std::move(object));
 }
@@ -456,6 +461,14 @@ void Engine::createDescriptorSetLayout() {
     roughnessMapBinding.stageFlags = vk::ShaderStageFlagBits::eFragment;
 
     roughnessMapSetLayout = VulkanUtils::createDescriptorSetLayout(vkCtx, {roughnessMapBinding});
+
+    vk::DescriptorSetLayoutBinding metallicMapBinding{};
+    metallicMapBinding.binding = 0;
+    metallicMapBinding.descriptorType = vk::DescriptorType::eCombinedImageSampler;
+    metallicMapBinding.descriptorCount = 1;
+    metallicMapBinding.stageFlags = vk::ShaderStageFlagBits::eFragment;
+
+    metallicMapSetLayout = VulkanUtils::createDescriptorSetLayout(vkCtx, {metallicMapBinding});
 }
 
 void Engine::createCameraUniformBuffer() {
@@ -477,12 +490,12 @@ void Engine::updateUniformBuffer(const uint32_t currentImage) const {
 void Engine::createDescriptorPool() {
     constexpr vk::DescriptorPoolSize uboPoolSize{vk::DescriptorType::eUniformBuffer, MAX_FRAMES_IN_FLIGHT * MAX_TEXTURES};
     constexpr vk::DescriptorPoolSize samplerPoolSize{vk::DescriptorType::eCombinedImageSampler,
-                                                     MAX_FRAMES_IN_FLIGHT * MAX_TEXTURES * 3};
+                                                     MAX_FRAMES_IN_FLIGHT * MAX_TEXTURES * 4};
     constexpr std::array poolSize = {uboPoolSize, samplerPoolSize};
 
     vk::DescriptorPoolCreateInfo poolInfo{};
     poolInfo.flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet;
-    poolInfo.maxSets = MAX_FRAMES_IN_FLIGHT * MAX_TEXTURES * 3;
+    poolInfo.maxSets = MAX_FRAMES_IN_FLIGHT * MAX_TEXTURES * 4;
     poolInfo.poolSizeCount = static_cast<uint32_t>(poolSize.size());
     poolInfo.pPoolSizes = poolSize.data();
 
@@ -568,6 +581,45 @@ std::shared_ptr<Texture> Engine::getOrCreateFlatRoughnessMap(const float roughne
     return texture;
 }
 
+void Engine::registerMetallicMap(const std::shared_ptr<Texture> &metallicMap) {
+    if (metallicMapDescriptorSets.contains(metallicMap))
+        return;
+
+    const std::vector layouts(MAX_FRAMES_IN_FLIGHT, *metallicMapSetLayout);
+    vk::DescriptorSetAllocateInfo allocInfo{};
+    allocInfo.descriptorPool = *descriptorPool;
+    allocInfo.descriptorSetCount = static_cast<uint32_t>(layouts.size());
+    allocInfo.pSetLayouts = layouts.data();
+
+    std::vector<vk::raii::DescriptorSet> sets = vkCtx.device.allocateDescriptorSets(allocInfo);
+
+    DescriptorWriter writer(vkCtx);
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        writer.writeImage(*sets[i], 0, vk::DescriptorType::eCombinedImageSampler, *metallicMap->textureImageView,
+                          *metallicMap->textureSampler);
+    }
+    writer.update();
+
+    metallicMapDescriptorSets.try_emplace(metallicMap, std::move(sets));
+}
+
+std::shared_ptr<Texture> Engine::getOrCreateFlatMetallicMap(const float metallic) {
+    if (const auto it = metallicFallbackCache.find(metallic); it != metallicFallbackCache.end()) {
+        return it->second;
+    }
+
+    auto texture = std::make_shared<Texture>(vkCtx);
+    texture->createSolidValue(metallic, commandPool);
+    metallicFallbackCache.try_emplace(metallic, texture);
+    return texture;
+}
+
+std::shared_ptr<Texture> Engine::loadMetallicMap(const std::string &path) {
+    auto texture = std::make_shared<Texture>(vkCtx);
+    texture->loadFromFile(path, commandPool, false);
+    return texture;
+}
+
 std::shared_ptr<Texture> Engine::loadRoughnessMap(const std::string &path) {
     auto texture = std::make_shared<Texture>(vkCtx);
     texture->loadFromFile(path, commandPool, false);
@@ -612,9 +664,11 @@ Engine::FBXModel Engine::createFBXModel(const std::string &fbxPath, const std::s
         std::string albedoFilename;
         std::string normalMapFilename;
         std::string roughnessMapFilename;
+        std::string metallicMapFilename;
 
         glm::vec3 baseColor{1.0f};
         float roughness = 0.5f;
+        float metallic = 0.f;
     };
 
     std::unordered_map<std::string, MergedGroup, StringHash, std::equal_to<>> merged;
@@ -624,17 +678,23 @@ Engine::FBXModel Engine::createFBXModel(const std::string &fbxPath, const std::s
             continue;
 
         const std::string colorKey = sub.albedoFilename.empty()
-                                         ? "#flat:" + std::to_string(sub.baseColor.r) + "," + std::to_string(sub.baseColor.g) +
-                                               "," + std::to_string(sub.baseColor.b) + "," + std::to_string(sub.roughness)
+                                         ? "#flatColor:" + std::to_string(sub.baseColor.r) + "," +
+                                               std::to_string(sub.baseColor.g) + "," + std::to_string(sub.baseColor.b)
                                          : sub.albedoFilename;
-        const std::string materialKey = colorKey + "|" + sub.normalMapFilename + "|" + sub.roughnessMapFilename;
+        const std::string roughnessKey =
+            sub.roughnessMapFilename.empty() ? "#flatRoughness:" + std::to_string(sub.roughness) : sub.roughnessMapFilename;
+        const std::string metallicKey =
+            sub.metallicMapFilename.empty() ? "#flatMetallic:" + std::to_string(sub.metallic) : sub.metallicMapFilename;
+        const std::string materialKey = colorKey + "|" + sub.normalMapFilename + "|" + roughnessKey + "|" + metallicKey;
 
         auto &group = merged[materialKey];
         group.albedoFilename = sub.albedoFilename;
         group.normalMapFilename = sub.normalMapFilename;
         group.roughnessMapFilename = sub.roughnessMapFilename;
+        group.metallicMapFilename = sub.metallicMapFilename;
         group.baseColor = sub.baseColor;
         group.roughness = sub.roughness;
+        group.metallic = sub.metallic;
 
         const auto vertexOffset = static_cast<uint32_t>(group.vertices.size());
         group.vertices.insert(group.vertices.end(), sub.vertices.begin(), sub.vertices.end());

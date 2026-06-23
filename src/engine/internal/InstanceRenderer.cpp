@@ -53,7 +53,7 @@ void InstanceRenderer::build(const vk::raii::CommandPool &commandPool) {
         const auto &obj = objects[i];
         auto it = std::ranges::find_if(newBatches, [&](const auto &b) {
             return b.mesh == obj.mesh && b.texture == obj.material.albedo && b.normalMap == obj.material.normalMap &&
-                   b.roughnessMap == obj.material.roughnessMap;
+                   b.roughnessMap == obj.material.roughnessMap && b.metallicMap == obj.material.metallicMap;
         });
         if (it == newBatches.end()) {
             InstanceBatch batch;
@@ -61,6 +61,7 @@ void InstanceRenderer::build(const vk::raii::CommandPool &commandPool) {
             batch.texture = obj.material.albedo;
             batch.normalMap = obj.material.normalMap;
             batch.roughnessMap = obj.material.roughnessMap;
+            batch.metallicMap = obj.material.metallicMap;
             batch.objectIndices.push_back(i);
             newBatches.push_back(std::move(batch));
         } else {
@@ -242,8 +243,9 @@ void InstanceRenderer::draw(DrawCommand command, bool wireframe, uint32_t &drawC
         const auto &albedoSets = command.textureDescriptorSets->at(batch.texture);
         const auto &normalSets = command.normalMapDescriptorSets->at(batch.normalMap);
         const auto &roughSets = command.roughnessMapDescriptorSets->at(batch.roughnessMap);
+        const auto &metalSets = command.metallicMapDescriptorSets->at(batch.metallicMap);
         const std::array boundSets = {*albedoSets[command.frameIndex], *normalSets[command.frameIndex],
-                                      *roughSets[command.frameIndex]};
+                                      *roughSets[command.frameIndex], *metalSets[command.frameIndex]};
         command.commandBuffer->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, command.pipelineLayout, 0, boundSets,
                                                   nullptr);
 
@@ -261,6 +263,8 @@ void InstanceRenderer::draw(DrawCommand command, bool wireframe, uint32_t &drawC
 }
 
 void InstanceRenderer::drawXray(DrawCommand command) const {
+    command.commandBuffer->bindPipeline(vk::PipelineBindPoint::eGraphics, *xrayPipeline);
+
     for (const auto &batch : batches) {
         if (batch.visibleInstanceCount == 0)
             continue;
@@ -268,12 +272,13 @@ void InstanceRenderer::drawXray(DrawCommand command) const {
         const auto &albedoSets = command.textureDescriptorSets->at(batch.texture);
         const auto &normalSets = command.normalMapDescriptorSets->at(batch.normalMap);
         const auto &roughSets = command.roughnessMapDescriptorSets->at(batch.roughnessMap);
+        const auto &metalSets = command.metallicMapDescriptorSets->at(batch.metallicMap);
         const std::array boundSets = {*albedoSets[command.frameIndex], *normalSets[command.frameIndex],
-                                      *roughSets[command.frameIndex]};
-        command.commandBuffer->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, command.pipelineLayout, 0,
-                                                  boundSets[command.frameIndex], nullptr);
-        std::vector<vk::DeviceSize> vertexOffsets = {0};
+                                      *roughSets[command.frameIndex], *metalSets[command.frameIndex]};
+        command.commandBuffer->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, command.pipelineLayout, 0, boundSets,
+                                                  nullptr);
 
+        std::vector<vk::DeviceSize> vertexOffsets = {0};
         command.commandBuffer->bindVertexBuffers(0, *batch.mesh->unifiedBuffer, vertexOffsets);
         std::vector<vk::DeviceSize> instanceOffsets = {0};
         command.commandBuffer->bindVertexBuffers(1, batch.culledOnlyBuffers[command.frameIndex], instanceOffsets);
