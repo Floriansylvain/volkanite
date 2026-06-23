@@ -156,9 +156,6 @@ float4 fragMain(VSOutput vertIn) : SV_TARGET {
     float viewScatter = 1.0 + (fd90 - 1.0) * pow(1.0 - NdotV, 5.0);
     float burleyDiffuse = lightScatter * viewScatter * NdotL;
 
-    float ambient = 0.25;
-    float lightingFactor = burleyDiffuse + ambient;
-
     float metallic = metallicMap.Sample(texCoord).r;
     const float3 F0 = lerp(float3(0.04, 0.04, 0.04), texColor.rgb, metallic);
 
@@ -167,8 +164,19 @@ float4 fragMain(VSOutput vertIn) : SV_TARGET {
     float3 F = fresnelSchlick(max(dot(V, H), 0.0), F0);
     float3 specular = (D * G * F) / max(4.0 * NdotV * NdotL, 0.001);
 
+    const float3 skyColor = float3(0.35, 0.38, 0.42);
+    const float3 groundColor = float3(0.15, 0.13, 0.11);
+    const float ambientDiffuseIntensity = 0.2;
+    const float ambientSpecularIntensity = 0.1;
+
+    float skyFactor = N.z * 0.5 + 0.5;
+    float3 ambientDiffuseColor = lerp(groundColor, skyColor, skyFactor) * ambientDiffuseIntensity;
+    float3 ambientSpecular = skyColor * fresnelSchlick(NdotV, F0) * ambientSpecularIntensity;
+
     float3 diffuseColor = texColor.rgb * (1.0 - metallic);
-    float3 finalColor = diffuseColor * lightingFactor + specular * NdotL;
+    float3 directLighting = diffuseColor * burleyDiffuse + specular * NdotL;
+    float3 ambientLighting = diffuseColor * ambientDiffuseColor + ambientSpecular;
+    float3 finalColor = directLighting + ambientLighting;
 
     return float4(finalColor, 1.0);
 }

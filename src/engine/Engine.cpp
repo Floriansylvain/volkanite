@@ -156,7 +156,7 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
     instanceRenderer.cull(cullCommand);
     writeTimestamp(GpuPass::Culling, false, eComputeShader);
 
-    constexpr vk::ClearValue clearColor = vk::ClearColorValue(0.0f, 0.0f, 0.0f, 1.0f);
+    constexpr vk::ClearValue clearColor = vk::ClearColorValue(0.35f, 0.38f, 0.42f, 1.0f);
     vk::RenderingAttachmentInfo attachmentInfo = {};
     attachmentInfo.imageView = swapChainHandler.colorImageView;
     attachmentInfo.imageLayout = eColorAttachmentOptimal;

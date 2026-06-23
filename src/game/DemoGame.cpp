@@ -12,15 +12,17 @@ void DemoGame::init(Engine &engine) {
 
     engine.placeFBXModel(house, glm::vec3(0.f, 0.f, 0.f));
 
-    // thanks to https://freepbr.com/
-    const auto selectedTexture = std::string("textures/pirate-gold");
+    // pirate-gold
+    // oxidized-metal
+    // steelplate1
+    const auto selectedTexture = std::string("steelplate1");
 
     const auto cubeMesh = engine.createCubeMesh(1.f);
-    const auto albedo = engine.loadTexture(std::format("{}_albedo.png", selectedTexture));
-    const auto normalMap = engine.loadNormalMap(std::format("{}_normal-ogl.png", selectedTexture));
-    const auto roughnessMap = engine.loadRoughnessMap(std::format("{}_roughness.png", selectedTexture));
-    const auto metallicMap = engine.loadRoughnessMap(std::format("{}_metallic.png", selectedTexture));
-    const auto heightMap = engine.loadHeightMap(std::format("{}_height.png", selectedTexture));
+    const auto albedo = engine.loadTexture(std::format("textures/{}_albedo.png", selectedTexture));
+    const auto normalMap = engine.loadNormalMap(std::format("textures/{}_normal-ogl.png", selectedTexture));
+    const auto roughnessMap = engine.loadRoughnessMap(std::format("textures/{}_roughness.png", selectedTexture));
+    const auto metallicMap = engine.loadRoughnessMap(std::format("textures/{}_metallic.png", selectedTexture));
+    const auto heightMap = engine.loadHeightMap(std::format("textures/{}_height.png", selectedTexture));
 
     constexpr int OFFSET = 3;
     constexpr float INNER_RADIUS = 25.0f;
@@ -128,6 +130,8 @@ void DemoGame::update(Engine &engine, const float deltaTime) {
 
     if (key_states[SDL_SCANCODE_LSHIFT])
         speed *= 5;
+    if (key_states[SDL_SCANCODE_LALT])
+        speed *= 0.25;
     if (key_states[SDL_SCANCODE_W])
         input.y += 1;
     if (key_states[SDL_SCANCODE_S])
