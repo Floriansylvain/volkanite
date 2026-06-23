@@ -8,15 +8,17 @@ TextRenderer::TextRenderer(VulkanContext &context, const int maxFramesInFlight)
     : vkCtx(context), maxFramesInFlight(maxFramesInFlight), font(context) {}
 
 void TextRenderer::createDescriptorSetLayout() {
-    const vk::DescriptorSetLayoutBinding imageBinding{0, vk::DescriptorType::eSampledImage, 1,
-                                                      vk::ShaderStageFlagBits::eFragment};
-    const vk::DescriptorSetLayoutBinding samplerBinding{1, vk::DescriptorType::eSampler, 1, vk::ShaderStageFlagBits::eFragment};
+    constexpr vk::DescriptorSetLayoutBinding imageBinding{0, vk::DescriptorType::eSampledImage, 1,
+                                                          vk::ShaderStageFlagBits::eFragment};
+    constexpr vk::DescriptorSetLayoutBinding samplerBinding{1, vk::DescriptorType::eSampler, 1,
+                                                            vk::ShaderStageFlagBits::eFragment};
     descriptorSetLayout = VulkanUtils::createDescriptorSetLayout(vkCtx, {imageBinding, samplerBinding});
 }
 
 void TextRenderer::createDescriptorSet() {
-    std::array<vk::DescriptorPoolSize, 2> poolSizes{vk::DescriptorPoolSize{vk::DescriptorType::eSampledImage, 1},
-                                                    vk::DescriptorPoolSize{vk::DescriptorType::eSampler, 1}};
+    using enum vk::DescriptorType;
+
+    constexpr std::array poolSizes{vk::DescriptorPoolSize{eSampledImage, 1}, vk::DescriptorPoolSize{eSampler, 1}};
 
     vk::DescriptorPoolCreateInfo poolInfo{};
     poolInfo.flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet;
@@ -33,13 +35,13 @@ void TextRenderer::createDescriptorSet() {
     descriptorSet = std::move(vk::raii::DescriptorSets(vkCtx.device, allocInfo).front());
 
     DescriptorWriter(vkCtx)
-        .writeImage(*descriptorSet, 0, vk::DescriptorType::eSampledImage, *font.texture.textureImageView)
-        .writeImage(*descriptorSet, 1, vk::DescriptorType::eSampler, nullptr, *font.texture.textureSampler)
+        .writeImage(*descriptorSet, 0, eSampledImage, *font.texture.textureImageView)
+        .writeImage(*descriptorSet, 1, eSampler, nullptr, *font.texture.textureSampler)
         .update();
 }
 
 void TextRenderer::createVertexBuffers() {
-    const vk::DeviceSize bufferSize = MAX_CHARS * VERTICES_PER_CHAR * sizeof(Font::TextVertex);
+    constexpr vk::DeviceSize bufferSize = MAX_CHARS * VERTICES_PER_CHAR * sizeof(Font::TextVertex);
     vertexBuffers =
         PerFrameBuffer(vkCtx, static_cast<uint32_t>(maxFramesInFlight), bufferSize, vk::BufferUsageFlagBits::eVertexBuffer,
                        vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);

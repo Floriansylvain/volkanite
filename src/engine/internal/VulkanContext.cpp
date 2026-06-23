@@ -155,9 +155,11 @@ void VulkanContext::createLogicalDevice() {
 
     vk::PhysicalDeviceVulkan11Features features11{};
     features11.shaderDrawParameters = true;
+    features11.storageInputOutput16 = true;
 
     vk::PhysicalDeviceVulkan12Features features12{};
     features12.hostQueryReset = true;
+    features12.shaderFloat16 = true;
 
     vk::PhysicalDeviceVulkan13Features features13{};
     features13.dynamicRendering = true;

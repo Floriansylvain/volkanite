@@ -1,10 +1,9 @@
 #include "DemoGame.hpp"
 #include "Engine.hpp"
 #include <SDL3/SDL.h>
-#include <glm/gtc/matrix_transform.hpp>
 
 namespace {
-const glm::vec3 SHOWCASE_ORIGIN{15.0f, -5.0f, 10.0f};
+constexpr glm::vec3 SHOWCASE_ORIGIN{15.0f, -5.0f, 10.0f};
 } // namespace
 
 void DemoGame::init(Engine &engine) {
@@ -15,7 +14,7 @@ void DemoGame::init(Engine &engine) {
     // pirate-gold
     // oxidized-metal
     // steelplate1
-    const auto selectedTexture = std::string("steelplate1");
+    constexpr auto selectedTexture = std::string("steelplate1");
 
     const auto cubeMesh = engine.createCubeMesh(1.f);
     const auto albedo = engine.loadTexture(std::format("textures/{}_albedo.png", selectedTexture));
@@ -36,20 +35,27 @@ void DemoGame::init(Engine &engine) {
     constexpr float OUTER_RADIUS = 40.0f;
     constexpr float INNER_RADIUS_SQ = INNER_RADIUS * INNER_RADIUS;
     constexpr float OUTER_RADIUS_SQ = OUTER_RADIUS * OUTER_RADIUS;
-    constexpr int BOUND = static_cast<int>(OUTER_RADIUS);
+    constexpr auto BOUND = static_cast<int>(OUTER_RADIUS);
+
+    auto trySpawnCube = [&](int x, int y, int z) {
+        if (const auto distSq = static_cast<float>(x * x + y * y + z * z);
+            distSq < INNER_RADIUS_SQ || distSq > OUTER_RADIUS_SQ) {
+            return;
+        }
+
+        RenderObject cube;
+        cube.mesh = cubeMesh;
+        cube.material = cubeMaterial;
+        cube.position = {x, y, z};
+        cube.rotation =
+            glm::vec3(glm::sin(static_cast<float>(x)), glm::sin(static_cast<float>(y)), glm::sin(static_cast<float>(z)));
+        engine.addRenderObject(std::move(cube));
+    };
 
     for (int x = -BOUND; x <= BOUND; x += OFFSET) {
         for (int y = -BOUND; y <= BOUND; y += OFFSET) {
             for (int z = 0; z <= BOUND; z += OFFSET) {
-                float distSq = float(x * x + y * y + z * z);
-                if (distSq < INNER_RADIUS_SQ || distSq > OUTER_RADIUS_SQ)
-                    continue;
-                RenderObject cube;
-                cube.mesh = cubeMesh;
-                cube.material = cubeMaterial;
-                cube.position = {x, y, z};
-                cube.rotation = glm::vec3(glm::sin(float(x)), glm::sin(float(y)), glm::sin(float(z)));
-                engine.addRenderObject(std::move(cube));
+                trySpawnCube(x, y, z);
             }
         }
     }
@@ -60,7 +66,7 @@ void DemoGame::init(Engine &engine) {
         bigCube.mesh = bigCubeMesh;
         bigCube.material = cubeMaterial;
         bigCube.position = {0.f, 0.f, -150.f};
-        bigCube.rotation = glm::vec3({0.f});
+        bigCube.rotation = glm::vec3(0.f);
         engine.addRenderObject(std::move(bigCube));
     }
 
@@ -70,7 +76,7 @@ void DemoGame::init(Engine &engine) {
         obj.material.albedo = albedo;
         obj.position = SHOWCASE_ORIGIN + glm::vec3(0.f, -6.f, 2.f);
         const RenderObjectHandle handle = engine.addRenderObject(std::move(obj));
-        spinningObjects.push_back({handle, glm::vec3(0.6f, 1.0f, 1.4f)});
+        spinningObjects.emplace_back(handle, glm::vec3(0.6f, 1.0f, 1.4f));
     }
 
     {
@@ -79,7 +85,7 @@ void DemoGame::init(Engine &engine) {
         obj.material.albedo = albedo;
         obj.position = SHOWCASE_ORIGIN;
         const RenderObjectHandle handle = engine.addRenderObject(std::move(obj));
-        orbitingObjects.push_back({handle, SHOWCASE_ORIGIN, 6.0f, 1.2f, 0.0f});
+        orbitingObjects.emplace_back(handle, SHOWCASE_ORIGIN, 6.0f, 1.2f, 0.0f);
     }
 
     {
@@ -89,8 +95,8 @@ void DemoGame::init(Engine &engine) {
         obj.material.albedo = albedo;
         obj.position = center;
         const RenderObjectHandle handle = engine.addRenderObject(std::move(obj));
-        spinningObjects.push_back({handle, glm::vec3(2.0f, -1.5f, 0.8f)});
-        orbitingObjects.push_back({handle, center, 4.0f, -0.8f, 0.0f});
+        spinningObjects.emplace_back(handle, glm::vec3(2.0f, -1.5f, 0.8f));
+        orbitingObjects.emplace_back(handle, center, 4.0f, -0.8f, 0.0f);
     }
 }
 
@@ -128,21 +134,21 @@ void DemoGame::update(Engine &engine, const float deltaTime) {
     float speed = 10.0f;
 
     if (key_states[SDL_SCANCODE_LSHIFT])
-        speed *= 5;
+        speed *= 5.f;
     if (key_states[SDL_SCANCODE_LALT])
-        speed *= 0.25;
+        speed *= 0.25f;
     if (key_states[SDL_SCANCODE_W])
-        input.y += 1;
+        input.y += 1.f;
     if (key_states[SDL_SCANCODE_S])
-        input.y -= 1;
+        input.y -= 1.f;
     if (key_states[SDL_SCANCODE_D])
-        input.x += 1;
+        input.x += 1.f;
     if (key_states[SDL_SCANCODE_A])
-        input.x -= 1;
+        input.x -= 1.f;
     if (key_states[SDL_SCANCODE_LCTRL])
-        input.z -= 1;
+        input.z -= 1.f;
     if (key_states[SDL_SCANCODE_SPACE])
-        input.z += 1;
+        input.z += 1.f;
 
     glm::vec3 movement = flatForward * input.y + right * input.x;
     if (glm::length(movement) > 0.0f) {

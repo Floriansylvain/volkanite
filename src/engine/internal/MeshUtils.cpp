@@ -125,8 +125,7 @@ void MeshUtils::extractMaterial(const ufbx_mesh *mesh, const ufbx_mesh_part &par
         sub.roughnessMapFilename = bareFilename(roughness.texture);
     }
 
-    const ufbx_material_map &normalMap = material->pbr.normal_map;
-    if (normalMap.texture && normalMap.texture_enabled) {
+    if (const ufbx_material_map &normalMap = material->pbr.normal_map; normalMap.texture && normalMap.texture_enabled) {
         sub.normalMapFilename = bareFilename(normalMap.texture);
     }
 

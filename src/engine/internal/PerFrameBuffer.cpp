@@ -3,7 +3,7 @@
 
 PerFrameBuffer::PerFrameBuffer(const VulkanContext &vkCtx, const uint32_t frameCount, const vk::DeviceSize size,
                                const vk::BufferUsageFlags usage, const vk::MemoryPropertyFlags properties) {
-    const bool hostVisible = static_cast<bool>(properties & vk::MemoryPropertyFlagBits::eHostVisible);
+    const auto hostVisible = static_cast<bool>(properties & vk::MemoryPropertyFlagBits::eHostVisible);
 
     buffers.reserve(frameCount);
     memories.reserve(frameCount);

@@ -158,11 +158,11 @@ ComputePipelineBuilder::ComputePipelineBuilder(const VulkanContext &vkCtx) : vkC
 
 vk::raii::Pipeline ComputePipelineBuilder::build(const std::string &path, const vk::PipelineLayout layout,
                                                  const char *entryPoint) const {
-    const vk::raii::ShaderModule module = ShaderUtils::createShaderModule(vkCtx, ShaderUtils::readFile(path));
+    const vk::raii::ShaderModule shaderModule = ShaderUtils::createShaderModule(vkCtx, ShaderUtils::readFile(path));
 
     vk::PipelineShaderStageCreateInfo stageInfo{};
     stageInfo.stage = vk::ShaderStageFlagBits::eCompute;
-    stageInfo.module = *module;
+    stageInfo.module = *shaderModule;
     stageInfo.pName = entryPoint;
 
     vk::ComputePipelineCreateInfo pipelineInfo{};

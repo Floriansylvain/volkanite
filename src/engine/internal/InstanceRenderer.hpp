@@ -19,7 +19,7 @@ class InstanceRenderer {
     RenderObjectHandle addObject(RenderObject object);
     [[nodiscard]] RenderObject &getObject(const RenderObjectHandle handle) { return objects[handle]; }
 
-    void build(const vk::raii::CommandPool &commandPool);
+    void build();
     void update(uint32_t currentImage, const CullingUtils::Frustum &frustum);
 
     void createCullDescriptorSets(vk::DescriptorSetLayout cullSetLayout, const std::vector<vk::ImageView> &hiZViews,

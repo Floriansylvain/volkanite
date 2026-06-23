@@ -46,7 +46,7 @@ RenderObjectHandle InstanceRenderer::addObject(RenderObject object) {
     return objects.size() - 1;
 }
 
-void InstanceRenderer::build(const vk::raii::CommandPool &commandPool) {
+void InstanceRenderer::build() {
     std::vector<InstanceBatch> newBatches;
 
     for (size_t i = 0; i < objects.size(); i++) {
@@ -93,9 +93,9 @@ void InstanceRenderer::build(const vk::raii::CommandPool &commandPool) {
                 vkCtx, frames, indirectSize, eIndirectBuffer | eStorageBuffer | eTransferDst, eHostVisible | eHostCoherent);
 
             const vk::DrawIndexedIndirectCommand initialCommand{static_cast<uint32_t>(batch.mesh->indices.size()), 0, 0, 0, 0};
-            for (uint32_t i = 0; i < frames; i++) {
-                std::memcpy(batch.indirectBuffers.mapped(i), &initialCommand, indirectSize);
-                std::memcpy(batch.culledOnlyIndirectBuffers.mapped(i), &initialCommand, indirectSize);
+            for (uint32_t j = 0; j < frames; j++) {
+                std::memcpy(batch.indirectBuffers.mapped(j), &initialCommand, indirectSize);
+                std::memcpy(batch.culledOnlyIndirectBuffers.mapped(j), &initialCommand, indirectSize);
             }
         }
     }
@@ -111,9 +111,9 @@ void InstanceRenderer::createCullDescriptorSets(const vk::DescriptorSetLayout cu
     if (totalSets == 0)
         return;
 
-    const std::vector<vk::DescriptorPoolSize> poolSizes = {{{vk::DescriptorType::eStorageBuffer, totalSets * 5},
-                                                            {vk::DescriptorType::eCombinedImageSampler, totalSets * 1},
-                                                            {vk::DescriptorType::eUniformBuffer, totalSets * 1}}};
+    using enum vk::DescriptorType;
+    const std::vector<vk::DescriptorPoolSize> poolSizes = {
+        {{eStorageBuffer, totalSets * 5}, {eCombinedImageSampler, totalSets * 1}, {eUniformBuffer, totalSets * 1}}};
 
     vk::DescriptorPoolCreateInfo poolInfo{};
     poolInfo.flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet;

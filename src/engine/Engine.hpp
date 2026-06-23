@@ -35,12 +35,12 @@ class Engine {
     FBXModel createFBXModel(const std::string &fbxPath, const std::string &fileExtension);
     void placeFBXModel(const FBXModel &model, const glm::vec3 &position);
 
-    [[nodiscard]] std::shared_ptr<Mesh> createCubeMesh(float size);
-    [[nodiscard]] std::shared_ptr<Texture> loadTexture(const std::string &path);
-    [[nodiscard]] std::shared_ptr<Texture> loadNormalMap(const std::string &path);
-    [[nodiscard]] std::shared_ptr<Texture> loadRoughnessMap(const std::string &path);
-    [[nodiscard]] std::shared_ptr<Texture> loadMetallicMap(const std::string &path);
-    [[nodiscard]] std::shared_ptr<Texture> loadHeightMap(const std::string &path);
+    [[nodiscard]] std::shared_ptr<Mesh> createCubeMesh(float size) const;
+    [[nodiscard]] std::shared_ptr<Texture> loadTexture(const std::string &path) const;
+    [[nodiscard]] std::shared_ptr<Texture> loadNormalMap(const std::string &path) const;
+    [[nodiscard]] std::shared_ptr<Texture> loadRoughnessMap(const std::string &path) const;
+    [[nodiscard]] std::shared_ptr<Texture> loadMetallicMap(const std::string &path) const;
+    [[nodiscard]] std::shared_ptr<Texture> loadHeightMap(const std::string &path) const;
 
   private:
     constexpr static float DEBUG_FONT_SIZE = 38.f;
@@ -144,10 +144,10 @@ class Engine {
 
     void registerSingleSamplerMap(
         const std::shared_ptr<Texture> &texture, vk::DescriptorSetLayout setLayout,
-        std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>> &descriptorSets);
+        std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>> &descriptorSets) const;
     [[nodiscard]] std::shared_ptr<Texture> getOrCreateFlatValueMap(float value,
-                                                                   std::unordered_map<float, std::shared_ptr<Texture>> &cache);
-    [[nodiscard]] std::shared_ptr<Texture> loadLinearTexture(const std::string &path);
+                                                                   std::unordered_map<float, std::shared_ptr<Texture>> &cache) const;
+    [[nodiscard]] std::shared_ptr<Texture> loadLinearTexture(const std::string &path) const;
 
     void updateUniformBuffer(uint32_t currentImage) const;
     void createDescriptorPool();

@@ -105,7 +105,7 @@ void Debug::rebuildPerfDebugLines(const float avgFrameTimeMs) {
 
     if (gpuTimingSampleCount > 0) {
         perfDebugLines.emplace_back("GPU PASSES");
-        const float divisor = static_cast<float>(gpuTimingSampleCount);
+        const auto divisor = static_cast<float>(gpuTimingSampleCount);
         const float gpuTrackedSum = appendTrackedPassLines(
             perfDebugLines, gpuPassNames, std::span(gpuTimeAccumulatorMs.data(), static_cast<size_t>(GpuPass::Total)), divisor);
         const float avgTotalMs = gpuTimeAccumulatorMs[static_cast<size_t>(GpuPass::Total)] / divisor;

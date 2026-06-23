@@ -1,16 +1,14 @@
 #include "Engine.hpp"
-#include "Constants.hpp"
 #include "CullingUtils.hpp"
 #include "DescriptorWriter.hpp"
 #include "Exceptions.hpp"
 #include "MeshUtils.hpp"
-#include "PipelineBuilder.hpp"
-#include "ShaderUtils.hpp"
 #include "VulkanUtils.hpp"
 #include "Window.hpp"
 #include <filesystem>
 #include <fstream>
 #include <glm/gtc/matrix_transform.hpp>
+#include <ranges>
 
 Engine::Engine(Window *_window, VulkanContext *_vkCtx)
     : window(*_window), vkCtx(*_vkCtx), swapChainHandler(vkCtx, window), instanceRenderer(vkCtx, MAX_FRAMES_IN_FLIGHT),
@@ -314,8 +312,11 @@ RenderObject &Engine::getRenderObject(const RenderObjectHandle handle) { return 
 void Engine::drawFrame() {
     const auto waitStart = std::chrono::high_resolution_clock::now();
 
-    const vk::Result waitResult =
-        vkCtx.device.waitForFences(*inFlightFences[frameIndex], vk::True, std::numeric_limits<uint64_t>::max());
+    if (const auto res =
+            vkCtx.device.waitForFences(*inFlightFences[frameIndex], vk::True, std::numeric_limits<uint64_t>::max());
+        res == vk::Result::eErrorDeviceLost) {
+        throw EngineExceptions::Render("Wait for fences: Device was lost");
+    }
     debug.addCpuTime(CpuPass::FenceWait, waitStart);
 
     collectGpuTimings(frameIndex);
@@ -541,7 +542,7 @@ void Engine::registerTexture(const std::shared_ptr<Texture> &texture) {
 
 void Engine::registerSingleSamplerMap(
     const std::shared_ptr<Texture> &texture, const vk::DescriptorSetLayout setLayout,
-    std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>> &descriptorSets) {
+    std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>> &descriptorSets) const {
     if (descriptorSets.contains(texture))
         return;
 
@@ -564,7 +565,7 @@ void Engine::registerSingleSamplerMap(
 }
 
 std::shared_ptr<Texture> Engine::getOrCreateFlatValueMap(const float value,
-                                                         std::unordered_map<float, std::shared_ptr<Texture>> &cache) {
+                                                         std::unordered_map<float, std::shared_ptr<Texture>> &cache) const {
     if (const auto it = cache.find(value); it != cache.end()) {
         return it->second;
     }
@@ -575,7 +576,7 @@ std::shared_ptr<Texture> Engine::getOrCreateFlatValueMap(const float value,
     return texture;
 }
 
-std::shared_ptr<Texture> Engine::loadLinearTexture(const std::string &path) {
+std::shared_ptr<Texture> Engine::loadLinearTexture(const std::string &path) const {
     auto texture = std::make_shared<Texture>(vkCtx);
     texture->loadFromFile(path, commandPool, false);
     return texture;
@@ -605,19 +606,19 @@ void Engine::registerHeightMap(const std::shared_ptr<Texture> &heightMap) {
     registerSingleSamplerMap(heightMap, *heightMapSetLayout, heightMapDescriptorSets);
 }
 
-std::shared_ptr<Texture> Engine::loadNormalMap(const std::string &path) { return loadLinearTexture(path); }
-std::shared_ptr<Texture> Engine::loadRoughnessMap(const std::string &path) { return loadLinearTexture(path); }
-std::shared_ptr<Texture> Engine::loadMetallicMap(const std::string &path) { return loadLinearTexture(path); }
-std::shared_ptr<Texture> Engine::loadHeightMap(const std::string &path) { return loadLinearTexture(path); }
+std::shared_ptr<Texture> Engine::loadNormalMap(const std::string &path) const { return loadLinearTexture(path); }
+std::shared_ptr<Texture> Engine::loadRoughnessMap(const std::string &path) const { return loadLinearTexture(path); }
+std::shared_ptr<Texture> Engine::loadMetallicMap(const std::string &path) const { return loadLinearTexture(path); }
+std::shared_ptr<Texture> Engine::loadHeightMap(const std::string &path) const { return loadLinearTexture(path); }
 
-std::shared_ptr<Mesh> Engine::createCubeMesh(const float size) {
+std::shared_ptr<Mesh> Engine::createCubeMesh(const float size) const {
     auto mesh = std::make_shared<Mesh>(vkCtx);
     MeshUtils::generateCube(*mesh, size);
     mesh->createGeometryBuffers(commandPool);
     return mesh;
 }
 
-std::shared_ptr<Texture> Engine::loadTexture(const std::string &path) {
+std::shared_ptr<Texture> Engine::loadTexture(const std::string &path) const {
     auto texture = std::make_shared<Texture>(vkCtx);
     texture->loadFromFile(path, commandPool);
     return texture;
@@ -652,42 +653,62 @@ Engine::FBXModel Engine::createFBXModel(const std::string &fbxPath, const std::s
 
     std::unordered_map<std::string, MergedGroup, StringHash, std::equal_to<>> merged;
 
-    for (const auto &sub : subMeshes) {
-        if (sub.vertices.empty())
+    for (const auto &[albedoFilename, normalMapFilename, roughnessMapFilename, metallicMapFilename, heightMapFilename,
+                      baseColor, roughness, metallic, vertices, indices] : subMeshes) {
+        if (vertices.empty())
             continue;
 
-        const std::string colorKey = sub.albedoFilename.empty()
-                                         ? "#flatColor:" + std::to_string(sub.baseColor.r) + "," +
-                                               std::to_string(sub.baseColor.g) + "," + std::to_string(sub.baseColor.b)
-                                         : sub.albedoFilename;
+        const std::string colorKey =
+            albedoFilename.empty() ? std::format("#flatColor:{},{},{}", baseColor.r, baseColor.g, baseColor.b) : albedoFilename;
+
         const std::string roughnessKey =
-            sub.roughnessMapFilename.empty() ? "#flatRoughness:" + std::to_string(sub.roughness) : sub.roughnessMapFilename;
+            roughnessMapFilename.empty() ? std::format("#flatRoughness:{}", roughness) : roughnessMapFilename;
+
         const std::string metallicKey =
-            sub.metallicMapFilename.empty() ? "#flatMetallic:" + std::to_string(sub.metallic) : sub.metallicMapFilename;
+            metallicMapFilename.empty() ? std::format("#flatMetallic:{}", metallic) : metallicMapFilename;
+
         const std::string materialKey =
-            colorKey + "|" + sub.normalMapFilename + "|" + roughnessKey + "|" + metallicKey + "|" + sub.heightMapFilename;
+            std::format("{}|{}|{}|{}|{}", colorKey, normalMapFilename, roughnessKey, metallicKey, heightMapFilename);
 
         auto &group = merged[materialKey];
-        group.albedoFilename = sub.albedoFilename;
-        group.normalMapFilename = sub.normalMapFilename;
-        group.roughnessMapFilename = sub.roughnessMapFilename;
-        group.metallicMapFilename = sub.metallicMapFilename;
-        group.baseColor = sub.baseColor;
-        group.roughness = sub.roughness;
-        group.metallic = sub.metallic;
-        group.heightMapFilename = sub.heightMapFilename;
+        group.albedoFilename = albedoFilename;
+        group.normalMapFilename = normalMapFilename;
+        group.roughnessMapFilename = roughnessMapFilename;
+        group.metallicMapFilename = metallicMapFilename;
+        group.baseColor = baseColor;
+        group.roughness = roughness;
+        group.metallic = metallic;
+        group.heightMapFilename = heightMapFilename;
 
         const auto vertexOffset = static_cast<uint32_t>(group.vertices.size());
-        group.vertices.insert(group.vertices.end(), sub.vertices.begin(), sub.vertices.end());
-        group.indices.reserve(group.indices.size() + sub.indices.size());
-        for (const uint32_t idx : sub.indices) {
+        group.vertices.insert(group.vertices.end(), vertices.begin(), vertices.end());
+        group.indices.reserve(group.indices.size() + indices.size());
+        for (const uint32_t idx : indices) {
             group.indices.push_back(idx + vertexOffset);
         }
     }
 
     FBXModel model;
 
-    for (auto &[key, group] : merged) {
+    auto loadTexture = [&](const std::string &filename, auto &cache, const bool isSrgb) -> std::shared_ptr<Texture> {
+        if (filename.empty()) {
+            return nullptr;
+        }
+        if (const auto it = cache.find(filename); it != cache.end()) {
+            return it->second;
+        }
+
+        std::filesystem::path texPath = std::filesystem::path("textures") / filename;
+        texPath.replace_extension(fileExtension);
+
+        auto texture = std::make_shared<Texture>(vkCtx);
+        texture->loadFromFile(texPath.string(), commandPool, isSrgb);
+        cache.try_emplace(filename, texture);
+
+        return texture;
+    };
+
+    for (auto &group : merged | std::views::values) {
         MeshUtils::deduplicateVertices(group.vertices, group.indices);
         MeshUtils::computeTangents(group.vertices, group.indices);
 
@@ -696,64 +717,16 @@ Engine::FBXModel Engine::createFBXModel(const std::string &fbxPath, const std::s
         material.roughness = group.roughness;
 
         if (!group.albedoFilename.empty()) {
-            if (const auto it = textureCache.find(group.albedoFilename); it != textureCache.end()) {
-                material.albedo = it->second;
-            } else {
-                std::filesystem::path texPath = std::filesystem::path("textures") / group.albedoFilename;
-                texPath.replace_extension(fileExtension);
-
-                auto texture = std::make_shared<Texture>(vkCtx);
-                texture->loadFromFile(texPath.string(), commandPool);
-                textureCache.try_emplace(group.albedoFilename, texture);
-                material.albedo = texture;
-            }
+            material.albedo = loadTexture(group.albedoFilename, textureCache, true);
         } else {
             auto texture = std::make_shared<Texture>(vkCtx);
             texture->createSolidColor(group.baseColor, commandPool);
             material.albedo = texture;
         }
 
-        if (!group.normalMapFilename.empty()) {
-            if (const auto it = normalMapCache.find(group.normalMapFilename); it != normalMapCache.end()) {
-                material.normalMap = it->second;
-            } else {
-                std::filesystem::path normalPath = std::filesystem::path("textures") / group.normalMapFilename;
-                normalPath.replace_extension(fileExtension);
-
-                auto texture = std::make_shared<Texture>(vkCtx);
-                texture->loadFromFile(normalPath.string(), commandPool, false);
-                normalMapCache.try_emplace(group.normalMapFilename, texture);
-                material.normalMap = texture;
-            }
-        }
-
-        if (!group.roughnessMapFilename.empty()) {
-            if (const auto it = roughnessMapCache.find(group.roughnessMapFilename); it != roughnessMapCache.end()) {
-                material.roughnessMap = it->second;
-            } else {
-                std::filesystem::path roughPath = std::filesystem::path("textures") / group.roughnessMapFilename;
-                roughPath.replace_extension(fileExtension);
-
-                auto texture = std::make_shared<Texture>(vkCtx);
-                texture->loadFromFile(roughPath.string(), commandPool, false);
-                roughnessMapCache.try_emplace(group.roughnessMapFilename, texture);
-                material.roughnessMap = texture;
-            }
-        }
-
-        if (!group.heightMapFilename.empty()) {
-            if (const auto it = heightMapCache.find(group.heightMapFilename); it != heightMapCache.end()) {
-                material.heightMap = it->second;
-            } else {
-                std::filesystem::path heightPath = std::filesystem::path("textures") / group.heightMapFilename;
-                heightPath.replace_extension(fileExtension);
-
-                auto texture = std::make_shared<Texture>(vkCtx);
-                texture->loadFromFile(heightPath.string(), commandPool, false);
-                heightMapCache.try_emplace(group.heightMapFilename, texture);
-                material.heightMap = texture;
-            }
-        }
+        material.normalMap = loadTexture(group.normalMapFilename, normalMapCache, false);
+        material.roughnessMap = loadTexture(group.roughnessMapFilename, roughnessMapCache, false);
+        material.heightMap = loadTexture(group.heightMapFilename, heightMapCache, false);
 
         auto mesh = std::make_shared<Mesh>(vkCtx);
         mesh->vertices = std::move(group.vertices);
@@ -843,7 +816,7 @@ void Engine::init() {
         game->init(*this);
     }
 
-    instanceRenderer.build(commandPool);
+    instanceRenderer.build();
 
     std::vector<vk::ImageView> hiZViews;
     hiZViews.reserve(occlusionCuller.hiZFullViews.size());
