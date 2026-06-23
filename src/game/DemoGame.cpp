@@ -14,7 +14,7 @@ void DemoGame::init(Engine &engine) {
     // pirate-gold
     // oxidized-metal
     // steelplate1
-    constexpr auto selectedTexture = std::string("steelplate1");
+    const auto selectedTexture = std::string("steelplate1");
 
     const auto cubeMesh = engine.createCubeMesh(1.f);
     const auto albedo = engine.loadTexture(std::format("textures/{}_albedo.png", selectedTexture));
