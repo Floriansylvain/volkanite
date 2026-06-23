@@ -12,16 +12,16 @@ void DemoGame::init(Engine &engine) {
     engine.placeFBXModel(house, glm::vec3(0.f, 0.f, 0.f));
 
     // const auto selectedTexture = std::string("pirate-gold");
-    //  const auto selectedTexture = std::string("oxidized-metal");
-    const auto selectedTexture = std::string("steelplate1");
+    const auto selectedTexture = std::string("oxidized-metal-clad");
+    // const auto selectedTexture = std::string("steelplate1");
 
     const auto cubeMesh = engine.createCubeMesh(1.f);
     const auto albedo = engine.loadTexture(std::format("textures/{}_albedo.png", selectedTexture));
     const auto normalMap = engine.loadNormalMap(std::format("textures/{}_normal-ogl.png", selectedTexture));
-    const auto ormMap = engine.loadOrmMap(std::format("textures/{}_roughness.png", selectedTexture),
-                                          std::format("textures/{}_metallic.png", selectedTexture),
-                                          std::format("textures/{}_height.png", selectedTexture));
-    // const auto ormMap = engine.loadOrmMapFile("textures/oxidized-metal-clad_orm.dds");
+    // const auto ormMap = engine.loadOrmMap(std::format("textures/{}_roughness.png", selectedTexture),
+    //                                       std::format("textures/{}_metallic.png", selectedTexture),
+    //                                       std::format("textures/{}_height.png", selectedTexture));
+    const auto ormMap = engine.loadOrmMapFile("textures/oxidized-metal-clad_orm.dds");
 
     Material cubeMaterial = {};
     cubeMaterial.albedo = albedo;
