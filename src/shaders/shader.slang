@@ -83,20 +83,31 @@ float3 fresnelSchlick(float VdotH, float3 F0) {
 [[vk::binding(0, 3)]] Sampler2D metallicMap;
 [[vk::binding(0, 4)]] Sampler2D heightMap;
 
-float2 parallaxOcclusionMapping(float2 texCoords, float3 viewDirTS) {
-    const float heightScale = 0.05;
-    const float minLayers = 8.0;
-    const float maxLayers = 32.0;
+float2 parallaxOcclusionMapping(float2 texCoords, float3 viewDirTS, float viewDistance) {
+    const float fadeStart = 10.0;
+    const float fadeEnd = 100.0;
+
+    float lodFactor = saturate((viewDistance - fadeStart) / (fadeEnd - fadeStart));
+
+    if (lodFactor >= 1.0) {
+        return texCoords;
+    }
+
+    const float baseHeightScale = 0.05;
+    float currentHeightScale = lerp(baseHeightScale, 0.0, lodFactor);
+
+    float maxLayers = lerp(32.0, 2.0, lodFactor);
+    float minLayers = lerp(8.0, 2.0, lodFactor);
+
     float numLayers = lerp(maxLayers, minLayers, abs(dot(float3(0.0, 0.0, 1.0), viewDirTS)));
 
     float layerDepth = 1.0 / numLayers;
     float currentLayerDepth = 0.0;
 
-    float2 p = viewDirTS.xy / max(viewDirTS.z, 0.001) * heightScale;
+    float2 p = viewDirTS.xy / max(viewDirTS.z, 0.001) * currentHeightScale;
     float2 deltaTexCoords = p / numLayers;
 
     float2 currentTexCoords = texCoords;
-    
     float currentDepthMapValue = 1.0 - heightMap.SampleLevel(currentTexCoords, 0.0).r;
 
     for (int i = 0; i < 32 && currentLayerDepth < currentDepthMapValue; i++) {
@@ -139,10 +150,13 @@ float4 fragMain(VSOutput vertIn) : SV_TARGET {
     float3 B = cross(N, T);
     float3x3 TBN = float3x3(T, B, N);
 
-    float3 V = normalize(ubo.cameraPos.xyz - vertIn.worldPos);
+    float3 viewDiff = ubo.cameraPos.xyz - vertIn.worldPos;
+    float viewDistance = length(viewDiff);
+    float3 V = viewDiff / viewDistance;
+
     float3 viewDirTS = normalize(mul(TBN, V));
 
-    float2 texCoord = parallaxOcclusionMapping(vertIn.fragTexCoord, viewDirTS);
+    float2 texCoord = parallaxOcclusionMapping(vertIn.fragTexCoord, viewDirTS, viewDistance);
 
     float4 texColor = texture.Sample(texCoord);
     if (texColor.a < 0.5)
