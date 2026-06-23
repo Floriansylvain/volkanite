@@ -136,6 +136,13 @@ class Engine {
     void registerMetallicMap(const std::shared_ptr<Texture> &metallicMap);
     [[nodiscard]] std::shared_ptr<Texture> getOrCreateFlatMetallicMap(float metallic);
 
+    void registerSingleSamplerMap(
+        const std::shared_ptr<Texture> &texture, vk::DescriptorSetLayout setLayout,
+        std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>> &descriptorSets);
+    [[nodiscard]] std::shared_ptr<Texture> getOrCreateFlatValueMap(float value,
+                                                                   std::unordered_map<float, std::shared_ptr<Texture>> &cache);
+    [[nodiscard]] std::shared_ptr<Texture> loadLinearTexture(const std::string &path);
+
     void updateUniformBuffer(uint32_t currentImage) const;
     void createDescriptorPool();
     void updateInstanceBuffers(uint32_t currentImage);

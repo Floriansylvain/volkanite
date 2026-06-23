@@ -526,11 +526,13 @@ void Engine::registerTexture(const std::shared_ptr<Texture> &texture) {
     textureDescriptorSets.try_emplace(texture, std::move(sets));
 }
 
-void Engine::registerNormalMap(const std::shared_ptr<Texture> &normalMap) {
-    if (normalMapDescriptorSets.contains(normalMap))
+void Engine::registerSingleSamplerMap(
+    const std::shared_ptr<Texture> &texture, const vk::DescriptorSetLayout setLayout,
+    std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>> &descriptorSets) {
+    if (descriptorSets.contains(texture))
         return;
 
-    const std::vector layouts(MAX_FRAMES_IN_FLIGHT, *normalMapSetLayout);
+    const std::vector layouts(MAX_FRAMES_IN_FLIGHT, setLayout);
     vk::DescriptorSetAllocateInfo allocInfo{};
     allocInfo.descriptorPool = *descriptorPool;
     allocInfo.descriptorSetCount = static_cast<uint32_t>(layouts.size());
@@ -540,91 +542,55 @@ void Engine::registerNormalMap(const std::shared_ptr<Texture> &normalMap) {
 
     DescriptorWriter writer(vkCtx);
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        writer.writeImage(*sets[i], 0, vk::DescriptorType::eCombinedImageSampler, *normalMap->textureImageView,
-                          *normalMap->textureSampler);
+        writer.writeImage(*sets[i], 0, vk::DescriptorType::eCombinedImageSampler, *texture->textureImageView,
+                          *texture->textureSampler);
     }
     writer.update();
 
-    normalMapDescriptorSets.try_emplace(normalMap, std::move(sets));
+    descriptorSets.try_emplace(texture, std::move(sets));
+}
+
+std::shared_ptr<Texture> Engine::getOrCreateFlatValueMap(const float value,
+                                                         std::unordered_map<float, std::shared_ptr<Texture>> &cache) {
+    if (const auto it = cache.find(value); it != cache.end()) {
+        return it->second;
+    }
+
+    auto texture = std::make_shared<Texture>(vkCtx);
+    texture->createSolidValue(value, commandPool);
+    cache.try_emplace(value, texture);
+    return texture;
+}
+
+std::shared_ptr<Texture> Engine::loadLinearTexture(const std::string &path) {
+    auto texture = std::make_shared<Texture>(vkCtx);
+    texture->loadFromFile(path, commandPool, false);
+    return texture;
+}
+
+void Engine::registerNormalMap(const std::shared_ptr<Texture> &normalMap) {
+    registerSingleSamplerMap(normalMap, *normalMapSetLayout, normalMapDescriptorSets);
 }
 
 void Engine::registerRoughnessMap(const std::shared_ptr<Texture> &roughnessMap) {
-    if (roughnessMapDescriptorSets.contains(roughnessMap))
-        return;
-
-    const std::vector layouts(MAX_FRAMES_IN_FLIGHT, *roughnessMapSetLayout);
-    vk::DescriptorSetAllocateInfo allocInfo{};
-    allocInfo.descriptorPool = *descriptorPool;
-    allocInfo.descriptorSetCount = static_cast<uint32_t>(layouts.size());
-    allocInfo.pSetLayouts = layouts.data();
-
-    std::vector<vk::raii::DescriptorSet> sets = vkCtx.device.allocateDescriptorSets(allocInfo);
-
-    DescriptorWriter writer(vkCtx);
-    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        writer.writeImage(*sets[i], 0, vk::DescriptorType::eCombinedImageSampler, *roughnessMap->textureImageView,
-                          *roughnessMap->textureSampler);
-    }
-    writer.update();
-
-    roughnessMapDescriptorSets.try_emplace(roughnessMap, std::move(sets));
-}
-
-std::shared_ptr<Texture> Engine::getOrCreateFlatRoughnessMap(const float roughness) {
-    if (const auto it = roughnessFallbackCache.find(roughness); it != roughnessFallbackCache.end()) {
-        return it->second;
-    }
-
-    auto texture = std::make_shared<Texture>(vkCtx);
-    texture->createSolidValue(roughness, commandPool);
-    roughnessFallbackCache.try_emplace(roughness, texture);
-    return texture;
+    registerSingleSamplerMap(roughnessMap, *roughnessMapSetLayout, roughnessMapDescriptorSets);
 }
 
 void Engine::registerMetallicMap(const std::shared_ptr<Texture> &metallicMap) {
-    if (metallicMapDescriptorSets.contains(metallicMap))
-        return;
+    registerSingleSamplerMap(metallicMap, *metallicMapSetLayout, metallicMapDescriptorSets);
+}
 
-    const std::vector layouts(MAX_FRAMES_IN_FLIGHT, *metallicMapSetLayout);
-    vk::DescriptorSetAllocateInfo allocInfo{};
-    allocInfo.descriptorPool = *descriptorPool;
-    allocInfo.descriptorSetCount = static_cast<uint32_t>(layouts.size());
-    allocInfo.pSetLayouts = layouts.data();
-
-    std::vector<vk::raii::DescriptorSet> sets = vkCtx.device.allocateDescriptorSets(allocInfo);
-
-    DescriptorWriter writer(vkCtx);
-    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        writer.writeImage(*sets[i], 0, vk::DescriptorType::eCombinedImageSampler, *metallicMap->textureImageView,
-                          *metallicMap->textureSampler);
-    }
-    writer.update();
-
-    metallicMapDescriptorSets.try_emplace(metallicMap, std::move(sets));
+std::shared_ptr<Texture> Engine::getOrCreateFlatRoughnessMap(const float roughness) {
+    return getOrCreateFlatValueMap(roughness, roughnessFallbackCache);
 }
 
 std::shared_ptr<Texture> Engine::getOrCreateFlatMetallicMap(const float metallic) {
-    if (const auto it = metallicFallbackCache.find(metallic); it != metallicFallbackCache.end()) {
-        return it->second;
-    }
-
-    auto texture = std::make_shared<Texture>(vkCtx);
-    texture->createSolidValue(metallic, commandPool);
-    metallicFallbackCache.try_emplace(metallic, texture);
-    return texture;
+    return getOrCreateFlatValueMap(metallic, metallicFallbackCache);
 }
 
-std::shared_ptr<Texture> Engine::loadMetallicMap(const std::string &path) {
-    auto texture = std::make_shared<Texture>(vkCtx);
-    texture->loadFromFile(path, commandPool, false);
-    return texture;
-}
-
-std::shared_ptr<Texture> Engine::loadRoughnessMap(const std::string &path) {
-    auto texture = std::make_shared<Texture>(vkCtx);
-    texture->loadFromFile(path, commandPool, false);
-    return texture;
-}
+std::shared_ptr<Texture> Engine::loadNormalMap(const std::string &path) { return loadLinearTexture(path); }
+std::shared_ptr<Texture> Engine::loadRoughnessMap(const std::string &path) { return loadLinearTexture(path); }
+std::shared_ptr<Texture> Engine::loadMetallicMap(const std::string &path) { return loadLinearTexture(path); }
 
 std::shared_ptr<Mesh> Engine::createCubeMesh(const float size) {
     auto mesh = std::make_shared<Mesh>(vkCtx);
@@ -636,12 +602,6 @@ std::shared_ptr<Mesh> Engine::createCubeMesh(const float size) {
 std::shared_ptr<Texture> Engine::loadTexture(const std::string &path) {
     auto texture = std::make_shared<Texture>(vkCtx);
     texture->loadFromFile(path, commandPool);
-    return texture;
-}
-
-std::shared_ptr<Texture> Engine::loadNormalMap(const std::string &path) {
-    auto texture = std::make_shared<Texture>(vkCtx);
-    texture->loadFromFile(path, commandPool, false);
     return texture;
 }
 
@@ -754,7 +714,7 @@ Engine::FBXModel Engine::createFBXModel(const std::string &fbxPath, const std::s
                 roughPath.replace_extension(fileExtension);
 
                 auto texture = std::make_shared<Texture>(vkCtx);
-                texture->loadFromFile(roughPath.string(), commandPool, /*srgb=*/false);
+                texture->loadFromFile(roughPath.string(), commandPool, false);
                 roughnessMapCache.try_emplace(group.roughnessMapFilename, texture);
                 material.roughnessMap = texture;
             }
