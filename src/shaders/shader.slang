@@ -161,14 +161,12 @@ half4 fragMain(VSOutput vertIn) : SV_TARGET {
     float2 texCoord = parallaxOcclusionMapping(vertIn.fragTexCoord, viewDirTS, viewDistance);
 
     half4 texColor = (half4)texture.Sample(texCoord);
-    if (texColor.a < 0.5)
-        discard;
 
     half3 tangentNormal = (half3)normalMap.Sample(texCoord).rgb * 2.0h - 1.0h;
     N = normalize(mul(tangentNormal, TBN));
 
     const half3 L = half3(0.57735h, 0.57735h, 0.57735h);
-    half3 halfV = (half3)V; 
+    half3 halfV = (half3)V;
     half3 H = normalize(L + halfV);
 
     half NdotL = saturate(dot(N, L));
@@ -189,7 +187,7 @@ half4 fragMain(VSOutput vertIn) : SV_TARGET {
     half D = distributionGGX(NdotH, roughness);
     half G = geometrySmith(NdotV, NdotL, roughness);
     half3 F = fresnelSchlick(saturate(dot(halfV, H)), Fzero);
-    
+
     half3 specular = (D * G * F) / max(4.0h * NdotV * NdotL, (half)0.001);
 
     const half3 skyColor = half3(0.35h, 0.38h, 0.42h);
