@@ -19,16 +19,14 @@ void DemoGame::init(Engine &engine) {
     const auto cubeMesh = engine.createCubeMesh(1.f);
     const auto albedo = engine.loadTexture(std::format("textures/{}_albedo.png", selectedTexture));
     const auto normalMap = engine.loadNormalMap(std::format("textures/{}_normal-ogl.png", selectedTexture));
-    const auto roughnessMap = engine.loadRoughnessMap(std::format("textures/{}_roughness.png", selectedTexture));
-    const auto metallicMap = engine.loadRoughnessMap(std::format("textures/{}_metallic.png", selectedTexture));
-    const auto heightMap = engine.loadHeightMap(std::format("textures/{}_height.png", selectedTexture));
+    const auto ormMap = engine.loadOrmMap(std::format("textures/{}_roughness.png", selectedTexture),
+                                          std::format("textures/{}_metallic.png", selectedTexture),
+                                          std::format("textures/{}_height.png", selectedTexture));
 
     Material cubeMaterial = {};
     cubeMaterial.albedo = albedo;
     cubeMaterial.normalMap = normalMap;
-    cubeMaterial.roughnessMap = roughnessMap;
-    cubeMaterial.metallicMap = metallicMap;
-    cubeMaterial.heightMap = heightMap;
+    cubeMaterial.ormMap = ormMap;
 
     constexpr int OFFSET = 3;
     constexpr float INNER_RADIUS = 25.0f;

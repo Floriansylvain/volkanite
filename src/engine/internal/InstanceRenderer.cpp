@@ -3,7 +3,6 @@
 #include "OcclusionCuller.hpp"
 #include "PerFrameBuffer.hpp"
 #include "VulkanUtils.hpp"
-#include <array>
 
 InstanceRenderer::InstanceRenderer(VulkanContext &vkCtx, const int maxFramesInFlight)
     : vkCtx(vkCtx), maxFramesInFlight(maxFramesInFlight) {}
@@ -53,17 +52,14 @@ void InstanceRenderer::build() {
         const auto &obj = objects[i];
         auto it = std::ranges::find_if(newBatches, [&](const auto &b) {
             return b.mesh == obj.mesh && b.texture == obj.material.albedo && b.normalMap == obj.material.normalMap &&
-                   b.roughnessMap == obj.material.roughnessMap && b.metallicMap == obj.material.metallicMap &&
-                   b.heightMap == obj.material.heightMap;
+                   b.ormMap == obj.material.ormMap;
         });
         if (it == newBatches.end()) {
             InstanceBatch batch;
             batch.mesh = obj.mesh;
             batch.texture = obj.material.albedo;
             batch.normalMap = obj.material.normalMap;
-            batch.roughnessMap = obj.material.roughnessMap;
-            batch.metallicMap = obj.material.metallicMap;
-            batch.heightMap = obj.material.heightMap;
+            batch.ormMap = obj.material.ormMap;
             batch.objectIndices.push_back(i);
             newBatches.push_back(std::move(batch));
         } else {
@@ -242,16 +238,10 @@ void InstanceRenderer::draw(DrawCommand command, bool wireframe, uint32_t &drawC
     command.commandBuffer->bindPipeline(vk::PipelineBindPoint::eGraphics, wireframe ? *wireframePipeline : *solidPipeline);
 
     for (const auto &batch : batches) {
-        const auto &albedoSets = command.textureDescriptorSets->at(batch.texture);
-        const auto &normalSets = command.normalMapDescriptorSets->at(batch.normalMap);
-        const auto &roughSets = command.roughnessMapDescriptorSets->at(batch.roughnessMap);
-        const auto &metalSets = command.metallicMapDescriptorSets->at(batch.metallicMap);
-        const auto &heightSets = command.heightMapDescriptorSets->at(batch.heightMap);
-        const std::array boundSets = {*albedoSets[command.frameIndex], *normalSets[command.frameIndex],
-                                      *roughSets[command.frameIndex], *metalSets[command.frameIndex],
-                                      *heightSets[command.frameIndex]};
-        command.commandBuffer->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, command.pipelineLayout, 0, boundSets,
-                                                  nullptr);
+        const MaterialKey key{batch.texture, batch.normalMap, batch.ormMap};
+        const auto &materialSets = command.materialDescriptorSets->at(key);
+        command.commandBuffer->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, command.pipelineLayout, 0,
+                                                  *materialSets[command.frameIndex], nullptr);
 
         std::vector<vk::DeviceSize> vertexOffsets = {0};
         command.commandBuffer->bindVertexBuffers(0, *batch.mesh->unifiedBuffer, vertexOffsets);
@@ -273,14 +263,10 @@ void InstanceRenderer::drawXray(DrawCommand command) const {
         if (batch.visibleInstanceCount == 0)
             continue;
 
-        const auto &albedoSets = command.textureDescriptorSets->at(batch.texture);
-        const auto &normalSets = command.normalMapDescriptorSets->at(batch.normalMap);
-        const auto &roughSets = command.roughnessMapDescriptorSets->at(batch.roughnessMap);
-        const auto &metalSets = command.metallicMapDescriptorSets->at(batch.metallicMap);
-        const std::array boundSets = {*albedoSets[command.frameIndex], *normalSets[command.frameIndex],
-                                      *roughSets[command.frameIndex], *metalSets[command.frameIndex]};
-        command.commandBuffer->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, command.pipelineLayout, 0, boundSets,
-                                                  nullptr);
+        const MaterialKey key{batch.texture, batch.normalMap, batch.ormMap};
+        const auto &materialSets = command.materialDescriptorSets->at(key);
+        command.commandBuffer->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, command.pipelineLayout, 0,
+                                                  *materialSets[command.frameIndex], nullptr);
 
         std::vector<vk::DeviceSize> vertexOffsets = {0};
         command.commandBuffer->bindVertexBuffers(0, *batch.mesh->unifiedBuffer, vertexOffsets);

@@ -13,6 +13,10 @@ class Texture {
     void createSolidColor(const glm::vec3 &color, const vk::raii::CommandPool &commandPool);
     void createFlatNormalMap(const vk::raii::CommandPool &commandPool);
     void createSolidValue(float value, const vk::raii::CommandPool &commandPool);
+    void createSolidValue3(const glm::vec3 &values, const vk::raii::CommandPool &commandPool);
+
+    void loadPackedChannels(const std::string &rPath, float rFallback, const std::string &gPath, float gFallback,
+                            const std::string &bPath, float bFallback, const vk::raii::CommandPool &commandPool);
 
     vk::raii::ImageView textureImageView = nullptr;
     vk::raii::Sampler textureSampler = nullptr;

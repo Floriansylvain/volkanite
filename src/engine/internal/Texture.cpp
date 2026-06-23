@@ -8,6 +8,41 @@
 
 Texture::Texture(const VulkanContext &context) : vkCtx(context) {}
 
+namespace {
+std::vector<uint8_t> loadChannelFromFile(const std::string &filepath, uint32_t &outWidth, uint32_t &outHeight) {
+    SDL_Surface *imgSurface = IMG_Load(filepath.c_str());
+    if (!imgSurface) {
+        throw EngineExceptions::Compatibility("Failed to load texture image '" + filepath + "': " + SDL_GetError());
+    }
+
+    if (imgSurface->format != SDL_PIXELFORMAT_RGBA32) {
+        SDL_Surface *converted = SDL_ConvertSurface(imgSurface, SDL_PIXELFORMAT_RGBA32);
+        SDL_DestroySurface(imgSurface);
+        imgSurface = converted;
+        if (!imgSurface) {
+            throw EngineExceptions::Compatibility("Failed to convert texture image format.");
+        }
+    }
+
+    outWidth = static_cast<uint32_t>(imgSurface->w);
+    outHeight = static_cast<uint32_t>(imgSurface->h);
+
+    std::vector<uint8_t> channel(static_cast<size_t>(outWidth) * outHeight);
+    const auto *pixels = static_cast<const uint8_t *>(imgSurface->pixels);
+    const int bytesPerPixel = SDL_BYTESPERPIXEL(imgSurface->format);
+
+    for (uint32_t y = 0; y < outHeight; ++y) {
+        const uint8_t *row = pixels + static_cast<size_t>(y) * imgSurface->pitch;
+        for (uint32_t x = 0; x < outWidth; ++x) {
+            channel[static_cast<size_t>(y) * outWidth + x] = row[static_cast<size_t>(x) * bytesPerPixel];
+        }
+    }
+
+    SDL_DestroySurface(imgSurface);
+    return channel;
+}
+} // namespace
+
 void Texture::createImageView() {
     textureImageView = VulkanUtils::createImageView(vkCtx, *textureImage, format, vk::ImageAspectFlagBits::eColor, mipLevels);
 }
@@ -114,6 +149,89 @@ void Texture::createSolidValue(const float value, const vk::raii::CommandPool &c
     stagingBufferMemory.unmapMemory();
 
     uploadImage(stagingBuffer, 1, 1, commandPool);
+}
+
+void Texture::createSolidValue3(const glm::vec3 &values, const vk::raii::CommandPool &commandPool) {
+    format = vk::Format::eR8G8B8A8Unorm;
+    const glm::vec3 byteValues = glm::clamp(values, 0.0f, 1.0f) * 255.0f;
+    const std::array<uint8_t, 4> pixel = {static_cast<uint8_t>(byteValues.r), static_cast<uint8_t>(byteValues.g),
+                                          static_cast<uint8_t>(byteValues.b), 255};
+
+    constexpr vk::DeviceSize imageSize = 4;
+    auto [stagingBuffer, stagingBufferMemory] =
+        VulkanUtils::createBuffer(vkCtx, imageSize, vk::BufferUsageFlagBits::eTransferSrc,
+                                  vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+
+    void *data = stagingBufferMemory.mapMemory(0, imageSize);
+    memcpy(data, pixel.data(), imageSize);
+    stagingBufferMemory.unmapMemory();
+
+    uploadImage(stagingBuffer, 1, 1, commandPool);
+}
+
+void Texture::loadPackedChannels(const std::string &rPath, const float rFallback, const std::string &gPath,
+                                 const float gFallback, const std::string &bPath, const float bFallback,
+                                 const vk::raii::CommandPool &commandPool) {
+    uint32_t texWidth = 0;
+    uint32_t texHeight = 0;
+
+    std::vector<uint8_t> rChannel;
+    std::vector<uint8_t> gChannel;
+    std::vector<uint8_t> bChannel;
+
+    const auto loadChannel = [&](const std::string &path, std::vector<uint8_t> &out) {
+        if (path.empty())
+            return;
+
+        uint32_t w = 0;
+        uint32_t h = 0;
+        out = loadChannelFromFile(path, w, h);
+
+        if (texWidth == 0) {
+            texWidth = w;
+            texHeight = h;
+        } else if (w != texWidth || h != texHeight) {
+            throw EngineExceptions::Compatibility("Packed texture channels must share the same resolution (mismatch in '" +
+                                                  path + "').");
+        }
+    };
+
+    loadChannel(rPath, rChannel);
+    loadChannel(gPath, gChannel);
+    loadChannel(bPath, bChannel);
+
+    if (texWidth == 0) {
+        createSolidValue3(glm::vec3(rFallback, gFallback, bFallback), commandPool);
+        return;
+    }
+
+    const auto fillFallback = [&](std::vector<uint8_t> &out, const float value) {
+        if (!out.empty())
+            return;
+        out.assign(static_cast<size_t>(texWidth) * texHeight, static_cast<uint8_t>(glm::clamp(value, 0.0f, 1.0f) * 255.0f));
+    };
+
+    fillFallback(rChannel, rFallback);
+    fillFallback(gChannel, gFallback);
+    fillFallback(bChannel, bFallback);
+
+    const vk::DeviceSize imageSize = static_cast<vk::DeviceSize>(texWidth) * texHeight * 4;
+    auto [stagingBuffer, stagingBufferMemory] =
+        VulkanUtils::createBuffer(vkCtx, imageSize, vk::BufferUsageFlagBits::eTransferSrc,
+                                  vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+
+    auto *dst = static_cast<uint8_t *>(stagingBufferMemory.mapMemory(0, imageSize));
+    const size_t pixelCount = static_cast<size_t>(texWidth) * texHeight;
+    for (size_t i = 0; i < pixelCount; ++i) {
+        dst[i * 4 + 0] = rChannel[i];
+        dst[i * 4 + 1] = gChannel[i];
+        dst[i * 4 + 2] = bChannel[i];
+        dst[i * 4 + 3] = 255;
+    }
+    stagingBufferMemory.unmapMemory();
+
+    format = vk::Format::eR8G8B8A8Unorm;
+    uploadImage(stagingBuffer, texWidth, texHeight, commandPool);
 }
 
 void Texture::uploadImage(const vk::raii::Buffer &stagingBuffer, const uint32_t texWidth, const uint32_t texHeight,

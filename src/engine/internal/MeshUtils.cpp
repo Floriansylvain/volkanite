@@ -76,7 +76,7 @@ void MeshUtils::computeTangents(std::vector<Mesh::Vertex> &vertices, const std::
 
     for (size_t i = 0; i < vertices.size(); ++i) {
         const glm::vec3 &n = vertices[i].normal;
-        glm::vec3 t = accum[i] - n * glm::dot(n, accum[i]); // Gram-Schmidt against the normal
+        glm::vec3 t = accum[i] - n * glm::dot(n, accum[i]);
 
         if (glm::length(t) < 1e-6f) {
             const glm::vec3 up = std::abs(n.z) < 0.999f ? glm::vec3(0.0f, 0.0f, 1.0f) : glm::vec3(1.0f, 0.0f, 0.0f);

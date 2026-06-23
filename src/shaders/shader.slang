@@ -78,10 +78,8 @@ float3 fresnelSchlick(float VdotH, float3 Fzero) {
 }
 
 [[vk::binding(1, 0)]] Sampler2D texture;
-[[vk::binding(0, 1)]] Sampler2D normalMap;
-[[vk::binding(0, 2)]] Sampler2D roughnessMap;
-[[vk::binding(0, 3)]] Sampler2D metallicMap;
-[[vk::binding(0, 4)]] Sampler2D heightMap;
+[[vk::binding(2, 0)]] Sampler2D normalMap;
+[[vk::binding(3, 0)]] Sampler2D ormMap; // R=roughness G=metallic B=height
 
 float2 parallaxOcclusionMapping(float2 texCoords, float3 viewDirTS, float viewDistance) {
     const float fadeStart = 10.0;
@@ -108,17 +106,17 @@ float2 parallaxOcclusionMapping(float2 texCoords, float3 viewDirTS, float viewDi
     float2 deltaTexCoords = p / numLayers;
 
     float2 currentTexCoords = texCoords;
-    float currentDepthMapValue = 1.0 - heightMap.SampleLevel(currentTexCoords, 0.0).r;
+    float currentDepthMapValue = 1.0 - ormMap.SampleLevel(currentTexCoords, 0.0).b;
 
     for (int i = 0; i < 32 && currentLayerDepth < currentDepthMapValue; i++) {
         currentTexCoords -= deltaTexCoords;
-        currentDepthMapValue = 1.0 - heightMap.SampleLevel(currentTexCoords, 0.0).r;
+        currentDepthMapValue = 1.0 - ormMap.SampleLevel(currentTexCoords, 0.0).b;
         currentLayerDepth += layerDepth;
     }
 
     float2 prevTexCoords = currentTexCoords + deltaTexCoords;
     float afterDepth = currentDepthMapValue - currentLayerDepth;
-    float beforeDepth = (1.0 - heightMap.SampleLevel(prevTexCoords, 0.0).r) - currentLayerDepth + layerDepth;
+    float beforeDepth = (1.0 - ormMap.SampleLevel(prevTexCoords, 0.0).b) - currentLayerDepth + layerDepth;
     float weight = afterDepth / (afterDepth - beforeDepth);
 
     return prevTexCoords * weight + currentTexCoords * (1.0 - weight);
@@ -175,14 +173,15 @@ float4 fragMain(VSOutput vertIn) : SV_TARGET {
     float LdotH = saturate(dot(L, H));
     float NdotH = saturate(dot(N, H));
 
-    float roughness = roughnessMap.Sample(texCoord).r;
+    float3 orm = ormMap.Sample(texCoord).rgb;
+    float roughness = orm.r;
 
     float fd90 = 0.5 + 2.0 * roughness * LdotH * LdotH;
     float lightScatter = 1.0 + (fd90 - 1.0) * pow5(saturate(1.0 - NdotL));
     float viewScatter = 1.0 + (fd90 - 1.0) * pow5(saturate(1.0 - NdotV));
     float burleyDiffuse = lightScatter * viewScatter * NdotL;
 
-    float metallic = metallicMap.Sample(texCoord).r;
+    float metallic = orm.g;
     float3 Fzero = lerp(float3(0.04, 0.04, 0.04), texColor.rgb, metallic);
 
     float D = distributionGGX(NdotH, roughness);
