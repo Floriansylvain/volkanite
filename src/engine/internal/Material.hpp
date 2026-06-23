@@ -9,6 +9,7 @@ struct Material {
     std::shared_ptr<Texture> normalMap;
     std::shared_ptr<Texture> roughnessMap;
     std::shared_ptr<Texture> metallicMap;
+    std::shared_ptr<Texture> heightMap;
 
     glm::vec3 baseColor{1.0f};
     float roughness = 0.5f;

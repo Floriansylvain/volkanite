@@ -9,6 +9,7 @@ struct SubMesh {
     std::string normalMapFilename;
     std::string roughnessMapFilename;
     std::string metallicMapFilename;
+    std::string heightMapFilename;
 
     glm::vec3 baseColor{1.0f};
     float roughness = 0.5f;

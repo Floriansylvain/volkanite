@@ -12,11 +12,15 @@ void DemoGame::init(Engine &engine) {
 
     engine.placeFBXModel(house, glm::vec3(0.f, 0.f, 0.f));
 
+    // thanks to https://freepbr.com/
+    const auto selectedTexture = std::string("textures/pirate-gold");
+
     const auto cubeMesh = engine.createCubeMesh(1.f);
-    const auto albedo = engine.loadTexture("textures/oxidized-metal-clad_albedo.png");
-    const auto normalMap = engine.loadNormalMap("textures/oxidized-metal-clad_normal-ogl.png");
-    const auto roughnessMap = engine.loadRoughnessMap("textures/oxidized-metal-clad_roughness.png");
-    const auto metallicMap = engine.loadRoughnessMap("textures/oxidized-metal-clad_metallic.png");
+    const auto albedo = engine.loadTexture(std::format("{}_albedo.png", selectedTexture));
+    const auto normalMap = engine.loadNormalMap(std::format("{}_normal-ogl.png", selectedTexture));
+    const auto roughnessMap = engine.loadRoughnessMap(std::format("{}_roughness.png", selectedTexture));
+    const auto metallicMap = engine.loadRoughnessMap(std::format("{}_metallic.png", selectedTexture));
+    const auto heightMap = engine.loadHeightMap(std::format("{}_height.png", selectedTexture));
 
     constexpr int OFFSET = 3;
     constexpr float INNER_RADIUS = 25.0f;
@@ -37,11 +41,26 @@ void DemoGame::init(Engine &engine) {
                 cube.material.normalMap = normalMap;
                 cube.material.roughnessMap = roughnessMap;
                 cube.material.metallicMap = metallicMap;
+                cube.material.heightMap = heightMap;
                 cube.position = {x, y, z};
                 cube.rotation = glm::vec3(glm::sin(float(x)), glm::sin(float(y)), glm::sin(float(z)));
                 engine.addRenderObject(std::move(cube));
             }
         }
+    }
+
+    {
+        const auto bigCubeMesh = engine.createCubeMesh(100.f);
+        RenderObject bigCube;
+        bigCube.mesh = bigCubeMesh;
+        bigCube.material.albedo = albedo;
+        bigCube.material.normalMap = normalMap;
+        bigCube.material.roughnessMap = roughnessMap;
+        bigCube.material.metallicMap = metallicMap;
+        bigCube.material.heightMap = heightMap;
+        bigCube.position = {0.f, 0.f, -150.f};
+        bigCube.rotation = glm::vec3({0.f});
+        engine.addRenderObject(std::move(bigCube));
     }
 
     {
@@ -105,6 +124,10 @@ void DemoGame::update(Engine &engine, const float deltaTime) {
     const bool *key_states = SDL_GetKeyboardState(nullptr);
     glm::vec3 input = {0.f, 0.f, 0.f};
 
+    float speed = 10.0f;
+
+    if (key_states[SDL_SCANCODE_LSHIFT])
+        speed *= 5;
     if (key_states[SDL_SCANCODE_W])
         input.y += 1;
     if (key_states[SDL_SCANCODE_S])
@@ -123,7 +146,6 @@ void DemoGame::update(Engine &engine, const float deltaTime) {
         movement = glm::normalize(movement);
     }
 
-    constexpr float speed = 10.0f;
     camera.x += movement.x * speed * deltaTime;
     camera.y += movement.y * speed * deltaTime;
     camera.z += input.z * speed * deltaTime;

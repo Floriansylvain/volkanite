@@ -20,7 +20,7 @@ Engine::~Engine() = default;
 
 void Engine::createGraphicsPipeline() {
     pipelineLayout = VulkanUtils::createPipelineLayout(
-        vkCtx, {*descriptorSetLayout, *normalMapSetLayout, *roughnessMapSetLayout, *metallicMapSetLayout});
+        vkCtx, {*descriptorSetLayout, *normalMapSetLayout, *roughnessMapSetLayout, *metallicMapSetLayout, *heightMapSetLayout});
     const vk::Format colorFormat = swapChainHandler.surfaceFormat.format;
     const vk::Format depthFormat = swapChainHandler.findDepthFormat();
 
@@ -203,6 +203,7 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
     drawCommand.normalMapDescriptorSets = &normalMapDescriptorSets;
     drawCommand.roughnessMapDescriptorSets = &roughnessMapDescriptorSets;
     drawCommand.metallicMapDescriptorSets = &metallicMapDescriptorSets;
+    drawCommand.heightMapDescriptorSets = &heightMapDescriptorSets;
 
     writeTimestamp(GpuPass::OpaqueGeometry, true, eColorAttachmentOutput);
     instanceRenderer.draw(drawCommand, isWireframe, drawCallCount);
@@ -295,11 +296,15 @@ RenderObjectHandle Engine::addRenderObject(RenderObject object) {
     if (!object.material.metallicMap) {
         object.material.metallicMap = getOrCreateFlatMetallicMap(object.material.metallic);
     }
+    if (!object.material.heightMap) {
+        object.material.heightMap = defaultHeightMap;
+    }
 
     registerTexture(object.material.albedo);
     registerNormalMap(object.material.normalMap);
     registerRoughnessMap(object.material.roughnessMap);
     registerMetallicMap(object.material.metallicMap);
+    registerHeightMap(object.material.heightMap);
 
     return instanceRenderer.addObject(std::move(object));
 }
@@ -469,6 +474,14 @@ void Engine::createDescriptorSetLayout() {
     metallicMapBinding.stageFlags = vk::ShaderStageFlagBits::eFragment;
 
     metallicMapSetLayout = VulkanUtils::createDescriptorSetLayout(vkCtx, {metallicMapBinding});
+
+    vk::DescriptorSetLayoutBinding heightMapBinding{};
+    heightMapBinding.binding = 0;
+    heightMapBinding.descriptorType = vk::DescriptorType::eCombinedImageSampler;
+    heightMapBinding.descriptorCount = 1;
+    heightMapBinding.stageFlags = vk::ShaderStageFlagBits::eFragment;
+
+    heightMapSetLayout = VulkanUtils::createDescriptorSetLayout(vkCtx, {heightMapBinding});
 }
 
 void Engine::createCameraUniformBuffer() {
@@ -490,12 +503,12 @@ void Engine::updateUniformBuffer(const uint32_t currentImage) const {
 void Engine::createDescriptorPool() {
     constexpr vk::DescriptorPoolSize uboPoolSize{vk::DescriptorType::eUniformBuffer, MAX_FRAMES_IN_FLIGHT * MAX_TEXTURES};
     constexpr vk::DescriptorPoolSize samplerPoolSize{vk::DescriptorType::eCombinedImageSampler,
-                                                     MAX_FRAMES_IN_FLIGHT * MAX_TEXTURES * 4};
+                                                     MAX_FRAMES_IN_FLIGHT * MAX_TEXTURES * 5};
     constexpr std::array poolSize = {uboPoolSize, samplerPoolSize};
 
     vk::DescriptorPoolCreateInfo poolInfo{};
     poolInfo.flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet;
-    poolInfo.maxSets = MAX_FRAMES_IN_FLIGHT * MAX_TEXTURES * 4;
+    poolInfo.maxSets = MAX_FRAMES_IN_FLIGHT * MAX_TEXTURES * 5;
     poolInfo.poolSizeCount = static_cast<uint32_t>(poolSize.size());
     poolInfo.pPoolSizes = poolSize.data();
 
@@ -588,9 +601,14 @@ std::shared_ptr<Texture> Engine::getOrCreateFlatMetallicMap(const float metallic
     return getOrCreateFlatValueMap(metallic, metallicFallbackCache);
 }
 
+void Engine::registerHeightMap(const std::shared_ptr<Texture> &heightMap) {
+    registerSingleSamplerMap(heightMap, *heightMapSetLayout, heightMapDescriptorSets);
+}
+
 std::shared_ptr<Texture> Engine::loadNormalMap(const std::string &path) { return loadLinearTexture(path); }
 std::shared_ptr<Texture> Engine::loadRoughnessMap(const std::string &path) { return loadLinearTexture(path); }
 std::shared_ptr<Texture> Engine::loadMetallicMap(const std::string &path) { return loadLinearTexture(path); }
+std::shared_ptr<Texture> Engine::loadHeightMap(const std::string &path) { return loadLinearTexture(path); }
 
 std::shared_ptr<Mesh> Engine::createCubeMesh(const float size) {
     auto mesh = std::make_shared<Mesh>(vkCtx);
@@ -625,6 +643,7 @@ Engine::FBXModel Engine::createFBXModel(const std::string &fbxPath, const std::s
         std::string normalMapFilename;
         std::string roughnessMapFilename;
         std::string metallicMapFilename;
+        std::string heightMapFilename;
 
         glm::vec3 baseColor{1.0f};
         float roughness = 0.5f;
@@ -645,7 +664,8 @@ Engine::FBXModel Engine::createFBXModel(const std::string &fbxPath, const std::s
             sub.roughnessMapFilename.empty() ? "#flatRoughness:" + std::to_string(sub.roughness) : sub.roughnessMapFilename;
         const std::string metallicKey =
             sub.metallicMapFilename.empty() ? "#flatMetallic:" + std::to_string(sub.metallic) : sub.metallicMapFilename;
-        const std::string materialKey = colorKey + "|" + sub.normalMapFilename + "|" + roughnessKey + "|" + metallicKey;
+        const std::string materialKey =
+            colorKey + "|" + sub.normalMapFilename + "|" + roughnessKey + "|" + metallicKey + "|" + sub.heightMapFilename;
 
         auto &group = merged[materialKey];
         group.albedoFilename = sub.albedoFilename;
@@ -655,6 +675,7 @@ Engine::FBXModel Engine::createFBXModel(const std::string &fbxPath, const std::s
         group.baseColor = sub.baseColor;
         group.roughness = sub.roughness;
         group.metallic = sub.metallic;
+        group.heightMapFilename = sub.heightMapFilename;
 
         const auto vertexOffset = static_cast<uint32_t>(group.vertices.size());
         group.vertices.insert(group.vertices.end(), sub.vertices.begin(), sub.vertices.end());
@@ -717,6 +738,20 @@ Engine::FBXModel Engine::createFBXModel(const std::string &fbxPath, const std::s
                 texture->loadFromFile(roughPath.string(), commandPool, false);
                 roughnessMapCache.try_emplace(group.roughnessMapFilename, texture);
                 material.roughnessMap = texture;
+            }
+        }
+
+        if (!group.heightMapFilename.empty()) {
+            if (const auto it = heightMapCache.find(group.heightMapFilename); it != heightMapCache.end()) {
+                material.heightMap = it->second;
+            } else {
+                std::filesystem::path heightPath = std::filesystem::path("textures") / group.heightMapFilename;
+                heightPath.replace_extension(fileExtension);
+
+                auto texture = std::make_shared<Texture>(vkCtx);
+                texture->loadFromFile(heightPath.string(), commandPool, false);
+                heightMapCache.try_emplace(group.heightMapFilename, texture);
+                material.heightMap = texture;
             }
         }
 
@@ -798,6 +833,9 @@ void Engine::init() {
 
     defaultNormalMap = std::make_shared<Texture>(vkCtx);
     defaultNormalMap->createFlatNormalMap(commandPool);
+
+    defaultHeightMap = std::make_shared<Texture>(vkCtx);
+    defaultHeightMap->createSolidValue(1.0f, commandPool);
 
     textRenderer.loadFont("textures/consolas.png", commandPool, 0.38f, 0.2f);
 

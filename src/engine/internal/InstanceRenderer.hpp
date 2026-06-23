@@ -48,6 +48,7 @@ class InstanceRenderer {
         MapDescriptorSets *normalMapDescriptorSets;
         MapDescriptorSets *roughnessMapDescriptorSets;
         MapDescriptorSets *metallicMapDescriptorSets;
+        MapDescriptorSets *heightMapDescriptorSets;
     };
 
     void draw(DrawCommand command, bool wireframe, uint32_t &drawCallCount) const;
@@ -86,6 +87,7 @@ class InstanceRenderer {
         std::shared_ptr<Texture> normalMap;
         std::shared_ptr<Texture> roughnessMap;
         std::shared_ptr<Texture> metallicMap;
+        std::shared_ptr<Texture> heightMap;
 
         std::vector<size_t> objectIndices;
     };

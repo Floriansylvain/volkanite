@@ -53,7 +53,8 @@ void InstanceRenderer::build(const vk::raii::CommandPool &commandPool) {
         const auto &obj = objects[i];
         auto it = std::ranges::find_if(newBatches, [&](const auto &b) {
             return b.mesh == obj.mesh && b.texture == obj.material.albedo && b.normalMap == obj.material.normalMap &&
-                   b.roughnessMap == obj.material.roughnessMap && b.metallicMap == obj.material.metallicMap;
+                   b.roughnessMap == obj.material.roughnessMap && b.metallicMap == obj.material.metallicMap &&
+                   b.heightMap == obj.material.heightMap;
         });
         if (it == newBatches.end()) {
             InstanceBatch batch;
@@ -62,6 +63,7 @@ void InstanceRenderer::build(const vk::raii::CommandPool &commandPool) {
             batch.normalMap = obj.material.normalMap;
             batch.roughnessMap = obj.material.roughnessMap;
             batch.metallicMap = obj.material.metallicMap;
+            batch.heightMap = obj.material.heightMap;
             batch.objectIndices.push_back(i);
             newBatches.push_back(std::move(batch));
         } else {
@@ -244,8 +246,10 @@ void InstanceRenderer::draw(DrawCommand command, bool wireframe, uint32_t &drawC
         const auto &normalSets = command.normalMapDescriptorSets->at(batch.normalMap);
         const auto &roughSets = command.roughnessMapDescriptorSets->at(batch.roughnessMap);
         const auto &metalSets = command.metallicMapDescriptorSets->at(batch.metallicMap);
+        const auto &heightSets = command.heightMapDescriptorSets->at(batch.heightMap);
         const std::array boundSets = {*albedoSets[command.frameIndex], *normalSets[command.frameIndex],
-                                      *roughSets[command.frameIndex], *metalSets[command.frameIndex]};
+                                      *roughSets[command.frameIndex], *metalSets[command.frameIndex],
+                                      *heightSets[command.frameIndex]};
         command.commandBuffer->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, command.pipelineLayout, 0, boundSets,
                                                   nullptr);
 

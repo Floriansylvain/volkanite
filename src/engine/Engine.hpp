@@ -40,6 +40,7 @@ class Engine {
     [[nodiscard]] std::shared_ptr<Texture> loadNormalMap(const std::string &path);
     [[nodiscard]] std::shared_ptr<Texture> loadRoughnessMap(const std::string &path);
     [[nodiscard]] std::shared_ptr<Texture> loadMetallicMap(const std::string &path);
+    [[nodiscard]] std::shared_ptr<Texture> loadHeightMap(const std::string &path);
 
   private:
     constexpr static float DEBUG_FONT_SIZE = 38.f;
@@ -70,6 +71,7 @@ class Engine {
     vk::raii::DescriptorSetLayout normalMapSetLayout = nullptr;
     vk::raii::DescriptorSetLayout roughnessMapSetLayout = nullptr;
     vk::raii::DescriptorSetLayout metallicMapSetLayout = nullptr;
+    vk::raii::DescriptorSetLayout heightMapSetLayout = nullptr;
 
     vk::raii::PipelineLayout pipelineLayout = nullptr;
 
@@ -89,16 +91,19 @@ class Engine {
     InstanceRenderer::MapDescriptorSets normalMapDescriptorSets;
     InstanceRenderer::MapDescriptorSets roughnessMapDescriptorSets;
     InstanceRenderer::MapDescriptorSets metallicMapDescriptorSets;
+    InstanceRenderer::MapDescriptorSets heightMapDescriptorSets;
 
     std::unordered_map<std::string, std::shared_ptr<Texture>> textureCache;
     std::unordered_map<std::string, std::shared_ptr<Texture>> normalMapCache;
     std::unordered_map<std::string, std::shared_ptr<Texture>> roughnessMapCache;
     std::unordered_map<std::string, std::shared_ptr<Texture>> metallicMapCache;
+    std::unordered_map<std::string, std::shared_ptr<Texture>> heightMapCache;
 
     std::unordered_map<float, std::shared_ptr<Texture>> roughnessFallbackCache;
     std::unordered_map<float, std::shared_ptr<Texture>> metallicFallbackCache;
 
     std::shared_ptr<Texture> defaultNormalMap;
+    std::shared_ptr<Texture> defaultHeightMap;
 
     bool isInitialized = false;
     bool framebufferResized = false;
@@ -135,6 +140,7 @@ class Engine {
     [[nodiscard]] std::shared_ptr<Texture> getOrCreateFlatRoughnessMap(float roughness);
     void registerMetallicMap(const std::shared_ptr<Texture> &metallicMap);
     [[nodiscard]] std::shared_ptr<Texture> getOrCreateFlatMetallicMap(float metallic);
+    void registerHeightMap(const std::shared_ptr<Texture> &heightMap);
 
     void registerSingleSamplerMap(
         const std::shared_ptr<Texture> &texture, vk::DescriptorSetLayout setLayout,

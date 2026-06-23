@@ -68,6 +68,35 @@ float3 fresnelSchlick(float VdotH, float3 F0) {
     return F0 + (1.0 - F0) * pow(1.0 - VdotH, 5.0);
 }
 
+float2 parallaxOcclusionMapping(float2 texCoords, float3 viewDirTS) {
+    const float heightScale = 0.05;
+    const float minLayers = 8.0;
+    const float maxLayers = 32.0;
+    float numLayers = lerp(maxLayers, minLayers, abs(dot(float3(0.0, 0.0, 1.0), viewDirTS)));
+
+    float layerDepth = 1.0 / numLayers;
+    float currentLayerDepth = 0.0;
+
+    float2 p = viewDirTS.xy / max(viewDirTS.z, 0.001) * heightScale;
+    float2 deltaTexCoords = p / numLayers;
+
+    float2 currentTexCoords = texCoords;
+    float currentDepthMapValue = 1.0 - heightMap.Sample(currentTexCoords).r;
+
+    for (int i = 0; i < int(maxLayers) && currentLayerDepth < currentDepthMapValue; i++) {
+        currentTexCoords -= deltaTexCoords;
+        currentDepthMapValue = 1.0 - heightMap.Sample(currentTexCoords).r;
+        currentLayerDepth += layerDepth;
+    }
+
+    float2 prevTexCoords = currentTexCoords + deltaTexCoords;
+    float afterDepth = currentDepthMapValue - currentLayerDepth;
+    float beforeDepth = (1.0 - heightMap.Sample(prevTexCoords).r) - currentLayerDepth + layerDepth;
+    float weight = afterDepth / (afterDepth - beforeDepth);
+
+    return prevTexCoords * weight + currentTexCoords * (1.0 - weight);
+}
+
 [shader("vertex")]
 VSOutput vertMainInstanced(InstancedVSInput input) {
     VSOutput output;
@@ -90,24 +119,29 @@ VSOutput vertMainInstanced(InstancedVSInput input) {
 [[vk::binding(0, 1)]] Sampler2D normalMap;
 [[vk::binding(0, 2)]] Sampler2D roughnessMap;
 [[vk::binding(0, 3)]] Sampler2D metallicMap;
+[[vk::binding(0, 4)]] Sampler2D heightMap;
 
 [shader("fragment")]
 float4 fragMain(VSOutput vertIn) : SV_TARGET {
-    float4 texColor = texture.Sample(vertIn.fragTexCoord);
-    if (texColor.a < 0.5)
-        discard;
-
     float3 N = normalize(vertIn.fragNormal);
     float3 T = normalize(vertIn.fragTangent);
     T = normalize(T - N * dot(N, T));
     float3 B = cross(N, T);
     float3x3 TBN = float3x3(T, B, N);
 
-    float3 tangentNormal = normalMap.Sample(vertIn.fragTexCoord).rgb * 2.0 - 1.0;
+    float3 V = normalize(ubo.cameraPos.xyz - vertIn.worldPos);
+    float3 viewDirTS = normalize(mul(TBN, V));
+
+    float2 texCoord = parallaxOcclusionMapping(vertIn.fragTexCoord, viewDirTS);
+
+    float4 texColor = texture.Sample(texCoord);
+    if (texColor.a < 0.5)
+        discard;
+
+    float3 tangentNormal = normalMap.Sample(texCoord).rgb * 2.0 - 1.0;
     N = normalize(mul(tangentNormal, TBN));
 
     float3 L = normalize(float3(1.0, 1.0, 1.0));
-    float3 V = normalize(ubo.cameraPos.xyz - vertIn.worldPos);
     float3 H = normalize(L + V);
 
     float NdotL = max(dot(N, L), 0.0);
@@ -115,23 +149,23 @@ float4 fragMain(VSOutput vertIn) : SV_TARGET {
     float LdotH = max(dot(L, H), 0.0);
     float NdotH = max(dot(N, H), 0.0);
 
-    float roughness = roughnessMap.Sample(vertIn.fragTexCoord).r;
+    float roughness = roughnessMap.Sample(texCoord).r;
 
     float fd90 = 0.5 + 2.0 * roughness * LdotH * LdotH;
     float lightScatter = 1.0 + (fd90 - 1.0) * pow(1.0 - NdotL, 5.0);
     float viewScatter = 1.0 + (fd90 - 1.0) * pow(1.0 - NdotV, 5.0);
-
     float burleyDiffuse = lightScatter * viewScatter * NdotL;
-
-    float metallic = metallicMap.Sample(vertIn.fragTexCoord).r;
-    const float3 Fzero = lerp(float3(0.04, 0.04, 0.04), texColor.rgb, metallic);    float D = distributionGGX(NdotH, roughness);
-    float G = geometrySmith(NdotV, NdotL, roughness);
-    float3 F = fresnelSchlick(max(dot(V, H), 0.0), Fzero);
-
-    float3 specular = (D * G * F) / max(4.0 * NdotV * NdotL, 0.001);
 
     float ambient = 0.25;
     float lightingFactor = burleyDiffuse + ambient;
+
+    float metallic = metallicMap.Sample(texCoord).r;
+    const float3 F0 = lerp(float3(0.04, 0.04, 0.04), texColor.rgb, metallic);
+
+    float D = distributionGGX(NdotH, roughness);
+    float G = geometrySmith(NdotV, NdotL, roughness);
+    float3 F = fresnelSchlick(max(dot(V, H), 0.0), F0);
+    float3 specular = (D * G * F) / max(4.0 * NdotV * NdotL, 0.001);
 
     float3 diffuseColor = texColor.rgb * (1.0 - metallic);
     float3 finalColor = diffuseColor * lightingFactor + specular * NdotL;

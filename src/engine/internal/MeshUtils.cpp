@@ -137,6 +137,11 @@ void MeshUtils::extractMaterial(const ufbx_mesh *mesh, const ufbx_mesh_part &par
     if (metalness.texture && metalness.texture_enabled) {
         sub.metallicMapFilename = bareFilename(metalness.texture);
     }
+
+    const ufbx_material_map &displacement = material->pbr.displacement_map;
+    if (displacement.texture && displacement.texture_enabled) {
+        sub.heightMapFilename = bareFilename(displacement.texture);
+    }
 }
 
 Mesh::Vertex MeshUtils::processVertex(const ufbx_mesh *mesh, const ufbx_node *node, uint32_t corner) {
