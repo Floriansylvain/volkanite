@@ -88,6 +88,7 @@ VSOutput vertMainInstanced(InstancedVSInput input) {
 
 [[vk::binding(1, 0)]] Sampler2D texture;
 [[vk::binding(0, 1)]] Sampler2D normalMap;
+[[vk::binding(0, 2)]] Sampler2D roughnessMap;
 
 [shader("fragment")]
 float4 fragMain(VSOutput vertIn) : SV_TARGET {
@@ -113,7 +114,7 @@ float4 fragMain(VSOutput vertIn) : SV_TARGET {
     float LdotH = max(dot(L, H), 0.0);
     float NdotH = max(dot(N, H), 0.0);
 
-    float roughness = 0.5;
+    float roughness = roughnessMap.Sample(vertIn.fragTexCoord).r;
 
     float fd90 = 0.5 + 2.0 * roughness * LdotH * LdotH;
     float lightScatter = 1.0 + (fd90 - 1.0) * pow(1.0 - NdotL, 5.0);

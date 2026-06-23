@@ -19,8 +19,8 @@ Engine::Engine(Window *_window, VulkanContext *_vkCtx)
 Engine::~Engine() = default;
 
 void Engine::createGraphicsPipeline() {
-    pipelineLayout = VulkanUtils::createPipelineLayout(vkCtx, {*descriptorSetLayout, *normalMapSetLayout});
-
+    pipelineLayout =
+        VulkanUtils::createPipelineLayout(vkCtx, {*descriptorSetLayout, *normalMapSetLayout, *roughnessMapSetLayout});
     const vk::Format colorFormat = swapChainHandler.surfaceFormat.format;
     const vk::Format depthFormat = swapChainHandler.findDepthFormat();
 
@@ -195,16 +195,22 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
                                                            static_cast<float>(swapChainHandler.extent2D.height), 0.0f, 1.0f));
     commandBuffers[frameIndex].setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainHandler.extent2D));
 
+    InstanceRenderer::DrawCommand drawCommand = {};
+    drawCommand.commandBuffer = &commandBuffers[frameIndex];
+    drawCommand.frameIndex = frameIndex;
+    drawCommand.pipelineLayout = *pipelineLayout;
+    drawCommand.textureDescriptorSets = &textureDescriptorSets;
+    drawCommand.normalMapDescriptorSets = &normalMapDescriptorSets;
+    drawCommand.roughnessMapDescriptorSets = &roughnessMapDescriptorSets;
+
     writeTimestamp(GpuPass::OpaqueGeometry, true, eColorAttachmentOutput);
-    instanceRenderer.draw(commandBuffers[frameIndex], frameIndex, *pipelineLayout, textureDescriptorSets,
-                          normalMapDescriptorSets, isWireframe, drawCallCount);
+    instanceRenderer.draw(drawCommand, isWireframe, drawCallCount);
     vertexCount = instanceRenderer.getVisibleVertexEstimate(frameIndex);
     writeTimestamp(GpuPass::OpaqueGeometry, false, eColorAttachmentOutput);
 
     writeTimestamp(GpuPass::Xray, true, eColorAttachmentOutput);
     if (isXray) {
-        instanceRenderer.drawXray(commandBuffers[frameIndex], frameIndex, *pipelineLayout, textureDescriptorSets,
-                                  normalMapDescriptorSets);
+        instanceRenderer.drawXray(drawCommand);
     }
     writeTimestamp(GpuPass::Xray, false, eColorAttachmentOutput);
 
@@ -282,8 +288,14 @@ RenderObjectHandle Engine::addRenderObject(RenderObject object) {
     if (!object.material.normalMap) {
         object.material.normalMap = defaultNormalMap;
     }
+    if (!object.material.roughnessMap) {
+        object.material.roughnessMap = getOrCreateFlatRoughnessMap(object.material.roughness);
+    }
+
     registerTexture(object.material.albedo);
     registerNormalMap(object.material.normalMap);
+    registerRoughnessMap(object.material.roughnessMap);
+
     return instanceRenderer.addObject(std::move(object));
 }
 
@@ -436,6 +448,14 @@ void Engine::createDescriptorSetLayout() {
     normalMapBinding.stageFlags = vk::ShaderStageFlagBits::eFragment;
 
     normalMapSetLayout = VulkanUtils::createDescriptorSetLayout(vkCtx, {normalMapBinding});
+
+    vk::DescriptorSetLayoutBinding roughnessMapBinding{};
+    roughnessMapBinding.binding = 0;
+    roughnessMapBinding.descriptorType = vk::DescriptorType::eCombinedImageSampler;
+    roughnessMapBinding.descriptorCount = 1;
+    roughnessMapBinding.stageFlags = vk::ShaderStageFlagBits::eFragment;
+
+    roughnessMapSetLayout = VulkanUtils::createDescriptorSetLayout(vkCtx, {roughnessMapBinding});
 }
 
 void Engine::createCameraUniformBuffer() {
@@ -457,12 +477,12 @@ void Engine::updateUniformBuffer(const uint32_t currentImage) const {
 void Engine::createDescriptorPool() {
     constexpr vk::DescriptorPoolSize uboPoolSize{vk::DescriptorType::eUniformBuffer, MAX_FRAMES_IN_FLIGHT * MAX_TEXTURES};
     constexpr vk::DescriptorPoolSize samplerPoolSize{vk::DescriptorType::eCombinedImageSampler,
-                                                     MAX_FRAMES_IN_FLIGHT * MAX_TEXTURES * 2};
+                                                     MAX_FRAMES_IN_FLIGHT * MAX_TEXTURES * 3};
     constexpr std::array poolSize = {uboPoolSize, samplerPoolSize};
 
     vk::DescriptorPoolCreateInfo poolInfo{};
     poolInfo.flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet;
-    poolInfo.maxSets = MAX_FRAMES_IN_FLIGHT * MAX_TEXTURES * 2;
+    poolInfo.maxSets = MAX_FRAMES_IN_FLIGHT * MAX_TEXTURES * 3;
     poolInfo.poolSizeCount = static_cast<uint32_t>(poolSize.size());
     poolInfo.pPoolSizes = poolSize.data();
 
@@ -515,6 +535,45 @@ void Engine::registerNormalMap(const std::shared_ptr<Texture> &normalMap) {
     normalMapDescriptorSets.try_emplace(normalMap, std::move(sets));
 }
 
+void Engine::registerRoughnessMap(const std::shared_ptr<Texture> &roughnessMap) {
+    if (roughnessMapDescriptorSets.contains(roughnessMap))
+        return;
+
+    const std::vector layouts(MAX_FRAMES_IN_FLIGHT, *roughnessMapSetLayout);
+    vk::DescriptorSetAllocateInfo allocInfo{};
+    allocInfo.descriptorPool = *descriptorPool;
+    allocInfo.descriptorSetCount = static_cast<uint32_t>(layouts.size());
+    allocInfo.pSetLayouts = layouts.data();
+
+    std::vector<vk::raii::DescriptorSet> sets = vkCtx.device.allocateDescriptorSets(allocInfo);
+
+    DescriptorWriter writer(vkCtx);
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        writer.writeImage(*sets[i], 0, vk::DescriptorType::eCombinedImageSampler, *roughnessMap->textureImageView,
+                          *roughnessMap->textureSampler);
+    }
+    writer.update();
+
+    roughnessMapDescriptorSets.try_emplace(roughnessMap, std::move(sets));
+}
+
+std::shared_ptr<Texture> Engine::getOrCreateFlatRoughnessMap(const float roughness) {
+    if (const auto it = roughnessFallbackCache.find(roughness); it != roughnessFallbackCache.end()) {
+        return it->second;
+    }
+
+    auto texture = std::make_shared<Texture>(vkCtx);
+    texture->createSolidValue(roughness, commandPool);
+    roughnessFallbackCache.try_emplace(roughness, texture);
+    return texture;
+}
+
+std::shared_ptr<Texture> Engine::loadRoughnessMap(const std::string &path) {
+    auto texture = std::make_shared<Texture>(vkCtx);
+    texture->loadFromFile(path, commandPool, false);
+    return texture;
+}
+
 std::shared_ptr<Mesh> Engine::createCubeMesh(const float size) {
     auto mesh = std::make_shared<Mesh>(vkCtx);
     MeshUtils::generateCube(*mesh, size);
@@ -549,8 +608,11 @@ Engine::FBXModel Engine::createFBXModel(const std::string &fbxPath, const std::s
     struct MergedGroup {
         std::vector<Mesh::Vertex> vertices;
         std::vector<uint32_t> indices;
+
         std::string albedoFilename;
         std::string normalMapFilename;
+        std::string roughnessMapFilename;
+
         glm::vec3 baseColor{1.0f};
         float roughness = 0.5f;
     };
@@ -565,11 +627,12 @@ Engine::FBXModel Engine::createFBXModel(const std::string &fbxPath, const std::s
                                          ? "#flat:" + std::to_string(sub.baseColor.r) + "," + std::to_string(sub.baseColor.g) +
                                                "," + std::to_string(sub.baseColor.b) + "," + std::to_string(sub.roughness)
                                          : sub.albedoFilename;
-        const std::string materialKey = colorKey + "|" + sub.normalMapFilename;
+        const std::string materialKey = colorKey + "|" + sub.normalMapFilename + "|" + sub.roughnessMapFilename;
 
         auto &group = merged[materialKey];
         group.albedoFilename = sub.albedoFilename;
         group.normalMapFilename = sub.normalMapFilename;
+        group.roughnessMapFilename = sub.roughnessMapFilename;
         group.baseColor = sub.baseColor;
         group.roughness = sub.roughness;
 
@@ -620,6 +683,20 @@ Engine::FBXModel Engine::createFBXModel(const std::string &fbxPath, const std::s
                 texture->loadFromFile(normalPath.string(), commandPool, false);
                 normalMapCache.try_emplace(group.normalMapFilename, texture);
                 material.normalMap = texture;
+            }
+        }
+
+        if (!group.roughnessMapFilename.empty()) {
+            if (const auto it = roughnessMapCache.find(group.roughnessMapFilename); it != roughnessMapCache.end()) {
+                material.roughnessMap = it->second;
+            } else {
+                std::filesystem::path roughPath = std::filesystem::path("textures") / group.roughnessMapFilename;
+                roughPath.replace_extension(fileExtension);
+
+                auto texture = std::make_shared<Texture>(vkCtx);
+                texture->loadFromFile(roughPath.string(), commandPool, /*srgb=*/false);
+                roughnessMapCache.try_emplace(group.roughnessMapFilename, texture);
+                material.roughnessMap = texture;
             }
         }
 

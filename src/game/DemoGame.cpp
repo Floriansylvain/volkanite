@@ -15,8 +15,9 @@ void DemoGame::init(Engine &engine) {
     engine.placeFBXModel(car, glm::vec3(15.f, -5.f, 2.f));
 
     const auto cubeMesh = engine.createCubeMesh(1.f);
-    const auto albedo = engine.loadTexture("textures/bricks.jpg");
-    const auto normalMap = engine.loadNormalMap("textures/NormalMap.png");
+    const auto albedo = engine.loadTexture("textures/oxidized-metal-clad_albedo.png");
+    const auto normalMap = engine.loadNormalMap("textures/oxidized-metal-clad_normal-ogl.png");
+    const auto roughnessMap = engine.loadNormalMap("textures/oxidized-metal-clad_roughness.png");
 
     constexpr int OFFSET = 3;
     constexpr float INNER_RADIUS = 25.0f;
@@ -35,6 +36,7 @@ void DemoGame::init(Engine &engine) {
                 cube.mesh = cubeMesh;
                 cube.material.albedo = albedo;
                 cube.material.normalMap = normalMap;
+                cube.material.roughnessMap = roughnessMap;
                 cube.position = {x, y, z};
                 cube.rotation = glm::vec3(glm::sin(float(x)), glm::sin(float(y)), glm::sin(float(z)));
                 engine.addRenderObject(std::move(cube));

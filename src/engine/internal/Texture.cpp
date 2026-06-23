@@ -99,6 +99,23 @@ void Texture::createFlatNormalMap(const vk::raii::CommandPool &commandPool) {
     uploadImage(stagingBuffer, 1, 1, commandPool);
 }
 
+void Texture::createSolidValue(const float value, const vk::raii::CommandPool &commandPool) {
+    format = vk::Format::eR8G8B8A8Unorm;
+    const auto byteValue = static_cast<uint8_t>(glm::clamp(value, 0.0f, 1.0f) * 255.0f);
+    const std::array<uint8_t, 4> pixel = {byteValue, byteValue, byteValue, 255};
+
+    constexpr vk::DeviceSize imageSize = 4;
+    auto [stagingBuffer, stagingBufferMemory] =
+        VulkanUtils::createBuffer(vkCtx, imageSize, vk::BufferUsageFlagBits::eTransferSrc,
+                                  vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+
+    void *data = stagingBufferMemory.mapMemory(0, imageSize);
+    memcpy(data, pixel.data(), imageSize);
+    stagingBufferMemory.unmapMemory();
+
+    uploadImage(stagingBuffer, 1, 1, commandPool);
+}
+
 void Texture::uploadImage(const vk::raii::Buffer &stagingBuffer, const uint32_t texWidth, const uint32_t texHeight,
                           const vk::raii::CommandPool &commandPool) {
     width = texWidth;

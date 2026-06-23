@@ -37,16 +37,21 @@ class InstanceRenderer {
     };
     void cull(const CullCommand &command) const;
 
-    void draw(const vk::raii::CommandBuffer &commandBuffer, uint32_t frameIndex, vk::PipelineLayout pipelineLayout,
-              const std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>> &textureDescriptorSets,
-              const std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>> &normalMapDescriptorSets,
-              bool wireframe, uint32_t &drawCallCount) const;
+    using mapDescriptorSets = const std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>>;
 
-    void
-    drawXray(const vk::raii::CommandBuffer &commandBuffer, uint32_t frameIndex, vk::PipelineLayout pipelineLayout,
-             const std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>> &textureDescriptorSets,
-             const std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>> &normalMapDescriptorSets)
-        const;
+    struct DrawCommand {
+        vk::raii::CommandBuffer *commandBuffer;
+        vk::PipelineLayout pipelineLayout;
+        uint32_t frameIndex;
+
+        mapDescriptorSets *textureDescriptorSets;
+        mapDescriptorSets *normalMapDescriptorSets;
+        mapDescriptorSets *roughnessMapDescriptorSets;
+    };
+
+    void draw(DrawCommand command, bool wireframe, uint32_t &drawCallCount) const;
+
+    void drawXray(DrawCommand command) const;
 
     [[nodiscard]] uint64_t getVisibleVertexEstimate(uint32_t frameIndex) const;
 
@@ -78,6 +83,7 @@ class InstanceRenderer {
         std::shared_ptr<Mesh> mesh;
         std::shared_ptr<Texture> texture;
         std::shared_ptr<Texture> normalMap;
+        std::shared_ptr<Texture> roughnessMap;
 
         std::vector<size_t> objectIndices;
     };

@@ -12,6 +12,7 @@ class Texture {
     void loadFromFile(const std::string &filepath, const vk::raii::CommandPool &commandPool, bool srgb = true);
     void createSolidColor(const glm::vec3 &color, const vk::raii::CommandPool &commandPool);
     void createFlatNormalMap(const vk::raii::CommandPool &commandPool);
+    void createSolidValue(float value, const vk::raii::CommandPool &commandPool);
 
     vk::raii::ImageView textureImageView = nullptr;
     vk::raii::Sampler textureSampler = nullptr;

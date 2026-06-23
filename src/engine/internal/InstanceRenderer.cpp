@@ -52,13 +52,15 @@ void InstanceRenderer::build(const vk::raii::CommandPool &commandPool) {
     for (size_t i = 0; i < objects.size(); i++) {
         const auto &obj = objects[i];
         auto it = std::ranges::find_if(newBatches, [&](const auto &b) {
-            return b.mesh == obj.mesh && b.texture == obj.material.albedo && b.normalMap == obj.material.normalMap;
+            return b.mesh == obj.mesh && b.texture == obj.material.albedo && b.normalMap == obj.material.normalMap &&
+                   b.roughnessMap == obj.material.roughnessMap;
         });
         if (it == newBatches.end()) {
             InstanceBatch batch;
             batch.mesh = obj.mesh;
             batch.texture = obj.material.albedo;
             batch.normalMap = obj.material.normalMap;
+            batch.roughnessMap = obj.material.roughnessMap;
             batch.objectIndices.push_back(i);
             newBatches.push_back(std::move(batch));
         } else {
@@ -233,55 +235,53 @@ void InstanceRenderer::update(const uint32_t currentImage, const CullingUtils::F
     }
 }
 
-void InstanceRenderer::draw(
-    const vk::raii::CommandBuffer &commandBuffer, const uint32_t frameIndex, const vk::PipelineLayout pipelineLayout,
-    const std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>> &textureDescriptorSets,
-    const std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>> &normalMapDescriptorSets,
-    const bool wireframe, uint32_t &drawCallCount) const {
-
-    commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, wireframe ? *wireframePipeline : *solidPipeline);
+void InstanceRenderer::draw(DrawCommand command, bool wireframe, uint32_t &drawCallCount) const {
+    command.commandBuffer->bindPipeline(vk::PipelineBindPoint::eGraphics, wireframe ? *wireframePipeline : *solidPipeline);
 
     for (const auto &batch : batches) {
-        const auto &albedoSets = textureDescriptorSets.at(batch.texture);
-        const auto &normalSets = normalMapDescriptorSets.at(batch.normalMap);
-        const std::array boundSets = {*albedoSets[frameIndex], *normalSets[frameIndex]};
-        commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, boundSets, nullptr);
+        const auto &albedoSets = command.textureDescriptorSets->at(batch.texture);
+        const auto &normalSets = command.normalMapDescriptorSets->at(batch.normalMap);
+        const auto &roughSets = command.roughnessMapDescriptorSets->at(batch.roughnessMap);
+        const std::array boundSets = {*albedoSets[command.frameIndex], *normalSets[command.frameIndex],
+                                      *roughSets[command.frameIndex]};
+        command.commandBuffer->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, command.pipelineLayout, 0, boundSets,
+                                                  nullptr);
 
         std::vector<vk::DeviceSize> vertexOffsets = {0};
-        commandBuffer.bindVertexBuffers(0, *batch.mesh->unifiedBuffer, vertexOffsets);
+        command.commandBuffer->bindVertexBuffers(0, *batch.mesh->unifiedBuffer, vertexOffsets);
         std::vector<vk::DeviceSize> instanceOffsets = {0};
-        commandBuffer.bindVertexBuffers(1, batch.culledBuffers[frameIndex], instanceOffsets);
+        command.commandBuffer->bindVertexBuffers(1, batch.culledBuffers[command.frameIndex], instanceOffsets);
         const vk::DeviceSize vertexSizeOffset = sizeof(Mesh::Vertex) * batch.mesh->vertices.size();
-        commandBuffer.bindIndexBuffer(*batch.mesh->unifiedBuffer, vertexSizeOffset, vk::IndexType::eUint32);
+        command.commandBuffer->bindIndexBuffer(*batch.mesh->unifiedBuffer, vertexSizeOffset, vk::IndexType::eUint32);
 
-        commandBuffer.drawIndexedIndirect(batch.indirectBuffers[frameIndex], 0, 1, sizeof(vk::DrawIndexedIndirectCommand));
+        command.commandBuffer->drawIndexedIndirect(batch.indirectBuffers[command.frameIndex], 0, 1,
+                                                   sizeof(vk::DrawIndexedIndirectCommand));
         drawCallCount++;
     }
 }
 
-void InstanceRenderer::drawXray(
-    const vk::raii::CommandBuffer &commandBuffer, uint32_t frameIndex, vk::PipelineLayout pipelineLayout,
-    const std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>> &textureDescriptorSets,
-    const std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>> &normalMapDescriptorSets) const {
-
+void InstanceRenderer::drawXray(DrawCommand command) const {
     for (const auto &batch : batches) {
         if (batch.visibleInstanceCount == 0)
             continue;
 
-        const auto &albedoSets = textureDescriptorSets.at(batch.texture);
-        const auto &normalSets = normalMapDescriptorSets.at(batch.normalMap);
-        const std::array boundSets = {*albedoSets[frameIndex], *normalSets[frameIndex]};
-        commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, boundSets[frameIndex], nullptr);
+        const auto &albedoSets = command.textureDescriptorSets->at(batch.texture);
+        const auto &normalSets = command.normalMapDescriptorSets->at(batch.normalMap);
+        const auto &roughSets = command.roughnessMapDescriptorSets->at(batch.roughnessMap);
+        const std::array boundSets = {*albedoSets[command.frameIndex], *normalSets[command.frameIndex],
+                                      *roughSets[command.frameIndex]};
+        command.commandBuffer->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, command.pipelineLayout, 0,
+                                                  boundSets[command.frameIndex], nullptr);
         std::vector<vk::DeviceSize> vertexOffsets = {0};
 
-        commandBuffer.bindVertexBuffers(0, *batch.mesh->unifiedBuffer, vertexOffsets);
+        command.commandBuffer->bindVertexBuffers(0, *batch.mesh->unifiedBuffer, vertexOffsets);
         std::vector<vk::DeviceSize> instanceOffsets = {0};
-        commandBuffer.bindVertexBuffers(1, batch.culledOnlyBuffers[frameIndex], instanceOffsets);
+        command.commandBuffer->bindVertexBuffers(1, batch.culledOnlyBuffers[command.frameIndex], instanceOffsets);
         const vk::DeviceSize vertexSizeOffset = sizeof(Mesh::Vertex) * batch.mesh->vertices.size();
-        commandBuffer.bindIndexBuffer(*batch.mesh->unifiedBuffer, vertexSizeOffset, vk::IndexType::eUint32);
+        command.commandBuffer->bindIndexBuffer(*batch.mesh->unifiedBuffer, vertexSizeOffset, vk::IndexType::eUint32);
 
-        commandBuffer.drawIndexedIndirect(batch.culledOnlyIndirectBuffers[frameIndex], 0, 1,
-                                          sizeof(vk::DrawIndexedIndirectCommand));
+        command.commandBuffer->drawIndexedIndirect(batch.culledOnlyIndirectBuffers[command.frameIndex], 0, 1,
+                                                   sizeof(vk::DrawIndexedIndirectCommand));
     }
 }
 

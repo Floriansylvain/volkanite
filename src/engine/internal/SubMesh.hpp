@@ -7,6 +7,8 @@
 struct SubMesh {
     std::string albedoFilename;
     std::string normalMapFilename;
+    std::string roughnessMapFilename;
+
     glm::vec3 baseColor{1.0f};
     float roughness = 0.5f;
     std::vector<Mesh::Vertex> vertices;

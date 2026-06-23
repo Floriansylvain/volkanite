@@ -38,6 +38,7 @@ class Engine {
     [[nodiscard]] std::shared_ptr<Mesh> createCubeMesh(float size);
     [[nodiscard]] std::shared_ptr<Texture> loadTexture(const std::string &path);
     [[nodiscard]] std::shared_ptr<Texture> loadNormalMap(const std::string &path);
+    [[nodiscard]] std::shared_ptr<Texture> loadRoughnessMap(const std::string &path);
 
   private:
     constexpr static float DEBUG_FONT_SIZE = 38.f;
@@ -66,8 +67,12 @@ class Engine {
 
     vk::raii::DescriptorSetLayout descriptorSetLayout = nullptr;
     vk::raii::DescriptorSetLayout normalMapSetLayout = nullptr;
+    vk::raii::DescriptorSetLayout roughnessMapSetLayout = nullptr;
+
     vk::raii::PipelineLayout pipelineLayout = nullptr;
+
     vk::raii::CommandPool commandPool = nullptr;
+
     std::vector<vk::raii::CommandBuffer> commandBuffers;
     std::vector<vk::raii::Semaphore> presentCompleteSemaphores;
     std::vector<vk::raii::Semaphore> renderFinishedSemaphores;
@@ -80,9 +85,12 @@ class Engine {
 
     std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>> textureDescriptorSets;
     std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>> normalMapDescriptorSets;
+    std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>> roughnessMapDescriptorSets;
 
     std::unordered_map<std::string, std::shared_ptr<Texture>> textureCache;
     std::unordered_map<std::string, std::shared_ptr<Texture>> normalMapCache;
+    std::unordered_map<std::string, std::shared_ptr<Texture>> roughnessMapCache;
+    std::unordered_map<float, std::shared_ptr<Texture>> roughnessFallbackCache;
 
     std::shared_ptr<Texture> defaultNormalMap;
 
@@ -114,8 +122,12 @@ class Engine {
     };
     void createDescriptorSetLayout();
     void createCameraUniformBuffer();
+
     void registerTexture(const std::shared_ptr<Texture> &texture);
     void registerNormalMap(const std::shared_ptr<Texture> &normalMap);
+    void registerRoughnessMap(const std::shared_ptr<Texture> &roughnessMap);
+    [[nodiscard]] std::shared_ptr<Texture> getOrCreateFlatRoughnessMap(float roughness);
+
     void updateUniformBuffer(uint32_t currentImage) const;
     void createDescriptorPool();
     void updateInstanceBuffers(uint32_t currentImage);
