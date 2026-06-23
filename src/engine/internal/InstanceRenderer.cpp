@@ -14,8 +14,8 @@ void InstanceRenderer::createPipelines(const vk::PipelineLayout pipelineLayout, 
     const auto attributeDescriptions = Mesh::Vertex::getAttributeDescriptions();
 
     const vk::VertexInputBindingDescription instanceBinding{1, sizeof(InstanceData), vk::VertexInputRate::eInstance};
-    const vk::VertexInputAttributeDescription instancePos{4, 1, vk::Format::eR32G32B32Sfloat, offsetof(InstanceData, position)};
-    const vk::VertexInputAttributeDescription instanceRot{5, 1, vk::Format::eR32G32B32Sfloat, offsetof(InstanceData, rotation)};
+    const vk::VertexInputAttributeDescription instancePos{5, 1, vk::Format::eR32G32B32Sfloat, offsetof(InstanceData, position)};
+    const vk::VertexInputAttributeDescription instanceRot{6, 1, vk::Format::eR32G32B32Sfloat, offsetof(InstanceData, rotation)};
 
     std::vector attrs(attributeDescriptions.begin(), attributeDescriptions.end());
     attrs.push_back(instancePos);
@@ -51,12 +51,14 @@ void InstanceRenderer::build(const vk::raii::CommandPool &commandPool) {
 
     for (size_t i = 0; i < objects.size(); i++) {
         const auto &obj = objects[i];
-        auto it =
-            std::ranges::find_if(newBatches, [&](const auto &b) { return b.mesh == obj.mesh && b.texture == obj.texture; });
+        auto it = std::ranges::find_if(newBatches, [&](const auto &b) {
+            return b.mesh == obj.mesh && b.texture == obj.material.albedo && b.normalMap == obj.material.normalMap;
+        });
         if (it == newBatches.end()) {
             InstanceBatch batch;
             batch.mesh = obj.mesh;
-            batch.texture = obj.texture;
+            batch.texture = obj.material.albedo;
+            batch.normalMap = obj.material.normalMap;
             batch.objectIndices.push_back(i);
             newBatches.push_back(std::move(batch));
         } else {
@@ -116,42 +118,30 @@ void InstanceRenderer::createCullDescriptorSets(const vk::DescriptorSetLayout cu
 
     cullDescriptorPool = vk::raii::DescriptorPool(vkCtx.device, poolInfo);
 
+    DescriptorWriter writer(vkCtx);
+
     for (auto &batch : batches) {
         batch.cullDescriptorSets.clear();
         for (uint32_t f = 0; f < framesU; ++f) {
-            using enum vk::DescriptorType;
             vk::DescriptorSetAllocateInfo allocInfo{};
             allocInfo.descriptorPool = *cullDescriptorPool;
             allocInfo.descriptorSetCount = 1;
             allocInfo.pSetLayouts = &cullSetLayout;
+            vk::raii::DescriptorSet set = std::move(vk::raii::DescriptorSets(vkCtx.device, allocInfo).front());
 
-            DescriptorWriter writer(vkCtx);
+            writer.writeBuffer(*set, 0, batch.buffers[f], vk::WholeSize, vk::DescriptorType::eStorageBuffer)
+                .writeBuffer(*set, 1, batch.culledBuffers[f], vk::WholeSize, vk::DescriptorType::eStorageBuffer)
+                .writeBuffer(*set, 2, batch.indirectBuffers[f], vk::WholeSize, vk::DescriptorType::eStorageBuffer)
+                .writeImage(*set, 3, vk::DescriptorType::eCombinedImageSampler, hiZViews[f], hiZSampler)
+                .writeBuffer(*set, 4, cameraUniformBuffers[f], vk::WholeSize, vk::DescriptorType::eUniformBuffer)
+                .writeBuffer(*set, 6, batch.culledOnlyBuffers[f], vk::WholeSize, vk::DescriptorType::eStorageBuffer)
+                .writeBuffer(*set, 7, batch.culledOnlyIndirectBuffers[f], vk::WholeSize, vk::DescriptorType::eStorageBuffer);
 
-            for (auto &batch : batches) {
-                batch.cullDescriptorSets.clear();
-                for (uint32_t f = 0; f < framesU; ++f) {
-                    vk::DescriptorSetAllocateInfo allocInfo{};
-                    allocInfo.descriptorPool = *cullDescriptorPool;
-                    allocInfo.descriptorSetCount = 1;
-                    allocInfo.pSetLayouts = &cullSetLayout;
-                    vk::raii::DescriptorSet set = std::move(vk::raii::DescriptorSets(vkCtx.device, allocInfo).front());
-
-                    writer.writeBuffer(*set, 0, batch.buffers[f], vk::WholeSize, vk::DescriptorType::eStorageBuffer)
-                        .writeBuffer(*set, 1, batch.culledBuffers[f], vk::WholeSize, vk::DescriptorType::eStorageBuffer)
-                        .writeBuffer(*set, 2, batch.indirectBuffers[f], vk::WholeSize, vk::DescriptorType::eStorageBuffer)
-                        .writeImage(*set, 3, vk::DescriptorType::eCombinedImageSampler, hiZViews[f], hiZSampler)
-                        .writeBuffer(*set, 4, cameraUniformBuffers[f], vk::WholeSize, vk::DescriptorType::eUniformBuffer)
-                        .writeBuffer(*set, 6, batch.culledOnlyBuffers[f], vk::WholeSize, vk::DescriptorType::eStorageBuffer)
-                        .writeBuffer(*set, 7, batch.culledOnlyIndirectBuffers[f], vk::WholeSize,
-                                     vk::DescriptorType::eStorageBuffer);
-
-                    batch.cullDescriptorSets.push_back(std::move(set));
-                }
-            }
-
-            writer.update();
+            batch.cullDescriptorSets.push_back(std::move(set));
         }
     }
+
+    writer.update();
 }
 
 void InstanceRenderer::cull(const CullCommand &command) const {
@@ -246,13 +236,16 @@ void InstanceRenderer::update(const uint32_t currentImage, const CullingUtils::F
 void InstanceRenderer::draw(
     const vk::raii::CommandBuffer &commandBuffer, const uint32_t frameIndex, const vk::PipelineLayout pipelineLayout,
     const std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>> &textureDescriptorSets,
+    const std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>> &normalMapDescriptorSets,
     const bool wireframe, uint32_t &drawCallCount) const {
 
     commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, wireframe ? *wireframePipeline : *solidPipeline);
 
     for (const auto &batch : batches) {
-        const auto &sets = textureDescriptorSets.at(batch.texture);
-        commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, *sets[frameIndex], nullptr);
+        const auto &albedoSets = textureDescriptorSets.at(batch.texture);
+        const auto &normalSets = normalMapDescriptorSets.at(batch.normalMap);
+        const std::array boundSets = {*albedoSets[frameIndex], *normalSets[frameIndex]};
+        commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, boundSets, nullptr);
 
         std::vector<vk::DeviceSize> vertexOffsets = {0};
         commandBuffer.bindVertexBuffers(0, *batch.mesh->unifiedBuffer, vertexOffsets);
@@ -267,16 +260,18 @@ void InstanceRenderer::draw(
 }
 
 void InstanceRenderer::drawXray(
-    const vk::raii::CommandBuffer &commandBuffer, const uint32_t frameIndex, const vk::PipelineLayout pipelineLayout,
-    const std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>> &textureDescriptorSets) const {
-    commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *xrayPipeline);
+    const vk::raii::CommandBuffer &commandBuffer, uint32_t frameIndex, vk::PipelineLayout pipelineLayout,
+    const std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>> &textureDescriptorSets,
+    const std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>> &normalMapDescriptorSets) const {
 
     for (const auto &batch : batches) {
         if (batch.visibleInstanceCount == 0)
             continue;
 
-        const auto &sets = textureDescriptorSets.at(batch.texture);
-        commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, *sets[frameIndex], nullptr);
+        const auto &albedoSets = textureDescriptorSets.at(batch.texture);
+        const auto &normalSets = normalMapDescriptorSets.at(batch.normalMap);
+        const std::array boundSets = {*albedoSets[frameIndex], *normalSets[frameIndex]};
+        commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, boundSets[frameIndex], nullptr);
         std::vector<vk::DeviceSize> vertexOffsets = {0};
 
         commandBuffer.bindVertexBuffers(0, *batch.mesh->unifiedBuffer, vertexOffsets);

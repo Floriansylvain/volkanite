@@ -45,32 +45,87 @@ void MeshUtils::generateCube(Mesh &mesh, const float &size) {
 
         vertexOffset += 4;
     }
+
+    computeTangents(mesh.vertices, mesh.indices);
 }
 
-std::string MeshUtils::extractTexturePath(const ufbx_mesh *mesh, const ufbx_mesh_part &part) {
-    if (part.index >= mesh->materials.count) {
-        return "";
+void MeshUtils::computeTangents(std::vector<Mesh::Vertex> &vertices, const std::vector<uint32_t> &indices) {
+    std::vector<glm::vec3> accum(vertices.size(), glm::vec3(0.0f));
+
+    for (size_t i = 0; i + 2 < indices.size(); i += 3) {
+        const uint32_t i0 = indices[i];
+        const uint32_t i1 = indices[i + 1];
+        const uint32_t i2 = indices[i + 2];
+
+        const glm::vec3 edge1 = vertices[i1].pos - vertices[i0].pos;
+        const glm::vec3 edge2 = vertices[i2].pos - vertices[i0].pos;
+        const glm::vec2 deltaUV1 = vertices[i1].texCoord - vertices[i0].texCoord;
+        const glm::vec2 deltaUV2 = vertices[i2].texCoord - vertices[i0].texCoord;
+
+        const float denom = deltaUV1.x * deltaUV2.y - deltaUV2.x * deltaUV1.y;
+        if (std::abs(denom) < 1e-8f)
+            continue;
+
+        const float f = 1.0f / denom;
+        const glm::vec3 tangent = f * (deltaUV2.y * edge1 - deltaUV1.y * edge2);
+
+        accum[i0] += tangent;
+        accum[i1] += tangent;
+        accum[i2] += tangent;
     }
 
-    const ufbx_material *material = mesh->materials.data[part.index];
-    if (!material || material->textures.count == 0) {
-        return "";
+    for (size_t i = 0; i < vertices.size(); ++i) {
+        const glm::vec3 &n = vertices[i].normal;
+        glm::vec3 t = accum[i] - n * glm::dot(n, accum[i]); // Gram-Schmidt against the normal
+
+        if (glm::length(t) < 1e-6f) {
+            const glm::vec3 up = std::abs(n.z) < 0.999f ? glm::vec3(0.0f, 0.0f, 1.0f) : glm::vec3(1.0f, 0.0f, 0.0f);
+            t = glm::cross(up, n);
+        }
+
+        vertices[i].tangent = glm::normalize(t);
     }
+}
 
-    const ufbx_texture *texture = material->textures.data[0].texture;
-    if (!texture) {
+namespace {
+std::string bareFilename(const ufbx_texture *texture) {
+    if (!texture)
         return "";
-    }
-
-    std::string raw = texture->relative_filename.length > 0 ? std::string(texture->relative_filename.data)
-                                                            : std::string(texture->filename.data);
-
-    if (raw.empty()) {
+    const std::string raw = texture->relative_filename.length > 0 ? std::string(texture->relative_filename.data)
+                                                                  : std::string(texture->filename.data);
+    if (raw.empty())
         return "";
-    }
-
     const size_t lastSep = raw.find_last_of("/\\");
     return lastSep == std::string::npos ? raw : raw.substr(lastSep + 1);
+}
+} // namespace
+
+void MeshUtils::extractMaterial(const ufbx_mesh *mesh, const ufbx_mesh_part &part, SubMesh &sub) {
+    if (part.index >= mesh->materials.count)
+        return;
+
+    const ufbx_material *material = mesh->materials.data[part.index];
+    if (!material)
+        return;
+
+    const ufbx_material_map &baseColor = material->pbr.base_color;
+    if (baseColor.has_value) {
+        sub.baseColor = {static_cast<float>(baseColor.value_vec3.x), static_cast<float>(baseColor.value_vec3.y),
+                         static_cast<float>(baseColor.value_vec3.z)};
+    }
+    if (baseColor.texture && baseColor.texture_enabled) {
+        sub.albedoFilename = bareFilename(baseColor.texture);
+    }
+
+    const ufbx_material_map &roughness = material->pbr.roughness;
+    if (roughness.has_value) {
+        sub.roughness = static_cast<float>(roughness.value_real);
+    }
+
+    const ufbx_material_map &normalMap = material->pbr.normal_map;
+    if (normalMap.texture && normalMap.texture_enabled) {
+        sub.normalMapFilename = bareFilename(normalMap.texture);
+    }
 }
 
 Mesh::Vertex MeshUtils::processVertex(const ufbx_mesh *mesh, const ufbx_node *node, uint32_t corner) {
@@ -127,7 +182,7 @@ SubMesh MeshUtils::processMeshPart(const ufbx_mesh *mesh, const ufbx_node *node,
         }
     }
 
-    sub.filename = extractTexturePath(mesh, part);
+    extractMaterial(mesh, part, sub);
     return sub;
 }
 

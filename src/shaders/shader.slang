@@ -2,7 +2,8 @@ struct InstancedVSInput {
     float3 inPos;
     float3 inColor;
     float2 inTexCoord;
-    float3 inNormal;        
+    float3 inNormal;
+    float3 inTangent;
     float3 instancePos;
     float3 instanceRotation;
 };
@@ -20,6 +21,7 @@ struct VSOutput {
     float3 fragColor;
     float2 fragTexCoord;
     float3 fragNormal;
+    float3 fragTangent;
     float3 worldPos;
 };
 
@@ -74,17 +76,18 @@ VSOutput vertMainInstanced(InstancedVSInput input) {
     float4 worldPos = float4(rotatedPos.xyz + input.instancePos, 1.0);
 
     output.pos = mul(ubo.proj, mul(ubo.view, worldPos));
-    float3 rotatedNormal = mul((float3x3)rot, input.inNormal);
-    output.fragNormal = normalize(rotatedNormal);
+    float3x3 rot3 = (float3x3)rot;
+    output.fragNormal = normalize(mul(rot3, input.inNormal));
+    output.fragTangent = normalize(mul(rot3, input.inTangent));
     output.fragColor = input.inColor;
     output.fragTexCoord = input.inTexCoord;
-
     output.worldPos = worldPos.xyz;
 
     return output;
 }
 
 [[vk::binding(1, 0)]] Sampler2D texture;
+[[vk::binding(0, 1)]] Sampler2D normalMap;
 
 [shader("fragment")]
 float4 fragMain(VSOutput vertIn) : SV_TARGET {
@@ -93,6 +96,14 @@ float4 fragMain(VSOutput vertIn) : SV_TARGET {
         discard;
 
     float3 N = normalize(vertIn.fragNormal);
+    float3 T = normalize(vertIn.fragTangent);
+    T = normalize(T - N * dot(N, T));
+    float3 B = cross(N, T);
+    float3x3 TBN = float3x3(T, B, N);
+
+    float3 tangentNormal = normalMap.Sample(vertIn.fragTexCoord).rgb * 2.0 - 1.0;
+    N = normalize(mul(tangentNormal, TBN));
+
     float3 L = normalize(float3(1.0, 1.0, 1.0));
     float3 V = normalize(ubo.cameraPos.xyz - vertIn.worldPos);
     float3 H = normalize(L + V);

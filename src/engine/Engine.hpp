@@ -30,19 +30,20 @@ class Engine {
 
     struct FBXModel {
         std::vector<std::shared_ptr<Mesh>> meshes;
-        std::vector<std::shared_ptr<Texture>> textures;
+        std::vector<Material> materials;
     };
     FBXModel createFBXModel(const std::string &fbxPath, const std::string &fileExtension);
     void placeFBXModel(const FBXModel &model, const glm::vec3 &position);
 
     [[nodiscard]] std::shared_ptr<Mesh> createCubeMesh(float size);
     [[nodiscard]] std::shared_ptr<Texture> loadTexture(const std::string &path);
+    [[nodiscard]] std::shared_ptr<Texture> loadNormalMap(const std::string &path);
 
   private:
     constexpr static float DEBUG_FONT_SIZE = 38.f;
     constexpr static float PERF_PANEL_LEFT_MARGIN = 450.f;
     constexpr static int MAX_FRAMES_IN_FLIGHT = 2;
-    constexpr static int MAX_TEXTURES = 16;
+    constexpr static int MAX_TEXTURES = 256;
 
     Window &window;
     VulkanContext &vkCtx;
@@ -64,6 +65,7 @@ class Engine {
     float timestampPeriodNs = 1.0f;
 
     vk::raii::DescriptorSetLayout descriptorSetLayout = nullptr;
+    vk::raii::DescriptorSetLayout normalMapSetLayout = nullptr;
     vk::raii::PipelineLayout pipelineLayout = nullptr;
     vk::raii::CommandPool commandPool = nullptr;
     std::vector<vk::raii::CommandBuffer> commandBuffers;
@@ -77,8 +79,12 @@ class Engine {
     PerFrameBuffer cameraUniformBuffers;
 
     std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>> textureDescriptorSets;
+    std::unordered_map<std::shared_ptr<Texture>, std::vector<vk::raii::DescriptorSet>> normalMapDescriptorSets;
 
     std::unordered_map<std::string, std::shared_ptr<Texture>> textureCache;
+    std::unordered_map<std::string, std::shared_ptr<Texture>> normalMapCache;
+
+    std::shared_ptr<Texture> defaultNormalMap;
 
     bool isInitialized = false;
     bool framebufferResized = false;
@@ -109,6 +115,7 @@ class Engine {
     void createDescriptorSetLayout();
     void createCameraUniformBuffer();
     void registerTexture(const std::shared_ptr<Texture> &texture);
+    void registerNormalMap(const std::shared_ptr<Texture> &normalMap);
     void updateUniformBuffer(uint32_t currentImage) const;
     void createDescriptorPool();
     void updateInstanceBuffers(uint32_t currentImage);

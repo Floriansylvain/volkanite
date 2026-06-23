@@ -9,8 +9,7 @@
 Texture::Texture(const VulkanContext &context) : vkCtx(context) {}
 
 void Texture::createImageView() {
-    textureImageView = VulkanUtils::createImageView(vkCtx, *textureImage, vk::Format::eR8G8B8A8Srgb,
-                                                    vk::ImageAspectFlagBits::eColor, mipLevels);
+    textureImageView = VulkanUtils::createImageView(vkCtx, *textureImage, format, vk::ImageAspectFlagBits::eColor, mipLevels);
 }
 
 void Texture::createSampler() {
@@ -32,7 +31,7 @@ void Texture::createSampler() {
     textureSampler = vk::raii::Sampler(vkCtx.device, samplerInfo);
 }
 
-void Texture::loadFromFile(const std::string &filepath, const vk::raii::CommandPool &commandPool) {
+void Texture::loadFromFile(const std::string &filepath, const vk::raii::CommandPool &commandPool, const bool srgb) {
     SDL_Surface *imgSurface = IMG_Load(filepath.c_str());
     if (!imgSurface) {
         throw EngineExceptions::Compatibility("Failed to load texture image '" + filepath + "': " + SDL_GetError());
@@ -47,25 +46,64 @@ void Texture::loadFromFile(const std::string &filepath, const vk::raii::CommandP
         }
     }
 
-    const unsigned int texWidth = imgSurface->w;
-    const unsigned int texHeight = imgSurface->h;
-
-    width = texWidth;
-    height = texHeight;
-    mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(texWidth, texHeight)))) + 1;
-
+    const auto texWidth = static_cast<uint32_t>(imgSurface->w);
+    const auto texHeight = static_cast<uint32_t>(imgSurface->h);
     const vk::DeviceSize imageSize = imgSurface->pitch * imgSurface->h;
-    void const *pixels = imgSurface->pixels;
 
     auto [stagingBuffer, stagingBufferMemory] =
         VulkanUtils::createBuffer(vkCtx, imageSize, vk::BufferUsageFlagBits::eTransferSrc,
                                   vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
 
     void *data = stagingBufferMemory.mapMemory(0, imageSize);
-    memcpy(data, pixels, imageSize);
+    memcpy(data, imgSurface->pixels, imageSize);
     stagingBufferMemory.unmapMemory();
 
     SDL_DestroySurface(imgSurface);
+
+    format = srgb ? vk::Format::eR8G8B8A8Srgb : vk::Format::eR8G8B8A8Unorm;
+    uploadImage(stagingBuffer, texWidth, texHeight, commandPool);
+}
+
+void Texture::createSolidColor(const glm::vec3 &color, const vk::raii::CommandPool &commandPool) {
+    format = vk::Format::eR8G8B8A8Srgb;
+    const glm::vec3 encoded = glm::pow(glm::clamp(color, 0.0f, 1.0f), glm::vec3(1.0f / 2.2f));
+
+    const std::array<uint8_t, 4> pixel = {static_cast<uint8_t>(encoded.r * 255.0f), static_cast<uint8_t>(encoded.g * 255.0f),
+                                          static_cast<uint8_t>(encoded.b * 255.0f), 255};
+
+    constexpr vk::DeviceSize imageSize = 4;
+    auto [stagingBuffer, stagingBufferMemory] =
+        VulkanUtils::createBuffer(vkCtx, imageSize, vk::BufferUsageFlagBits::eTransferSrc,
+                                  vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+
+    void *data = stagingBufferMemory.mapMemory(0, imageSize);
+    memcpy(data, pixel.data(), imageSize);
+    stagingBufferMemory.unmapMemory();
+
+    uploadImage(stagingBuffer, 1, 1, commandPool);
+}
+
+void Texture::createFlatNormalMap(const vk::raii::CommandPool &commandPool) {
+    format = vk::Format::eR8G8B8A8Unorm;
+    constexpr std::array<uint8_t, 4> pixel = {128, 128, 255, 255};
+
+    constexpr vk::DeviceSize imageSize = 4;
+    auto [stagingBuffer, stagingBufferMemory] =
+        VulkanUtils::createBuffer(vkCtx, imageSize, vk::BufferUsageFlagBits::eTransferSrc,
+                                  vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+
+    void *data = stagingBufferMemory.mapMemory(0, imageSize);
+    memcpy(data, pixel.data(), imageSize);
+    stagingBufferMemory.unmapMemory();
+
+    uploadImage(stagingBuffer, 1, 1, commandPool);
+}
+
+void Texture::uploadImage(const vk::raii::Buffer &stagingBuffer, const uint32_t texWidth, const uint32_t texHeight,
+                          const vk::raii::CommandPool &commandPool) {
+    width = texWidth;
+    height = texHeight;
+    mipLevels = static_cast<uint32_t>(std::floor(std::log2(std::max(texWidth, texHeight)))) + 1;
 
     using enum vk::ImageUsageFlagBits;
     VulkanUtils::CreateImageCommand createImageCommand = {};
@@ -77,6 +115,7 @@ void Texture::loadFromFile(const std::string &filepath, const vk::raii::CommandP
     createImageCommand.tiling = vk::ImageTiling::eOptimal;
     createImageCommand.usage = eTransferSrc | eTransferDst | eSampled;
     createImageCommand.properties = vk::MemoryPropertyFlagBits::eDeviceLocal;
+    createImageCommand.format = format;
 
     std::tie(textureImage, textureImageMemory) = VulkanUtils::createImage(vkCtx, createImageCommand);
 

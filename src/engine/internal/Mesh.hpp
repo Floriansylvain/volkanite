@@ -14,9 +14,10 @@ class Mesh {
         glm::vec3 color;
         glm::vec2 texCoord;
         glm::vec3 normal;
+        glm::vec3 tangent;
 
         static vk::VertexInputBindingDescription getBindingDescription();
-        static std::array<vk::VertexInputAttributeDescription, 4> getAttributeDescriptions();
+        static std::array<vk::VertexInputAttributeDescription, 5> getAttributeDescriptions();
 
         bool operator==(const Vertex &other) const {
             return pos == other.pos && color == other.color && texCoord == other.texCoord && normal == other.normal;

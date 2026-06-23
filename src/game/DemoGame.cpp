@@ -9,10 +9,14 @@ const glm::vec3 SHOWCASE_ORIGIN{15.0f, -5.0f, 10.0f};
 
 void DemoGame::init(Engine &engine) {
     const Engine::FBXModel house = engine.createFBXModel("models/House_scene_01.fbx", ".png");
+    const Engine::FBXModel car = engine.createFBXModel("models/FINAL_MODEL_Bronco.fbx", ".png");
+
     engine.placeFBXModel(house, glm::vec3(0.f, 0.f, 0.f));
+    engine.placeFBXModel(car, glm::vec3(15.f, -5.f, 2.f));
 
     const auto cubeMesh = engine.createCubeMesh(1.f);
-    const auto texture = engine.loadTexture("textures/bricks.jpg");
+    const auto albedo = engine.loadTexture("textures/bricks.jpg");
+    const auto normalMap = engine.loadNormalMap("textures/NormalMap.png");
 
     constexpr int OFFSET = 3;
     constexpr float INNER_RADIUS = 25.0f;
@@ -29,7 +33,8 @@ void DemoGame::init(Engine &engine) {
                     continue;
                 RenderObject cube;
                 cube.mesh = cubeMesh;
-                cube.texture = texture;
+                cube.material.albedo = albedo;
+                cube.material.normalMap = normalMap;
                 cube.position = {x, y, z};
                 cube.rotation = glm::vec3(glm::sin(float(x)), glm::sin(float(y)), glm::sin(float(z)));
                 engine.addRenderObject(std::move(cube));
@@ -40,7 +45,7 @@ void DemoGame::init(Engine &engine) {
     {
         RenderObject obj;
         obj.mesh = cubeMesh;
-        obj.texture = texture;
+        obj.material.albedo = albedo;
         obj.position = SHOWCASE_ORIGIN + glm::vec3(0.f, -6.f, 2.f);
         const RenderObjectHandle handle = engine.addRenderObject(std::move(obj));
         spinningObjects.push_back({handle, glm::vec3(0.6f, 1.0f, 1.4f)});
@@ -49,7 +54,7 @@ void DemoGame::init(Engine &engine) {
     {
         RenderObject obj;
         obj.mesh = cubeMesh;
-        obj.texture = texture;
+        obj.material.albedo = albedo;
         obj.position = SHOWCASE_ORIGIN;
         const RenderObjectHandle handle = engine.addRenderObject(std::move(obj));
         orbitingObjects.push_back({handle, SHOWCASE_ORIGIN, 6.0f, 1.2f, 0.0f});
@@ -59,7 +64,7 @@ void DemoGame::init(Engine &engine) {
         const glm::vec3 center = SHOWCASE_ORIGIN + glm::vec3(0.f, 6.f, -2.f);
         RenderObject obj;
         obj.mesh = cubeMesh;
-        obj.texture = texture;
+        obj.material.albedo = albedo;
         obj.position = center;
         const RenderObjectHandle handle = engine.addRenderObject(std::move(obj));
         spinningObjects.push_back({handle, glm::vec3(2.0f, -1.5f, 0.8f)});
