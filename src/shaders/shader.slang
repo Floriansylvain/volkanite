@@ -25,28 +25,37 @@ struct VSOutput {
     float3 worldPos;
 };
 
-float4x4 rotationMatrix(float3 axis, float angle) {
-    axis = normalize(axis);
-    float s = sin(angle);
-    float c = cos(angle);
-    float oc = 1.0 - c;
-
-    float4x4 m;
-    m[0] = float4(oc*axis.x*axis.x + c,        oc*axis.x*axis.y - axis.z*s, oc*axis.z*axis.x + axis.y*s, 0.0);
-    m[1] = float4(oc*axis.x*axis.y + axis.z*s, oc*axis.y*axis.y + c,        oc*axis.y*axis.z - axis.x*s, 0.0);
-    m[2] = float4(oc*axis.z*axis.x - axis.y*s, oc*axis.y*axis.z + axis.x*s, oc*axis.z*axis.z + c,        0.0);
-    m[3] = float4(0.0, 0.0, 0.0, 1.0);
-    return m;
-}
-
 float4x4 eulerRotationMatrix(float3 angles) {
-    float4x4 rx = rotationMatrix(float3(1.0, 0.0, 0.0), angles.x);
-    float4x4 ry = rotationMatrix(float3(0.0, 1.0, 0.0), angles.y);
-    float4x4 rz = rotationMatrix(float3(0.0, 0.0, 1.0), angles.z);
+    float3 s, c;
+    sincos(angles, s, c);
+
+    float4x4 rx;
+    rx[0] = float4(1.0, 0.0, 0.0, 0.0);
+    rx[1] = float4(0.0, c.x, -s.x, 0.0);
+    rx[2] = float4(0.0, s.x, c.x,  0.0);
+    rx[3] = float4(0.0, 0.0, 0.0,  1.0);
+
+    float4x4 ry;
+    ry[0] = float4(c.y,  0.0, s.y, 0.0);
+    ry[1] = float4(0.0,  1.0, 0.0, 0.0);
+    ry[2] = float4(-s.y, 0.0, c.y, 0.0);
+    ry[3] = float4(0.0,  0.0, 0.0, 1.0);
+
+    float4x4 rz;
+    rz[0] = float4(c.z, -s.z, 0.0, 0.0);
+    rz[1] = float4(s.z, c.z,  0.0, 0.0);
+    rz[2] = float4(0.0, 0.0,  1.0, 0.0);
+    rz[3] = float4(0.0, 0.0,  0.0, 1.0);
+
     return mul(rz, mul(ry, rx));
 }
 
 static const float PI = 3.14159265359;
+
+float pow5(float x) {
+    float x2 = x * x;
+    return x2 * x2 * x;
+}
 
 float distributionGGX(float NdotH, float roughness) {
     float a = roughness * roughness;
@@ -65,8 +74,14 @@ float geometrySmith(float NdotV, float NdotL, float roughness) {
 }
 
 float3 fresnelSchlick(float VdotH, float3 F0) {
-    return F0 + (1.0 - F0) * pow(1.0 - VdotH, 5.0);
+    return F0 + (1.0 - F0) * pow5(saturate(1.0 - VdotH));
 }
+
+[[vk::binding(1, 0)]] Sampler2D texture;
+[[vk::binding(0, 1)]] Sampler2D normalMap;
+[[vk::binding(0, 2)]] Sampler2D roughnessMap;
+[[vk::binding(0, 3)]] Sampler2D metallicMap;
+[[vk::binding(0, 4)]] Sampler2D heightMap;
 
 float2 parallaxOcclusionMapping(float2 texCoords, float3 viewDirTS) {
     const float heightScale = 0.05;
@@ -81,17 +96,18 @@ float2 parallaxOcclusionMapping(float2 texCoords, float3 viewDirTS) {
     float2 deltaTexCoords = p / numLayers;
 
     float2 currentTexCoords = texCoords;
-    float currentDepthMapValue = 1.0 - heightMap.Sample(currentTexCoords).r;
+    
+    float currentDepthMapValue = 1.0 - heightMap.SampleLevel(currentTexCoords, 0.0).r;
 
-    for (int i = 0; i < int(maxLayers) && currentLayerDepth < currentDepthMapValue; i++) {
+    for (int i = 0; i < 32 && currentLayerDepth < currentDepthMapValue; i++) {
         currentTexCoords -= deltaTexCoords;
-        currentDepthMapValue = 1.0 - heightMap.Sample(currentTexCoords).r;
+        currentDepthMapValue = 1.0 - heightMap.SampleLevel(currentTexCoords, 0.0).r;
         currentLayerDepth += layerDepth;
     }
 
     float2 prevTexCoords = currentTexCoords + deltaTexCoords;
     float afterDepth = currentDepthMapValue - currentLayerDepth;
-    float beforeDepth = (1.0 - heightMap.Sample(prevTexCoords).r) - currentLayerDepth + layerDepth;
+    float beforeDepth = (1.0 - heightMap.SampleLevel(prevTexCoords, 0.0).r) - currentLayerDepth + layerDepth;
     float weight = afterDepth / (afterDepth - beforeDepth);
 
     return prevTexCoords * weight + currentTexCoords * (1.0 - weight);
@@ -115,12 +131,6 @@ VSOutput vertMainInstanced(InstancedVSInput input) {
     return output;
 }
 
-[[vk::binding(1, 0)]] Sampler2D texture;
-[[vk::binding(0, 1)]] Sampler2D normalMap;
-[[vk::binding(0, 2)]] Sampler2D roughnessMap;
-[[vk::binding(0, 3)]] Sampler2D metallicMap;
-[[vk::binding(0, 4)]] Sampler2D heightMap;
-
 [shader("fragment")]
 float4 fragMain(VSOutput vertIn) : SV_TARGET {
     float3 N = normalize(vertIn.fragNormal);
@@ -141,19 +151,19 @@ float4 fragMain(VSOutput vertIn) : SV_TARGET {
     float3 tangentNormal = normalMap.Sample(texCoord).rgb * 2.0 - 1.0;
     N = normalize(mul(tangentNormal, TBN));
 
-    float3 L = normalize(float3(1.0, 1.0, 1.0));
+    const float3 L = float3(0.57735026, 0.57735026, 0.57735026);
     float3 H = normalize(L + V);
 
-    float NdotL = max(dot(N, L), 0.0);
-    float NdotV = max(dot(N, V), 0.0);
-    float LdotH = max(dot(L, H), 0.0);
-    float NdotH = max(dot(N, H), 0.0);
+    float NdotL = saturate(dot(N, L));
+    float NdotV = saturate(dot(N, V));
+    float LdotH = saturate(dot(L, H));
+    float NdotH = saturate(dot(N, H));
 
     float roughness = roughnessMap.Sample(texCoord).r;
 
     float fd90 = 0.5 + 2.0 * roughness * LdotH * LdotH;
-    float lightScatter = 1.0 + (fd90 - 1.0) * pow(1.0 - NdotL, 5.0);
-    float viewScatter = 1.0 + (fd90 - 1.0) * pow(1.0 - NdotV, 5.0);
+    float lightScatter = 1.0 + (fd90 - 1.0) * pow5(saturate(1.0 - NdotL));
+    float viewScatter = 1.0 + (fd90 - 1.0) * pow5(saturate(1.0 - NdotV));
     float burleyDiffuse = lightScatter * viewScatter * NdotL;
 
     float metallic = metallicMap.Sample(texCoord).r;
@@ -161,7 +171,7 @@ float4 fragMain(VSOutput vertIn) : SV_TARGET {
 
     float D = distributionGGX(NdotH, roughness);
     float G = geometrySmith(NdotV, NdotL, roughness);
-    float3 F = fresnelSchlick(max(dot(V, H), 0.0), F0);
+    float3 F = fresnelSchlick(saturate(dot(V, H)), F0);
     float3 specular = (D * G * F) / max(4.0 * NdotV * NdotL, 0.001);
 
     const float3 skyColor = float3(0.35, 0.38, 0.42);

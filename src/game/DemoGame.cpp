@@ -24,6 +24,13 @@ void DemoGame::init(Engine &engine) {
     const auto metallicMap = engine.loadRoughnessMap(std::format("textures/{}_metallic.png", selectedTexture));
     const auto heightMap = engine.loadHeightMap(std::format("textures/{}_height.png", selectedTexture));
 
+    Material cubeMaterial = {};
+    cubeMaterial.albedo = albedo;
+    cubeMaterial.normalMap = normalMap;
+    cubeMaterial.roughnessMap = roughnessMap;
+    cubeMaterial.metallicMap = metallicMap;
+    cubeMaterial.heightMap = heightMap;
+
     constexpr int OFFSET = 3;
     constexpr float INNER_RADIUS = 25.0f;
     constexpr float OUTER_RADIUS = 40.0f;
@@ -39,11 +46,7 @@ void DemoGame::init(Engine &engine) {
                     continue;
                 RenderObject cube;
                 cube.mesh = cubeMesh;
-                cube.material.albedo = albedo;
-                cube.material.normalMap = normalMap;
-                cube.material.roughnessMap = roughnessMap;
-                cube.material.metallicMap = metallicMap;
-                cube.material.heightMap = heightMap;
+                cube.material = cubeMaterial;
                 cube.position = {x, y, z};
                 cube.rotation = glm::vec3(glm::sin(float(x)), glm::sin(float(y)), glm::sin(float(z)));
                 engine.addRenderObject(std::move(cube));
@@ -55,11 +58,7 @@ void DemoGame::init(Engine &engine) {
         const auto bigCubeMesh = engine.createCubeMesh(100.f);
         RenderObject bigCube;
         bigCube.mesh = bigCubeMesh;
-        bigCube.material.albedo = albedo;
-        bigCube.material.normalMap = normalMap;
-        bigCube.material.roughnessMap = roughnessMap;
-        bigCube.material.metallicMap = metallicMap;
-        bigCube.material.heightMap = heightMap;
+        bigCube.material = cubeMaterial;
         bigCube.position = {0.f, 0.f, -150.f};
         bigCube.rotation = glm::vec3({0.f});
         engine.addRenderObject(std::move(bigCube));
