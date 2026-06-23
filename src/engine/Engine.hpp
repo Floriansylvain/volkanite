@@ -38,6 +38,7 @@ class Engine {
     [[nodiscard]] std::shared_ptr<Mesh> createCubeMesh(float size) const;
     [[nodiscard]] std::shared_ptr<Texture> loadTexture(const std::string &path) const;
     [[nodiscard]] std::shared_ptr<Texture> loadNormalMap(const std::string &path) const;
+    [[nodiscard]] std::shared_ptr<Texture> loadOrmMapFile(const std::string &path) const;
     [[nodiscard]] std::shared_ptr<Texture> loadOrmMap(const std::string &roughnessPath, const std::string &metallicPath,
                                                       const std::string &heightPath) const;
 

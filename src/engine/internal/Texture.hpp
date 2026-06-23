@@ -39,6 +39,8 @@ class Texture {
     void generateMipmaps(vk::Format imageFormat, const vk::raii::CommandBuffer &commandBuffer) const;
     void uploadImage(const vk::raii::Buffer &stagingBuffer, uint32_t texWidth, uint32_t texHeight,
                      const vk::raii::CommandPool &commandPool);
+
+    void loadDDS(const std::string &filepath, const vk::raii::CommandPool &commandPool, bool srgb);
 };
 
 #endif

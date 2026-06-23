@@ -11,9 +11,8 @@ void DemoGame::init(Engine &engine) {
 
     engine.placeFBXModel(house, glm::vec3(0.f, 0.f, 0.f));
 
-    // pirate-gold
-    // oxidized-metal
-    // steelplate1
+    // const auto selectedTexture = std::string("pirate-gold");
+    //  const auto selectedTexture = std::string("oxidized-metal");
     const auto selectedTexture = std::string("steelplate1");
 
     const auto cubeMesh = engine.createCubeMesh(1.f);
@@ -22,6 +21,7 @@ void DemoGame::init(Engine &engine) {
     const auto ormMap = engine.loadOrmMap(std::format("textures/{}_roughness.png", selectedTexture),
                                           std::format("textures/{}_metallic.png", selectedTexture),
                                           std::format("textures/{}_height.png", selectedTexture));
+    // const auto ormMap = engine.loadOrmMapFile("textures/oxidized-metal-clad_orm.dds");
 
     Material cubeMaterial = {};
     cubeMaterial.albedo = albedo;
@@ -71,7 +71,7 @@ void DemoGame::init(Engine &engine) {
     {
         RenderObject obj;
         obj.mesh = cubeMesh;
-        obj.material.albedo = albedo;
+        obj.material = cubeMaterial;
         obj.position = SHOWCASE_ORIGIN + glm::vec3(0.f, -6.f, 2.f);
         const RenderObjectHandle handle = engine.addRenderObject(std::move(obj));
         spinningObjects.emplace_back(handle, glm::vec3(0.6f, 1.0f, 1.4f));
@@ -80,7 +80,7 @@ void DemoGame::init(Engine &engine) {
     {
         RenderObject obj;
         obj.mesh = cubeMesh;
-        obj.material.albedo = albedo;
+        obj.material = cubeMaterial;
         obj.position = SHOWCASE_ORIGIN;
         const RenderObjectHandle handle = engine.addRenderObject(std::move(obj));
         orbitingObjects.emplace_back(handle, SHOWCASE_ORIGIN, 6.0f, 1.2f, 0.0f);
@@ -90,7 +90,7 @@ void DemoGame::init(Engine &engine) {
         const glm::vec3 center = SHOWCASE_ORIGIN + glm::vec3(0.f, 6.f, -2.f);
         RenderObject obj;
         obj.mesh = cubeMesh;
-        obj.material.albedo = albedo;
+        obj.material = cubeMaterial;
         obj.position = center;
         const RenderObjectHandle handle = engine.addRenderObject(std::move(obj));
         spinningObjects.emplace_back(handle, glm::vec3(2.0f, -1.5f, 0.8f));

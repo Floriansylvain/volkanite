@@ -518,7 +518,7 @@ std::shared_ptr<Texture> Engine::getOrCreateFlatOrmMap(const float roughness, co
     }
 
     auto texture = std::make_shared<Texture>(vkCtx);
-    texture->createSolidValue3(glm::vec3(roughness, metallic, 1.0f), commandPool); // B = height, 1.0 = no displacement
+    texture->createSolidValue3(glm::vec3(roughness, metallic, 1.0f), commandPool);
     ormFallbackCache.try_emplace(key, texture);
     return texture;
 }
@@ -530,6 +530,8 @@ std::shared_ptr<Texture> Engine::loadLinearTexture(const std::string &path) cons
 }
 
 std::shared_ptr<Texture> Engine::loadNormalMap(const std::string &path) const { return loadLinearTexture(path); }
+
+std::shared_ptr<Texture> Engine::loadOrmMapFile(const std::string &path) const { return loadLinearTexture(path); }
 
 std::shared_ptr<Texture> Engine::loadOrmMap(const std::string &roughnessPath, const std::string &metallicPath,
                                             const std::string &heightPath) const {
