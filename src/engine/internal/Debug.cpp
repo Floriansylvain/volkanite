@@ -5,10 +5,11 @@
 
 namespace {
 
-constexpr std::array cpuPassNames = {"poll",   "camera update", "fence wait", "acquire",  "buffer update",
-                                     "record", "submit",        "present",    "CPU total"};
+constexpr std::array<const char *, static_cast<size_t>(CpuPass::Count)> cpuPassNames = {
+    "poll", "camera update", "fence wait", "acquire", "buffer update", "record", "submit", "present", "CPU total"};
 
-constexpr std::array gpuPassNames = {"frame setup", "HiZ build", "culling", "opaque", "xray", "text", "GPU total"};
+constexpr std::array<const char *, static_cast<size_t>(GpuPass::Count)> gpuPassNames = {
+    "frame setup", "HiZ build", "culling", "opaque", "xray", "text", "GPU total"};
 
 template <typename Names>
 float appendTrackedPassLines(std::vector<std::string> &out, const Names &names, std::span<const float> accumMs, float divisor) {

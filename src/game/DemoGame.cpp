@@ -20,7 +20,7 @@ void DemoGame::init(Engine &engine) {
     const auto albedo = engine.loadTexture(std::format("textures/{}_albedo.png", selectedTexture));
     const auto normalMap = engine.loadNormalMap(std::format("textures/{}_normal-ogl.png", selectedTexture));
     const auto roughnessMap = engine.loadRoughnessMap(std::format("textures/{}_roughness.png", selectedTexture));
-    const auto metallicMap = engine.loadMetallicMap(std::format("textures/{}_metallic.png", selectedTexture));
+    const auto metallicMap = engine.loadRoughnessMap(std::format("textures/{}_metallic.png", selectedTexture));
     const auto heightMap = engine.loadHeightMap(std::format("textures/{}_height.png", selectedTexture));
 
     Material cubeMaterial = {};
@@ -31,8 +31,8 @@ void DemoGame::init(Engine &engine) {
     cubeMaterial.heightMap = heightMap;
 
     constexpr int OFFSET = 3;
-    constexpr float INNER_RADIUS = 30.0f;
-    constexpr float OUTER_RADIUS = 35.0f;
+    constexpr float INNER_RADIUS = 25.0f;
+    constexpr float OUTER_RADIUS = 40.0f;
     constexpr float INNER_RADIUS_SQ = INNER_RADIUS * INNER_RADIUS;
     constexpr float OUTER_RADIUS_SQ = OUTER_RADIUS * OUTER_RADIUS;
     constexpr auto BOUND = static_cast<int>(OUTER_RADIUS);
