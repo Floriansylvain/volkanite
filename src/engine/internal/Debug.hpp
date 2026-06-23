@@ -4,7 +4,7 @@
 #pragma once
 #include <array>
 
-enum class GpuPass : uint32_t { FrameSetup, HiZBuild, Culling, OpaqueGeometry, Xray, TextOverlay, Present, Total, Count };
+enum class GpuPass : uint32_t { FrameSetup, HiZBuild, Culling, OpaqueGeometry, Xray, TextOverlay, Total, Count };
 enum class CpuPass : uint32_t {
     PollEvents,
     CameraUpdate,

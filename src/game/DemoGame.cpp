@@ -23,17 +23,16 @@ void DemoGame::init(Engine &engine) {
 
     for (int x = -BOUND; x <= BOUND; x += OFFSET) {
         for (int y = -BOUND; y <= BOUND; y += OFFSET) {
-            for (int z = -BOUND; z <= BOUND; z += OFFSET) {
-                float distSq = static_cast<float>(x * x + y * y + z * z);
-                if (distSq >= INNER_RADIUS_SQ && distSq <= OUTER_RADIUS_SQ) {
-                    RenderObject cube;
-                    cube.mesh = cubeMesh;
-                    cube.texture = texture;
-                    cube.position = {x, y, z};
-                    cube.rotation = glm::vec3(glm::sin(static_cast<float>(x)), glm::sin(static_cast<float>(y)),
-                                              glm::sin(static_cast<float>(z)));
-                    engine.addRenderObject(std::move(cube));
-                }
+            for (int z = 0; z <= BOUND; z += OFFSET) {
+                float distSq = float(x * x + y * y + z * z);
+                if (distSq < INNER_RADIUS_SQ || distSq > OUTER_RADIUS_SQ)
+                    continue;
+                RenderObject cube;
+                cube.mesh = cubeMesh;
+                cube.texture = texture;
+                cube.position = {x, y, z};
+                cube.rotation = glm::vec3(glm::sin(float(x)), glm::sin(float(y)), glm::sin(float(z)));
+                engine.addRenderObject(std::move(cube));
             }
         }
     }

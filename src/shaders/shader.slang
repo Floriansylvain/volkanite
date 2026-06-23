@@ -44,6 +44,28 @@ float4x4 eulerRotationMatrix(float3 angles) {
     return mul(rz, mul(ry, rx));
 }
 
+static const float PI = 3.14159265359;
+
+float distributionGGX(float NdotH, float roughness) {
+    float a = roughness * roughness;
+    float a2 = a * a;
+    float d = NdotH * NdotH * (a2 - 1.0) + 1.0;
+    return a2 / (PI * d * d);
+}
+
+float geometrySchlickGGX(float NdotX, float k) {
+    return NdotX / (NdotX * (1.0 - k) + k);
+}
+
+float geometrySmith(float NdotV, float NdotL, float roughness) {
+    float k = (roughness + 1.0) * (roughness + 1.0) / 8.0;
+    return geometrySchlickGGX(NdotV, k) * geometrySchlickGGX(NdotL, k);
+}
+
+float3 fresnelSchlick(float VdotH, float3 F0) {
+    return F0 + (1.0 - F0) * pow(1.0 - VdotH, 5.0);
+}
+
 [shader("vertex")]
 VSOutput vertMainInstanced(InstancedVSInput input) {
     VSOutput output;
@@ -78,6 +100,7 @@ float4 fragMain(VSOutput vertIn) : SV_TARGET {
     float NdotL = max(dot(N, L), 0.0);
     float NdotV = max(dot(N, V), 0.0);
     float LdotH = max(dot(L, H), 0.0);
+    float NdotH = max(dot(N, H), 0.0);
 
     float roughness = 0.5;
 
@@ -87,10 +110,17 @@ float4 fragMain(VSOutput vertIn) : SV_TARGET {
 
     float burleyDiffuse = lightScatter * viewScatter * NdotL;
 
+    const float3 Fzero = float3(0.04, 0.04, 0.04);
+    float D = distributionGGX(NdotH, roughness);
+    float G = geometrySmith(NdotV, NdotL, roughness);
+    float3 F = fresnelSchlick(max(dot(V, H), 0.0), Fzero);
+
+    float3 specular = (D * G * F) / max(4.0 * NdotV * NdotL, 0.001);
+
     float ambient = 0.25;
     float lightingFactor = burleyDiffuse + ambient;
 
-    float3 finalColor = texColor.rgb * lightingFactor;
+    float3 finalColor = texColor.rgb * lightingFactor + specular * NdotL;
 
     return float4(finalColor, 1.0);
 }

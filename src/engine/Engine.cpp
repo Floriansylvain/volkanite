@@ -241,9 +241,7 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
     presentTransition.dst_stage_mask = eBottomOfPipe;
     presentTransition.image_aspect_flags = vk::ImageAspectFlagBits::eColor;
 
-    writeTimestamp(GpuPass::Present, true, eColorAttachmentOutput);
     VulkanUtils::imageBarriers(commandBuffers[frameIndex], {presentTransition});
-    writeTimestamp(GpuPass::Present, false, eBottomOfPipe);
 
     writeTimestamp(GpuPass::Total, false, eBottomOfPipe);
 
