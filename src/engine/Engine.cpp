@@ -410,7 +410,7 @@ void Engine::createDescriptorSetLayout() {
     uboLayoutBinding.binding = 0;
     uboLayoutBinding.descriptorType = vk::DescriptorType::eUniformBuffer;
     uboLayoutBinding.descriptorCount = 1;
-    uboLayoutBinding.stageFlags = vk::ShaderStageFlagBits::eVertex;
+    uboLayoutBinding.stageFlags = vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment;
 
     vk::DescriptorSetLayoutBinding samplerLayoutBinding{};
     samplerLayoutBinding.binding = 1;
@@ -433,6 +433,7 @@ void Engine::updateUniformBuffer(const uint32_t currentImage) const {
     UniformBufferObject ubo{};
     ubo.view = camera.viewMatrix();
     ubo.proj = Camera::projMatrix(aspect);
+    ubo.cameraPos = glm::vec4(camera.position(), 1.0f);
     std::memcpy(cameraUniformBuffers.mapped(currentImage), &ubo, sizeof(ubo));
 }
 
