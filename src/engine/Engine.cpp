@@ -543,7 +543,8 @@ void Engine::createShadowResources() {
 }
 
 glm::mat4 Engine::computeLightViewProj() const {
-    return Camera::lightViewProjMatrix(lightDirection, camera.position(), SHADOW_LIGHT_DISTANCE, SHADOW_ORTHO_HALF_EXTENT, 0.1f,
+    const glm::vec3 lookTarget = camera.position() + camera.forward() * SHADOW_LOOK_AHEAD_DISTANCE;
+    return Camera::lightViewProjMatrix(lightDirection, lookTarget, SHADOW_LIGHT_DISTANCE, SHADOW_ORTHO_HALF_EXTENT, 0.1f,
                                        SHADOW_LIGHT_DISTANCE * 2.0f);
 }
 

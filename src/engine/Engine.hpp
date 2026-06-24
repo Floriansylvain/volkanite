@@ -54,6 +54,7 @@ class Engine {
     constexpr static uint32_t SHADOW_MAP_SIZE = 8192;
     constexpr static float SHADOW_ORTHO_HALF_EXTENT = 60.0f;
     constexpr static float SHADOW_LIGHT_DISTANCE = 100.0f;
+    constexpr static float SHADOW_LOOK_AHEAD_DISTANCE = 40.0f;
 
     Window &window;
     VulkanContext &vkCtx;
