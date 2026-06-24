@@ -29,7 +29,6 @@ foreach (SHADER_NAME ${SLANG_SHADER_NAMES})
         COMMAND ${SLANGC} "${SLANG_SHADER}"
             -target spirv
             -profile spirv_1_4
-            -O0
             -emit-spirv-directly
             -fvk-use-entrypoint-name
             -o "${SLANG_SPV_BIN}"
