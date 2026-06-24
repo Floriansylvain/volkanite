@@ -39,6 +39,8 @@ class Engine {
     void placeFBXModel(const FBXModel &model, const glm::vec3 &position);
 
     [[nodiscard]] std::shared_ptr<Mesh> createCubeMesh(float size) const;
+    [[nodiscard]] std::shared_ptr<Mesh> createTerrainMesh(int width, int depth, float spacing, float scale, float heightScale,
+                                                          int octaves, float persistence, float lacunarity) const;
     [[nodiscard]] std::shared_ptr<Texture> loadTexture(const std::string &path) const;
     [[nodiscard]] std::shared_ptr<Texture> loadNormalMap(const std::string &path) const;
     [[nodiscard]] std::shared_ptr<Texture> loadOrmMapFile(const std::string &path) const;

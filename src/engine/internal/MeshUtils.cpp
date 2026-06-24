@@ -1,6 +1,7 @@
 #include "MeshUtils.hpp"
 #include "Exceptions.hpp"
 #include <filesystem>
+#include <glm/gtc/noise.hpp>
 #include <ufbx.h>
 
 void MeshUtils::generateCube(Mesh &mesh, const float &size) {
@@ -44,6 +45,76 @@ void MeshUtils::generateCube(Mesh &mesh, const float &size) {
         mesh.indices.push_back(vertexOffset + 0);
 
         vertexOffset += 4;
+    }
+
+    computeTangents(mesh.vertices, mesh.indices);
+}
+
+void MeshUtils::generateTerrain(Mesh &mesh, int width, int depth, float spacing, float scale, float heightScale, int octaves,
+                                float persistence, float lacunarity) {
+    mesh.vertices.clear();
+    mesh.indices.clear();
+
+    const int vertexCount = width * depth;
+    mesh.vertices.reserve(vertexCount);
+
+    std::vector<float> heights(vertexCount);
+
+    for (int y = 0; y < depth; ++y) {
+        for (int x = 0; x < width; ++x) {
+            float amplitude = 1.0f;
+            float frequency = 1.0f;
+            float noiseHeight = 0.0f;
+
+            for (int i = 0; i < octaves; ++i) {
+                float sampleX = (static_cast<float>(x) * spacing) / scale * frequency;
+                float sampleY = (static_cast<float>(y) * spacing) / scale * frequency;
+                noiseHeight += glm::perlin(glm::vec2(sampleX, sampleY)) * amplitude;
+
+                amplitude *= persistence;
+                frequency *= lacunarity;
+            }
+
+            float finalHeight = noiseHeight * heightScale;
+            heights[y * width + x] = finalHeight;
+
+            Mesh::Vertex v{};
+            v.pos = glm::vec3(x * spacing, y * spacing, finalHeight);
+            v.color = glm::vec3(1.0f, 1.0f, 1.0f);
+            v.texCoord = glm::vec2(static_cast<float>(x) / width, static_cast<float>(y) / depth);
+
+            mesh.vertices.push_back(v);
+        }
+    }
+
+    for (int y = 0; y < depth; ++y) {
+        for (int x = 0; x < width; ++x) {
+            float hL = x > 0 ? heights[y * width + (x - 1)] : heights[y * width + x];
+            float hR = x < width - 1 ? heights[y * width + (x + 1)] : heights[y * width + x];
+            float hD = y > 0 ? heights[(y - 1) * width + x] : heights[y * width + x];
+            float hU = y < depth - 1 ? heights[(y + 1) * width + x] : heights[y * width + x];
+
+            glm::vec3 normal = glm::normalize(glm::vec3(hL - hR, hD - hU, 2.0f * spacing));
+            mesh.vertices[y * width + x].normal = normal;
+        }
+    }
+
+    mesh.indices.reserve(static_cast<size_t>(width - 1) * (depth - 1) * 6);
+    for (int y = 0; y < depth - 1; ++y) {
+        for (int x = 0; x < width - 1; ++x) {
+            uint32_t topLeft = y * width + x;
+            uint32_t topRight = topLeft + 1;
+            uint32_t bottomLeft = (y + 1) * width + x;
+            uint32_t bottomRight = bottomLeft + 1;
+
+            mesh.indices.push_back(topLeft);
+            mesh.indices.push_back(topRight);
+            mesh.indices.push_back(bottomLeft);
+
+            mesh.indices.push_back(topRight);
+            mesh.indices.push_back(bottomRight);
+            mesh.indices.push_back(bottomLeft);
+        }
     }
 
     computeTangents(mesh.vertices, mesh.indices);

@@ -640,6 +640,14 @@ std::shared_ptr<Mesh> Engine::createCubeMesh(const float size) const {
     return mesh;
 }
 
+std::shared_ptr<Mesh> Engine::createTerrainMesh(int width, int depth, float spacing, float scale, float heightScale,
+                                                int octaves, float persistence, float lacunarity) const {
+    auto mesh = std::make_shared<Mesh>(vkCtx);
+    MeshUtils::generateTerrain(*mesh, width, depth, spacing, scale, heightScale, octaves, persistence, lacunarity);
+    mesh->createGeometryBuffers(commandPool);
+    return mesh;
+}
+
 std::shared_ptr<Texture> Engine::loadTexture(const std::string &path) const {
     auto texture = std::make_shared<Texture>(vkCtx);
     texture->loadFromFile(path, commandPool);
