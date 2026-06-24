@@ -11,8 +11,6 @@
 namespace MeshUtils {
 
 void generateCube(Mesh &mesh, const float &size);
-void generateTerrain(Mesh &mesh, int width, int depth, float spacing, float scale, float heightScale, int octaves,
-                     float persistence, float lacunarity);
 
 void extractMaterial(const ufbx_mesh *mesh, const ufbx_mesh_part &part, SubMesh &sub);
 void computeTangents(std::vector<Mesh::Vertex> &vertices, const std::vector<uint32_t> &indices);

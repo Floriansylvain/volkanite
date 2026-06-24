@@ -1,5 +1,6 @@
 #include "DemoGame.hpp"
 #include "Engine.hpp"
+#include "TerrainTypes.hpp"
 #include <SDL3/SDL.h>
 
 namespace {
@@ -14,11 +15,11 @@ void DemoGame::init(Engine &engine) {
     // const auto selectedTexture = std::string("pirate-gold");
     // const auto selectedTexture = std::string("oxidized-metal-clad");
     // const auto selectedTexture = std::string("steelplate1");
-    // const auto selectedTexture = std::string("wet-stones-with-sand1");
-    const auto selectedTexture = std::string("grassy-meadow1");
-    // const auto selectedTexture = std::string("dented-metal");
-    // const auto selectedTexture = std::string("base-white-tile");
-    // const auto selectedTexture = std::string("grass1"); // no metallic map!
+    const auto selectedTexture = std::string("wet-stones-with-sand1");
+    // const auto selectedTexture = std::string("grassy-meadow1");
+    //  const auto selectedTexture = std::string("dented-metal");
+    //  const auto selectedTexture = std::string("base-white-tile");
+    //  const auto selectedTexture = std::string("grass1"); // no metallic map!
 
     auto cubeMesh = engine.createCubeMesh(1.f);
     cubeMesh->uvScale = glm::vec2(1.f);
@@ -37,18 +38,22 @@ void DemoGame::init(Engine &engine) {
     cubeMaterial.ormMap = ormMap;
 
     {
-        constexpr int size = 1025;
-        constexpr int half = size / 2;
+        TerrainConfig terrainConfig;
+        terrainConfig.origin = glm::vec2(0.0f, 0.0f);
+        terrainConfig.rootSize = 2048.0f;
+        terrainConfig.maxDepth = 6;
+        terrainConfig.chunkResolution = 33;
+        terrainConfig.splitFactor = 2.0f;
+        terrainConfig.textureWorldScale = 8.0f;
+        terrainConfig.noise.scale = 150.0f;
+        terrainConfig.noise.heightScale = 40.0f;
+        terrainConfig.noise.baseHeight = -100.0f;
+        terrainConfig.noise.octaves = 7;
+        terrainConfig.noise.persistence = 0.5f;
+        terrainConfig.noise.lacunarity = 2.0f;
+        terrainConfig.material = cubeMaterial;
 
-        const auto terrainMesh = engine.createTerrainMesh(size, size, 1.f, 150.f, 40.f, 7, 0.5f, 2.f);
-        terrainMesh->uvScale = glm::vec2(1000.f);
-
-        RenderObject terrain;
-        terrain.mesh = terrainMesh;
-        terrain.material = cubeMaterial;
-        terrain.position = glm::vec3(-half, -half, -100.f);
-
-        engine.addRenderObject(terrain);
+        engine.createTerrain(terrainConfig);
     }
 
     {
@@ -83,7 +88,7 @@ void DemoGame::init(Engine &engine) {
 
 void DemoGame::update(Engine &engine, const float deltaTime) {
     for (const auto &spinner : spinningObjects) {
-        engine.getRenderObject(spinner.handle).rotation += spinner.spinSpeed * deltaTime;
+        engine.getRenderObject(spinner.handle).rotation.z += spinner.spinSpeed.z * deltaTime;
     }
 
     for (auto &orbiter : orbitingObjects) {

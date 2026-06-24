@@ -19,6 +19,102 @@ struct CameraUniform {
 
 [[vk::binding(0, 0)]] ConstantBuffer<CameraUniform> ubo;
 
+struct TerrainPushConstants {
+    float2 noiseOffset;
+    float noiseScale;
+    float heightScale;
+    float baseHeight;
+    float persistence;
+    float lacunarity;
+    int octaves;
+    float textureWorldScale;
+    float gridDim;
+};
+
+[[vk::push_constant]] TerrainPushConstants terrainPC;
+
+float2 terrainNoiseGradient(float2 p) {
+    float2 hashed = float2(dot(p, float2(127.1, 311.7)), dot(p, float2(269.5, 183.3)));
+    return -1.0 + 2.0 * frac(sin(hashed) * 43758.5453123);
+}
+
+float terrainQuinticFade(float t) {
+    return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+}
+
+float terrainGradientNoise2D(float2 p) {
+    float2 i = floor(p);
+    float2 f = frac(p);
+
+    float2 g00 = terrainNoiseGradient(i + float2(0.0, 0.0));
+    float2 g10 = terrainNoiseGradient(i + float2(1.0, 0.0));
+    float2 g01 = terrainNoiseGradient(i + float2(0.0, 1.0));
+    float2 g11 = terrainNoiseGradient(i + float2(1.0, 1.0));
+
+    float v00 = dot(g00, f - float2(0.0, 0.0));
+    float v10 = dot(g10, f - float2(1.0, 0.0));
+    float v01 = dot(g01, f - float2(0.0, 1.0));
+    float v11 = dot(g11, f - float2(1.0, 1.0));
+
+    float u = terrainQuinticFade(f.x);
+    float v = terrainQuinticFade(f.y);
+
+    float x1 = lerp(v00, v10, u);
+    float x2 = lerp(v01, v11, u);
+    return lerp(x1, x2, v);
+}
+
+float terrainHeight(float2 worldPos) {
+    float amplitude = 1.0;
+    float frequency = 1.0;
+    float h = 0.0;
+    float2 base = worldPos / terrainPC.noiseScale + terrainPC.noiseOffset;
+
+    for (int i = 0; i < terrainPC.octaves; i++) {
+        h += terrainGradientNoise2D(base * frequency) * amplitude;
+        amplitude *= terrainPC.persistence;
+        frequency *= terrainPC.lacunarity;
+    }
+
+    return h * terrainPC.heightScale + terrainPC.baseHeight;
+}
+
+float2 terrainMorphGridCoord(float2 gridCoord, float morphT) {
+    float2 oddMask = frac(gridCoord * 0.5) * 2.0;
+    float2 evenGridCoord = gridCoord - oddMask;
+    return lerp(gridCoord, evenGridCoord, morphT);
+}
+
+struct TerrainVSInput {
+    float3 inPos;
+    float3 inColor;
+    float2 inTexCoord;
+    float3 inNormal;
+    float3 inTangent;
+    float2 instanceOrigin;
+    float4 instanceParams;
+};
+
+struct TerrainWorldSample {
+    float2 worldXY;
+    float height;
+};
+
+TerrainWorldSample terrainSampleWorld(float2 gridCoord, float2 origin, float scale, float morphT) {
+    float2 morphedGrid = terrainMorphGridCoord(gridCoord, morphT);
+    float2 worldXY = origin + (morphedGrid / terrainPC.gridDim) * scale;
+
+    TerrainWorldSample result;
+    result.worldXY = worldXY;
+    result.height = terrainHeight(worldXY);
+    return result;
+}
+
+float terrainMorphFactor(float2 unmorphedWorldXY, float morphStart, float morphEnd) {
+    float dist = length(ubo.cameraPos.xy - unmorphedWorldXY);
+    return saturate((dist - morphStart) / max(morphEnd - morphStart, 0.0001));
+}
+
 struct VSOutput {
     float4 pos : SV_Position;
     float3 fragColor;
@@ -193,6 +289,42 @@ VSOutput vertMainInstanced(InstancedVSInput input) {
     return output;
 }
 
+[shader("vertex")]
+VSOutput vertTerrain(TerrainVSInput input) {
+    VSOutput output;
+
+    float2 origin = input.instanceOrigin;
+    float scale = input.instanceParams.x;
+    float morphStart = input.instanceParams.y;
+    float morphEnd = input.instanceParams.z;
+
+    float2 unmorphedWorldXY = origin + (input.inPos.xy / terrainPC.gridDim) * scale;
+    float morphT = terrainMorphFactor(unmorphedWorldXY, morphStart, morphEnd);
+
+    TerrainWorldSample center = terrainSampleWorld(input.inPos.xy, origin, scale, morphT);
+
+    float eps = max(scale / terrainPC.gridDim * 0.5, 0.01);
+    float hLx = terrainHeight(center.worldXY - float2(eps, 0.0));
+    float hRx = terrainHeight(center.worldXY + float2(eps, 0.0));
+    float hDy = terrainHeight(center.worldXY - float2(0.0, eps));
+    float hUy = terrainHeight(center.worldXY + float2(0.0, eps));
+
+    float3 normal = normalize(float3((hLx - hRx) / (2.0 * eps), (hDy - hUy) / (2.0 * eps), 1.0));
+    float3 tangent = normalize(float3(1.0, 0.0, (hRx - hLx) / (2.0 * eps)));
+
+    float3 worldPos = float3(center.worldXY, center.height);
+
+    output.pos = mul(ubo.proj, mul(ubo.view, float4(worldPos, 1.0)));
+    output.fragNormal = normal;
+    output.fragTangent = tangent;
+    output.fragColor = float3(1.0, 1.0, 1.0);
+    output.fragTexCoord = center.worldXY / terrainPC.textureWorldScale;
+    output.viewDiff = ubo.cameraPos.xyz - worldPos;
+    output.uvScale = float2(1.0, 1.0);
+
+    return output;
+}
+
 [shader("fragment")]
 float4 fragMain(VSOutput vertIn) : SV_TARGET {
     float viewDistance = length(vertIn.viewDiff);
@@ -299,6 +431,28 @@ ShadowVSOutput vertShadowInstanced(InstancedVSInput input) {
     output.pos = mul(ubo.lightViewProj, worldPos);
     output.fragTexCoord = input.inTexCoord;
     output.uvScale = input.instanceUVScale;
+
+    return output;
+}
+
+[shader("vertex")]
+ShadowVSOutput vertTerrainShadow(TerrainVSInput input) {
+    ShadowVSOutput output;
+
+    float2 origin = input.instanceOrigin;
+    float scale = input.instanceParams.x;
+    float morphStart = input.instanceParams.y;
+    float morphEnd = input.instanceParams.z;
+
+    float2 unmorphedWorldXY = origin + (input.inPos.xy / terrainPC.gridDim) * scale;
+    float morphT = terrainMorphFactor(unmorphedWorldXY, morphStart, morphEnd);
+
+    TerrainWorldSample center = terrainSampleWorld(input.inPos.xy, origin, scale, morphT);
+    float3 worldPos = float3(center.worldXY, center.height);
+
+    output.pos = mul(ubo.lightViewProj, float4(worldPos, 1.0));
+    output.fragTexCoord = center.worldXY / terrainPC.textureWorldScale;
+    output.uvScale = float2(1.0, 1.0);
 
     return output;
 }

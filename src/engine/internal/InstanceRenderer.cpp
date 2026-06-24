@@ -57,113 +57,324 @@ void InstanceRenderer::createPipelines(const vk::PipelineLayout pipelineLayout, 
     shadowPipeline = shadowBuilder.build();
 }
 
-RenderObjectHandle InstanceRenderer::addObject(RenderObject object) {
-    objects.push_back(std::move(object));
-    return objects.size() - 1;
-}
+void InstanceRenderer::setCullResources(const vk::DescriptorSetLayout cullSetLayout, std::vector<vk::ImageView> hiZViews,
+                                        const vk::Sampler hiZSampler, std::vector<vk::Buffer> cameraUniformBuffers) {
+    cachedCullSetLayout = cullSetLayout;
+    cachedHiZViews = std::move(hiZViews);
+    cachedHiZSampler = hiZSampler;
+    cachedCameraUniformBuffers = std::move(cameraUniformBuffers);
 
-void InstanceRenderer::build() {
-    std::vector<InstanceBatch> newBatches;
-
-    for (size_t i = 0; i < objects.size(); i++) {
-        const auto &obj = objects[i];
-        auto it = std::ranges::find_if(newBatches, [&](const auto &b) {
-            return b.mesh == obj.mesh && b.texture == obj.material.albedo && b.normalMap == obj.material.normalMap &&
-                   b.ormMap == obj.material.ormMap;
-        });
-        if (it == newBatches.end()) {
-            InstanceBatch batch;
-            batch.mesh = obj.mesh;
-            batch.texture = obj.material.albedo;
-            batch.normalMap = obj.material.normalMap;
-            batch.ormMap = obj.material.ormMap;
-            batch.objectIndices.push_back(i);
-            newBatches.push_back(std::move(batch));
-        } else {
-            it->objectIndices.push_back(i);
-        }
-    }
-
-    for (auto &batch : newBatches) {
-        batch.instanceCount = static_cast<uint32_t>(batch.objectIndices.size());
-        batch.boundingRadius = batch.mesh->boundingRadius;
-
-        using enum vk::BufferUsageFlagBits;
-        using enum vk::MemoryPropertyFlagBits;
-
-        const vk::DeviceSize bufferSize = sizeof(InstanceData) * batch.instanceCount;
-        constexpr vk::DeviceSize indirectSize = sizeof(vk::DrawIndexedIndirectCommand);
-        const auto frames = static_cast<uint32_t>(maxFramesInFlight);
-
-        batch.buffers = PerFrameBuffer(vkCtx, frames, bufferSize, eVertexBuffer | eStorageBuffer, eHostVisible | eHostCoherent);
-        batch.culledBuffers = PerFrameBuffer(vkCtx, frames, bufferSize, eVertexBuffer | eStorageBuffer, eDeviceLocal);
-        batch.indirectBuffers = PerFrameBuffer(vkCtx, frames, indirectSize, eIndirectBuffer | eStorageBuffer | eTransferDst,
-                                               eHostVisible | eHostCoherent);
-        batch.culledOnlyBuffers = PerFrameBuffer(vkCtx, frames, bufferSize, eVertexBuffer | eStorageBuffer, eDeviceLocal);
-        batch.culledOnlyIndirectBuffers = PerFrameBuffer(
-            vkCtx, frames, indirectSize, eIndirectBuffer | eStorageBuffer | eTransferDst, eHostVisible | eHostCoherent);
-        batch.shadowBuffers = PerFrameBuffer(vkCtx, frames, bufferSize, eVertexBuffer, eHostVisible | eHostCoherent);
-
-        const vk::DrawIndexedIndirectCommand initialCommand{static_cast<uint32_t>(batch.mesh->indices.size()), 0, 0, 0, 0};
-        for (uint32_t j = 0; j < frames; j++) {
-            std::memcpy(batch.indirectBuffers.mapped(j), &initialCommand, indirectSize);
-            std::memcpy(batch.culledOnlyIndirectBuffers.mapped(j), &initialCommand, indirectSize);
-        }
-    }
-
-    batches = std::move(newBatches);
-}
-
-void InstanceRenderer::createCullDescriptorSets(const vk::DescriptorSetLayout cullSetLayout,
-                                                const std::vector<vk::ImageView> &hiZViews, const vk::Sampler hiZSampler,
-                                                const std::vector<vk::Buffer> &cameraUniformBuffers) {
     const auto framesU = static_cast<uint32_t>(maxFramesInFlight);
-    const auto totalSets = framesU * static_cast<uint32_t>(batches.size());
-    if (totalSets == 0)
-        return;
+    const auto totalSets = framesU * static_cast<uint32_t>(MAX_CONCURRENT_BATCHES);
 
     using enum vk::DescriptorType;
-    const std::vector<vk::DescriptorPoolSize> poolSizes = {
-        {{eStorageBuffer, totalSets * 5}, {eCombinedImageSampler, totalSets * 1}, {eUniformBuffer, totalSets * 1}}};
+    const std::array<vk::DescriptorPoolSize, 3> poolSizes = {
+        vk::DescriptorPoolSize{eStorageBuffer, totalSets * 5},
+        vk::DescriptorPoolSize{eCombinedImageSampler, totalSets * 1},
+        vk::DescriptorPoolSize{eUniformBuffer, totalSets * 1},
+    };
 
     vk::DescriptorPoolCreateInfo poolInfo{};
     poolInfo.flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet;
     poolInfo.maxSets = totalSets;
-    poolInfo.poolSizeCount = static_cast<uint32_t>(std::size(poolSizes));
+    poolInfo.poolSizeCount = static_cast<uint32_t>(poolSizes.size());
     poolInfo.pPoolSizes = poolSizes.data();
 
     cullDescriptorPool = vk::raii::DescriptorPool(vkCtx.device, poolInfo);
+    cullResourcesReady = true;
+}
+
+void InstanceRenderer::createCullDescriptorSetForBatch(InstanceBatch &batch) {
+    if (!cullResourcesReady) {
+        return;
+    }
+
+    const auto framesU = static_cast<uint32_t>(maxFramesInFlight);
+    batch.cullDescriptorSets.clear();
 
     DescriptorWriter writer(vkCtx);
+    for (uint32_t f = 0; f < framesU; ++f) {
+        vk::DescriptorSetAllocateInfo allocInfo{};
+        allocInfo.descriptorPool = *cullDescriptorPool;
+        allocInfo.descriptorSetCount = 1;
+        allocInfo.pSetLayouts = &cachedCullSetLayout;
+        vk::raii::DescriptorSet set = std::move(vk::raii::DescriptorSets(vkCtx.device, allocInfo).front());
 
-    for (auto &batch : batches) {
-        batch.cullDescriptorSets.clear();
-        for (uint32_t f = 0; f < framesU; ++f) {
-            vk::DescriptorSetAllocateInfo allocInfo{};
-            allocInfo.descriptorPool = *cullDescriptorPool;
-            allocInfo.descriptorSetCount = 1;
-            allocInfo.pSetLayouts = &cullSetLayout;
-            vk::raii::DescriptorSet set = std::move(vk::raii::DescriptorSets(vkCtx.device, allocInfo).front());
+        writer.writeBuffer(*set, 0, batch.buffers[f], vk::WholeSize, vk::DescriptorType::eStorageBuffer)
+            .writeBuffer(*set, 1, batch.culledBuffers[f], vk::WholeSize, vk::DescriptorType::eStorageBuffer)
+            .writeBuffer(*set, 2, batch.indirectBuffers[f], vk::WholeSize, vk::DescriptorType::eStorageBuffer)
+            .writeImage(*set, 3, vk::DescriptorType::eCombinedImageSampler, cachedHiZViews[f], cachedHiZSampler)
+            .writeBuffer(*set, 4, cachedCameraUniformBuffers[f], vk::WholeSize, vk::DescriptorType::eUniformBuffer)
+            .writeBuffer(*set, 6, batch.culledOnlyBuffers[f], vk::WholeSize, vk::DescriptorType::eStorageBuffer)
+            .writeBuffer(*set, 7, batch.culledOnlyIndirectBuffers[f], vk::WholeSize, vk::DescriptorType::eStorageBuffer);
 
-            writer.writeBuffer(*set, 0, batch.buffers[f], vk::WholeSize, vk::DescriptorType::eStorageBuffer)
-                .writeBuffer(*set, 1, batch.culledBuffers[f], vk::WholeSize, vk::DescriptorType::eStorageBuffer)
-                .writeBuffer(*set, 2, batch.indirectBuffers[f], vk::WholeSize, vk::DescriptorType::eStorageBuffer)
-                .writeImage(*set, 3, vk::DescriptorType::eCombinedImageSampler, hiZViews[f], hiZSampler)
-                .writeBuffer(*set, 4, cameraUniformBuffers[f], vk::WholeSize, vk::DescriptorType::eUniformBuffer)
-                .writeBuffer(*set, 6, batch.culledOnlyBuffers[f], vk::WholeSize, vk::DescriptorType::eStorageBuffer)
-                .writeBuffer(*set, 7, batch.culledOnlyIndirectBuffers[f], vk::WholeSize, vk::DescriptorType::eStorageBuffer);
-
-            batch.cullDescriptorSets.push_back(std::move(set));
-        }
+        batch.cullDescriptorSets.push_back(std::move(set));
     }
 
     writer.update();
+}
+
+void InstanceRenderer::recreateBatchGpuResources(InstanceBatch &batch) {
+    using enum vk::BufferUsageFlagBits;
+    using enum vk::MemoryPropertyFlagBits;
+
+    batch.instanceCount = static_cast<uint32_t>(batch.memberHandles.size());
+    batch.boundingRadius = batch.mesh->boundingRadius;
+
+    const vk::DeviceSize bufferSize = sizeof(InstanceData) * std::max<uint32_t>(batch.instanceCount, 1);
+    constexpr vk::DeviceSize indirectSize = sizeof(vk::DrawIndexedIndirectCommand);
+    const auto frames = static_cast<uint32_t>(maxFramesInFlight);
+
+    batch.buffers = PerFrameBuffer(vkCtx, frames, bufferSize, eVertexBuffer | eStorageBuffer, eHostVisible | eHostCoherent);
+    batch.culledBuffers = PerFrameBuffer(vkCtx, frames, bufferSize, eVertexBuffer | eStorageBuffer, eDeviceLocal);
+    batch.indirectBuffers = PerFrameBuffer(vkCtx, frames, indirectSize, eIndirectBuffer | eStorageBuffer | eTransferDst,
+                                           eHostVisible | eHostCoherent);
+    batch.culledOnlyBuffers = PerFrameBuffer(vkCtx, frames, bufferSize, eVertexBuffer | eStorageBuffer, eDeviceLocal);
+    batch.culledOnlyIndirectBuffers = PerFrameBuffer(
+        vkCtx, frames, indirectSize, eIndirectBuffer | eStorageBuffer | eTransferDst, eHostVisible | eHostCoherent);
+    batch.shadowBuffers = PerFrameBuffer(vkCtx, frames, bufferSize, eVertexBuffer, eHostVisible | eHostCoherent);
+
+    const vk::DrawIndexedIndirectCommand initialCommand{static_cast<uint32_t>(batch.mesh->indices.size()), 0, 0, 0, 0};
+    for (uint32_t j = 0; j < frames; j++) {
+        std::memcpy(batch.indirectBuffers.mapped(j), &initialCommand, indirectSize);
+        std::memcpy(batch.culledOnlyIndirectBuffers.mapped(j), &initialCommand, indirectSize);
+    }
+
+    createCullDescriptorSetForBatch(batch);
+}
+
+RenderObjectHandle InstanceRenderer::addObject(RenderObject object) {
+    RenderObjectHandle handle;
+    if (!freeSlots.empty()) {
+        handle = freeSlots.back();
+        freeSlots.pop_back();
+    } else {
+        handle = slots.size();
+        slots.emplace_back();
+    }
+
+    slots[handle].object = std::move(object);
+    slots[handle].occupied = true;
+
+    const RenderObject &obj = slots[handle].object;
+    const BatchKey key{obj.mesh.get(), obj.material.albedo, obj.material.normalMap, obj.material.ormMap};
+
+    size_t batchIndex;
+    if (const auto it = batchLookup.find(key); it != batchLookup.end()) {
+        batchIndex = it->second;
+    } else {
+        if (!freeBatchSlots.empty()) {
+            batchIndex = freeBatchSlots.back();
+            freeBatchSlots.pop_back();
+        } else {
+            batchIndex = batches.size();
+            batches.emplace_back();
+        }
+
+        InstanceBatch &newBatch = batches[batchIndex];
+        newBatch = InstanceBatch{};
+        newBatch.mesh = obj.mesh;
+        newBatch.texture = obj.material.albedo;
+        newBatch.normalMap = obj.material.normalMap;
+        newBatch.ormMap = obj.material.ormMap;
+        newBatch.occupied = true;
+
+        batchLookup.emplace(key, batchIndex);
+    }
+
+    InstanceBatch &batch = batches[batchIndex];
+    slots[handle].batchIndex = batchIndex;
+    slots[handle].positionInBatch = batch.memberHandles.size();
+    batch.memberHandles.push_back(handle);
+
+    dirtyBatches.insert(batchIndex);
+
+    return handle;
+}
+
+void InstanceRenderer::removeObject(const RenderObjectHandle handle) {
+    if (handle >= slots.size() || !slots[handle].occupied) {
+        return;
+    }
+
+    Slot &slot = slots[handle];
+    const size_t batchIndex = slot.batchIndex;
+    InstanceBatch &batch = batches[batchIndex];
+
+    const size_t pos = slot.positionInBatch;
+    const size_t lastPos = batch.memberHandles.size() - 1;
+    if (pos != lastPos) {
+        const RenderObjectHandle movedHandle = batch.memberHandles[lastPos];
+        batch.memberHandles[pos] = movedHandle;
+        slots[movedHandle].positionInBatch = pos;
+    }
+    batch.memberHandles.pop_back();
+
+    slot.object = RenderObject{};
+    slot.occupied = false;
+    freeSlots.push_back(handle);
+
+    if (batch.memberHandles.empty()) {
+        const BatchKey key{batch.mesh.get(), batch.texture, batch.normalMap, batch.ormMap};
+        batchLookup.erase(key);
+        batch.pendingDestroy = true;
+    }
+
+    dirtyBatches.insert(batchIndex);
+}
+
+void InstanceRenderer::applyPendingChanges() {
+    if (dirtyBatches.empty()) {
+        return;
+    }
+
+    vkCtx.device.waitIdle();
+
+    for (const size_t batchIndex : dirtyBatches) {
+        InstanceBatch &batch = batches[batchIndex];
+        if (batch.pendingDestroy) {
+            batch = InstanceBatch{};
+            batch.occupied = false;
+            freeBatchSlots.push_back(batchIndex);
+        } else if (batch.occupied) {
+            recreateBatchGpuResources(batch);
+        }
+    }
+
+    dirtyBatches.clear();
+}
+
+void InstanceRenderer::update(const uint32_t currentImage, const CullingUtils::Frustum &frustum) {
+    for (auto &batch : batches) {
+        if (!batch.occupied)
+            continue;
+
+        auto *dst = static_cast<InstanceData *>(batch.buffers.mapped(currentImage));
+        uint32_t visibleCount = 0;
+
+        for (const RenderObjectHandle handle : batch.memberHandles) {
+            const auto &obj = slots[handle].object;
+            if (!obj.isVisible)
+                continue;
+            if (!CullingUtils::sphereInFrustum(frustum, obj.position + batch.mesh->boundingCenter, batch.boundingRadius))
+                continue;
+
+            dst[visibleCount].position = obj.position;
+            dst[visibleCount].rotation = obj.rotation;
+            dst[visibleCount].uvScale = batch.mesh->uvScale;
+            visibleCount++;
+        }
+
+        batch.visibleInstanceCount = visibleCount;
+
+        auto *shadowDst = static_cast<InstanceData *>(batch.shadowBuffers.mapped(currentImage));
+        uint32_t shadowVisibleCount = 0;
+        for (const RenderObjectHandle handle : batch.memberHandles) {
+            const auto &obj = slots[handle].object;
+            if (!obj.isVisible)
+                continue;
+
+            shadowDst[shadowVisibleCount].position = obj.position;
+            shadowDst[shadowVisibleCount].rotation = obj.rotation;
+            shadowDst[shadowVisibleCount].uvScale = batch.mesh->uvScale;
+            shadowVisibleCount++;
+        }
+        batch.shadowInstanceCount = shadowVisibleCount;
+    }
+}
+
+void InstanceRenderer::draw(DrawCommand command, bool wireframe, uint32_t &drawCallCount) const {
+    command.commandBuffer->bindPipeline(vk::PipelineBindPoint::eGraphics, wireframe ? *wireframePipeline : *solidPipeline);
+
+    for (const auto &batch : batches) {
+        if (!batch.occupied)
+            continue;
+
+        const MaterialKey key{batch.texture, batch.normalMap, batch.ormMap};
+        const auto &materialSets = command.materialDescriptorSets->at(key);
+        command.commandBuffer->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, command.pipelineLayout, 0,
+                                                  *materialSets[command.frameIndex], nullptr);
+
+        std::vector<vk::DeviceSize> vertexOffsets = {0};
+        command.commandBuffer->bindVertexBuffers(0, *batch.mesh->unifiedBuffer, vertexOffsets);
+        std::vector<vk::DeviceSize> instanceOffsets = {0};
+        command.commandBuffer->bindVertexBuffers(1, batch.culledBuffers[command.frameIndex], instanceOffsets);
+        const vk::DeviceSize vertexSizeOffset = sizeof(Mesh::Vertex) * batch.mesh->vertices.size();
+        command.commandBuffer->bindIndexBuffer(*batch.mesh->unifiedBuffer, vertexSizeOffset, vk::IndexType::eUint32);
+
+        command.commandBuffer->drawIndexedIndirect(batch.indirectBuffers[command.frameIndex], 0, 1,
+                                                   sizeof(vk::DrawIndexedIndirectCommand));
+        drawCallCount++;
+    }
+}
+
+void InstanceRenderer::drawXray(DrawCommand command) const {
+    command.commandBuffer->bindPipeline(vk::PipelineBindPoint::eGraphics, *xrayPipeline);
+
+    for (const auto &batch : batches) {
+        if (!batch.occupied || batch.visibleInstanceCount == 0)
+            continue;
+
+        const MaterialKey key{batch.texture, batch.normalMap, batch.ormMap};
+        const auto &materialSets = command.materialDescriptorSets->at(key);
+        command.commandBuffer->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, command.pipelineLayout, 0,
+                                                  *materialSets[command.frameIndex], nullptr);
+
+        std::vector<vk::DeviceSize> vertexOffsets = {0};
+        command.commandBuffer->bindVertexBuffers(0, *batch.mesh->unifiedBuffer, vertexOffsets);
+        std::vector<vk::DeviceSize> instanceOffsets = {0};
+        command.commandBuffer->bindVertexBuffers(1, batch.culledOnlyBuffers[command.frameIndex], instanceOffsets);
+        const vk::DeviceSize vertexSizeOffset = sizeof(Mesh::Vertex) * batch.mesh->vertices.size();
+        command.commandBuffer->bindIndexBuffer(*batch.mesh->unifiedBuffer, vertexSizeOffset, vk::IndexType::eUint32);
+
+        command.commandBuffer->drawIndexedIndirect(batch.culledOnlyIndirectBuffers[command.frameIndex], 0, 1,
+                                                   sizeof(vk::DrawIndexedIndirectCommand));
+    }
+}
+
+void InstanceRenderer::drawShadow(DrawCommand command) const {
+    command.commandBuffer->bindPipeline(vk::PipelineBindPoint::eGraphics, *shadowPipeline);
+
+    for (const auto &batch : batches) {
+        if (!batch.occupied || batch.shadowInstanceCount == 0)
+            continue;
+
+        const MaterialKey key{batch.texture, batch.normalMap, batch.ormMap};
+        const auto &materialSets = command.materialDescriptorSets->at(key);
+        command.commandBuffer->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, command.pipelineLayout, 0,
+                                                  *materialSets[command.frameIndex], nullptr);
+
+        std::vector<vk::DeviceSize> vertexOffsets = {0};
+        command.commandBuffer->bindVertexBuffers(0, *batch.mesh->unifiedBuffer, vertexOffsets);
+        std::vector<vk::DeviceSize> instanceOffsets = {0};
+        command.commandBuffer->bindVertexBuffers(1, batch.shadowBuffers[command.frameIndex], instanceOffsets);
+        const vk::DeviceSize vertexSizeOffset = sizeof(Mesh::Vertex) * batch.mesh->vertices.size();
+        command.commandBuffer->bindIndexBuffer(*batch.mesh->unifiedBuffer, vertexSizeOffset, vk::IndexType::eUint32);
+
+        command.commandBuffer->drawIndexed(static_cast<uint32_t>(batch.mesh->indices.size()), batch.shadowInstanceCount, 0, 0,
+                                           0);
+    }
+}
+
+uint64_t InstanceRenderer::getVisibleVertexEstimate(const uint32_t frameIndex) const {
+    uint64_t total = 0;
+    for (const auto &batch : batches) {
+        if (!batch.occupied)
+            continue;
+
+        const auto *cmd = static_cast<const vk::DrawIndexedIndirectCommand *>(batch.indirectBuffers.mapped(frameIndex));
+        total += static_cast<uint64_t>(batch.mesh->indices.size()) * cmd->instanceCount;
+    }
+    return total;
 }
 
 void InstanceRenderer::cull(const CullCommand &command) const {
     command.commandBuffer->bindPipeline(vk::PipelineBindPoint::eCompute, command.pipeline);
 
     for (const auto &batch : batches) {
+        if (!batch.occupied)
+            continue;
+
         command.commandBuffer->fillBuffer(batch.indirectBuffers[command.frameIndex],
                                           offsetof(vk::DrawIndexedIndirectCommand, instanceCount), sizeof(uint32_t), 0);
         command.commandBuffer->fillBuffer(batch.culledOnlyIndirectBuffers[command.frameIndex],
@@ -230,115 +441,15 @@ void InstanceRenderer::cull(const CullCommand &command) const {
     }
 }
 
-void InstanceRenderer::update(const uint32_t currentImage, const CullingUtils::Frustum &frustum) {
-    for (auto &batch : batches) {
-        auto *dst = static_cast<InstanceData *>(batch.buffers.mapped(currentImage));
-        uint32_t visibleCount = 0;
+void InstanceRenderer::updateHiZViews(const std::vector<vk::ImageView> &hiZViews, const vk::Sampler hiZSampler) {
+    cachedHiZViews = hiZViews;
+    cachedHiZSampler = hiZSampler;
 
-        for (const size_t i : batch.objectIndices) {
-            const auto &obj = objects[i];
-            if (!CullingUtils::sphereInFrustum(frustum, obj.position + batch.mesh->boundingCenter, batch.boundingRadius))
-                continue;
-
-            dst[visibleCount].position = obj.position;
-            dst[visibleCount].rotation = obj.rotation;
-            dst[visibleCount].uvScale = batch.mesh->uvScale;
-            visibleCount++;
-        }
-
-        batch.visibleInstanceCount = visibleCount;
-
-        auto *shadowDst = static_cast<InstanceData *>(batch.shadowBuffers.mapped(currentImage));
-        for (size_t idx = 0; idx < batch.objectIndices.size(); ++idx) {
-            const auto &obj = objects[batch.objectIndices[idx]];
-            shadowDst[idx].position = obj.position;
-            shadowDst[idx].rotation = obj.rotation;
-            shadowDst[idx].uvScale = batch.mesh->uvScale;
-        }
-    }
-}
-
-void InstanceRenderer::draw(DrawCommand command, bool wireframe, uint32_t &drawCallCount) const {
-    command.commandBuffer->bindPipeline(vk::PipelineBindPoint::eGraphics, wireframe ? *wireframePipeline : *solidPipeline);
-
-    for (const auto &batch : batches) {
-        const MaterialKey key{batch.texture, batch.normalMap, batch.ormMap};
-        const auto &materialSets = command.materialDescriptorSets->at(key);
-        command.commandBuffer->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, command.pipelineLayout, 0,
-                                                  *materialSets[command.frameIndex], nullptr);
-
-        std::vector<vk::DeviceSize> vertexOffsets = {0};
-        command.commandBuffer->bindVertexBuffers(0, *batch.mesh->unifiedBuffer, vertexOffsets);
-        std::vector<vk::DeviceSize> instanceOffsets = {0};
-        command.commandBuffer->bindVertexBuffers(1, batch.culledBuffers[command.frameIndex], instanceOffsets);
-        const vk::DeviceSize vertexSizeOffset = sizeof(Mesh::Vertex) * batch.mesh->vertices.size();
-        command.commandBuffer->bindIndexBuffer(*batch.mesh->unifiedBuffer, vertexSizeOffset, vk::IndexType::eUint32);
-
-        command.commandBuffer->drawIndexedIndirect(batch.indirectBuffers[command.frameIndex], 0, 1,
-                                                   sizeof(vk::DrawIndexedIndirectCommand));
-        drawCallCount++;
-    }
-}
-
-void InstanceRenderer::drawXray(DrawCommand command) const {
-    command.commandBuffer->bindPipeline(vk::PipelineBindPoint::eGraphics, *xrayPipeline);
-
-    for (const auto &batch : batches) {
-        if (batch.visibleInstanceCount == 0)
-            continue;
-
-        const MaterialKey key{batch.texture, batch.normalMap, batch.ormMap};
-        const auto &materialSets = command.materialDescriptorSets->at(key);
-        command.commandBuffer->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, command.pipelineLayout, 0,
-                                                  *materialSets[command.frameIndex], nullptr);
-
-        std::vector<vk::DeviceSize> vertexOffsets = {0};
-        command.commandBuffer->bindVertexBuffers(0, *batch.mesh->unifiedBuffer, vertexOffsets);
-        std::vector<vk::DeviceSize> instanceOffsets = {0};
-        command.commandBuffer->bindVertexBuffers(1, batch.culledOnlyBuffers[command.frameIndex], instanceOffsets);
-        const vk::DeviceSize vertexSizeOffset = sizeof(Mesh::Vertex) * batch.mesh->vertices.size();
-        command.commandBuffer->bindIndexBuffer(*batch.mesh->unifiedBuffer, vertexSizeOffset, vk::IndexType::eUint32);
-
-        command.commandBuffer->drawIndexedIndirect(batch.culledOnlyIndirectBuffers[command.frameIndex], 0, 1,
-                                                   sizeof(vk::DrawIndexedIndirectCommand));
-    }
-}
-
-void InstanceRenderer::drawShadow(DrawCommand command) const {
-    command.commandBuffer->bindPipeline(vk::PipelineBindPoint::eGraphics, *shadowPipeline);
-
-    for (const auto &batch : batches) {
-        if (batch.instanceCount == 0)
-            continue;
-
-        const MaterialKey key{batch.texture, batch.normalMap, batch.ormMap};
-        const auto &materialSets = command.materialDescriptorSets->at(key);
-        command.commandBuffer->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, command.pipelineLayout, 0,
-                                                  *materialSets[command.frameIndex], nullptr);
-
-        std::vector<vk::DeviceSize> vertexOffsets = {0};
-        command.commandBuffer->bindVertexBuffers(0, *batch.mesh->unifiedBuffer, vertexOffsets);
-        std::vector<vk::DeviceSize> instanceOffsets = {0};
-        command.commandBuffer->bindVertexBuffers(1, batch.shadowBuffers[command.frameIndex], instanceOffsets);
-        const vk::DeviceSize vertexSizeOffset = sizeof(Mesh::Vertex) * batch.mesh->vertices.size();
-        command.commandBuffer->bindIndexBuffer(*batch.mesh->unifiedBuffer, vertexSizeOffset, vk::IndexType::eUint32);
-
-        command.commandBuffer->drawIndexed(static_cast<uint32_t>(batch.mesh->indices.size()), batch.instanceCount, 0, 0, 0);
-    }
-}
-
-uint64_t InstanceRenderer::getVisibleVertexEstimate(const uint32_t frameIndex) const {
-    uint64_t total = 0;
-    for (const auto &batch : batches) {
-        const auto *cmd = static_cast<const vk::DrawIndexedIndirectCommand *>(batch.indirectBuffers.mapped(frameIndex));
-        total += static_cast<uint64_t>(batch.mesh->indices.size()) * cmd->instanceCount;
-    }
-    return total;
-}
-
-void InstanceRenderer::updateHiZViews(const std::vector<vk::ImageView> &hiZViews, const vk::Sampler hiZSampler) const {
     DescriptorWriter writer(vkCtx);
     for (auto &batch : batches) {
+        if (!batch.occupied)
+            continue;
+
         for (uint32_t f = 0; f < static_cast<uint32_t>(maxFramesInFlight); ++f) {
             writer.writeImage(*batch.cullDescriptorSets[f], 3, vk::DescriptorType::eCombinedImageSampler, hiZViews[f],
                               hiZSampler);

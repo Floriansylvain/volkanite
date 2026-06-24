@@ -3,6 +3,7 @@
 #include "DescriptorWriter.hpp"
 #include "Exceptions.hpp"
 #include "MeshUtils.hpp"
+#include "TerrainSystem.hpp"
 #include "VulkanUtils.hpp"
 #include "Window.hpp"
 #include <filesystem>
@@ -327,18 +328,24 @@ void Engine::recreateSwapChain() {
     instanceRenderer.updateHiZViews(hiZViews, *occlusionCuller.hiZSampler);
 }
 
-RenderObjectHandle Engine::addRenderObject(RenderObject object) {
-    if (!object.material.normalMap) {
-        object.material.normalMap = defaultNormalMap;
+Material Engine::finalizeMaterial(Material material) {
+    if (!material.normalMap) {
+        material.normalMap = defaultNormalMap;
     }
-    if (!object.material.ormMap) {
-        object.material.ormMap = getOrCreateFlatOrmMap(object.material.roughness, object.material.metallic);
+    if (!material.ormMap) {
+        material.ormMap = getOrCreateFlatOrmMap(material.roughness, material.metallic);
     }
+    return material;
+}
 
+RenderObjectHandle Engine::addRenderObject(RenderObject object) {
+    object.material = finalizeMaterial(std::move(object.material));
     registerMaterial(object.material);
 
     return instanceRenderer.addObject(std::move(object));
 }
+
+void Engine::removeRenderObject(const RenderObjectHandle handle) { instanceRenderer.removeObject(handle); }
 
 RenderObject &Engine::getRenderObject(const RenderObjectHandle handle) { return instanceRenderer.getObject(handle); }
 
@@ -640,12 +647,18 @@ std::shared_ptr<Mesh> Engine::createCubeMesh(const float size) const {
     return mesh;
 }
 
-std::shared_ptr<Mesh> Engine::createTerrainMesh(int width, int depth, float spacing, float scale, float heightScale,
-                                                int octaves, float persistence, float lacunarity) const {
+std::shared_ptr<Mesh> Engine::createMeshFromData(std::vector<Mesh::Vertex> vertices, std::vector<uint32_t> indices) const {
     auto mesh = std::make_shared<Mesh>(vkCtx);
-    MeshUtils::generateTerrain(*mesh, width, depth, spacing, scale, heightScale, octaves, persistence, lacunarity);
+    mesh->vertices = std::move(vertices);
+    mesh->indices = std::move(indices);
     mesh->createGeometryBuffers(commandPool);
     return mesh;
+}
+
+TerrainSystem &Engine::createTerrain(const TerrainConfig &config) {
+    terrainSystem = std::make_unique<TerrainSystem>(*this, config);
+    terrainSystem->update(camera.position());
+    return *terrainSystem;
 }
 
 std::shared_ptr<Texture> Engine::loadTexture(const std::string &path) const {
@@ -863,20 +876,20 @@ void Engine::init() {
 
     textRenderer.loadFont("textures/consolas.png", commandPool, 0.38f, 0.2f);
 
-    if (game) {
-        game->init(*this);
-    }
-
-    instanceRenderer.build();
-
     std::vector<vk::ImageView> hiZViews;
     hiZViews.reserve(occlusionCuller.hiZFullViews.size());
     for (const auto &view : occlusionCuller.hiZFullViews) {
         hiZViews.push_back(*view);
     }
 
-    instanceRenderer.createCullDescriptorSets(*occlusionCuller.cullSetLayout, hiZViews, *occlusionCuller.hiZSampler,
-                                              cameraUniformBuffers.handles());
+    instanceRenderer.setCullResources(*occlusionCuller.cullSetLayout, hiZViews, *occlusionCuller.hiZSampler,
+                                      cameraUniformBuffers.handles());
+
+    if (game) {
+        game->init(*this);
+    }
+
+    instanceRenderer.applyPendingChanges();
 
     createCommandBuffers();
     createSyncObjects();
@@ -897,6 +910,12 @@ void Engine::update() {
     if (game) {
         game->update(*this, deltaTime);
     }
+
+    if (terrainSystem) {
+        terrainSystem->update(camera.position());
+    }
+
+    instanceRenderer.applyPendingChanges();
 }
 
 void Engine::run() {

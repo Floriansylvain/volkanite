@@ -10,7 +10,10 @@
 #include "OcclusionCuller.hpp"
 #include "RenderObject.hpp"
 #include "SwapChainHandler.hpp"
+#include "TerrainTypes.hpp"
 #include "TextRenderer.hpp"
+
+class TerrainSystem;
 
 class Engine {
   public:
@@ -29,6 +32,7 @@ class Engine {
     [[nodiscard]] const glm::vec3 &getLightDirection() const { return lightDirection; }
 
     RenderObjectHandle addRenderObject(RenderObject object);
+    void removeRenderObject(RenderObjectHandle handle);
     [[nodiscard]] RenderObject &getRenderObject(RenderObjectHandle handle);
 
     struct FBXModel {
@@ -39,8 +43,9 @@ class Engine {
     void placeFBXModel(const FBXModel &model, const glm::vec3 &position);
 
     [[nodiscard]] std::shared_ptr<Mesh> createCubeMesh(float size) const;
-    [[nodiscard]] std::shared_ptr<Mesh> createTerrainMesh(int width, int depth, float spacing, float scale, float heightScale,
-                                                          int octaves, float persistence, float lacunarity) const;
+    [[nodiscard]] std::shared_ptr<Mesh> createMeshFromData(std::vector<Mesh::Vertex> vertices,
+                                                           std::vector<uint32_t> indices) const;
+    TerrainSystem &createTerrain(const TerrainConfig &config);
     [[nodiscard]] std::shared_ptr<Texture> loadTexture(const std::string &path) const;
     [[nodiscard]] std::shared_ptr<Texture> loadNormalMap(const std::string &path) const;
     [[nodiscard]] std::shared_ptr<Texture> loadOrmMapFile(const std::string &path) const;
@@ -64,6 +69,7 @@ class Engine {
     InstanceRenderer instanceRenderer;
     TextRenderer textRenderer;
     OcclusionCuller occlusionCuller;
+    std::unique_ptr<TerrainSystem> terrainSystem;
 
     uint32_t drawCallCount = 0;
     uint64_t vertexCount = 0;
@@ -149,6 +155,7 @@ class Engine {
     [[nodiscard]] glm::mat4 computeLightViewProj() const;
 
     void registerMaterial(const Material &material);
+    [[nodiscard]] Material finalizeMaterial(Material material);
     [[nodiscard]] std::shared_ptr<Texture> getOrCreateFlatOrmMap(float roughness, float metallic);
     [[nodiscard]] std::shared_ptr<Texture> loadLinearTexture(const std::string &path) const;
 
