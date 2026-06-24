@@ -150,6 +150,7 @@ void Texture::createSampler() {
     samplerInfo.addressModeW = eRepeat;
     samplerInfo.anisotropyEnable = vk::True;
     samplerInfo.maxAnisotropy = properties.limits.maxSamplerAnisotropy;
+    samplerInfo.maxLod = static_cast<float>(mipLevels);
     samplerInfo.compareEnable = vk::False;
     samplerInfo.compareOp = vk::CompareOp::eAlways;
 
