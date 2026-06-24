@@ -78,11 +78,17 @@ class InstanceRenderer {
   private:
     struct InstanceData {
         glm::vec3 position;
-        float pad0 = 0.0f;
+        float padding0;
+
         glm::vec3 rotation;
-        float pad1 = 0.0f;
+        float padding1;
+
+        glm::vec2 uvScale;
+        float padding2;
+        float padding3;
     };
-    static_assert(sizeof(InstanceData) == 32, "InstanceData layout must match InstanceDataGPU exactly");
+    static_assert(sizeof(InstanceData) == 48,
+                  "InstanceData layout must match InstanceDataGPU exactly (std430: alignment of array elements)");
 
     struct InstanceBatch {
         PerFrameBuffer buffers;

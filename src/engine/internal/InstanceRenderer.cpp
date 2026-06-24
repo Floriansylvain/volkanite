@@ -15,10 +15,12 @@ void InstanceRenderer::createPipelines(const vk::PipelineLayout pipelineLayout, 
     const vk::VertexInputBindingDescription instanceBinding{1, sizeof(InstanceData), vk::VertexInputRate::eInstance};
     const vk::VertexInputAttributeDescription instancePos{5, 1, vk::Format::eR32G32B32Sfloat, offsetof(InstanceData, position)};
     const vk::VertexInputAttributeDescription instanceRot{6, 1, vk::Format::eR32G32B32Sfloat, offsetof(InstanceData, rotation)};
+    const vk::VertexInputAttributeDescription instanceUVScale{7, 1, vk::Format::eR32G32Sfloat, offsetof(InstanceData, uvScale)};
 
     std::vector attrs(attributeDescriptions.begin(), attributeDescriptions.end());
     attrs.push_back(instancePos);
     attrs.push_back(instanceRot);
+    attrs.push_back(instanceUVScale);
 
     GraphicsPipelineBuilder builder(vkCtx);
     builder.addShaderStage(vk::ShaderStageFlagBits::eVertex, "shaders/shader.spv", "vertMainInstanced")
@@ -40,10 +42,7 @@ void InstanceRenderer::createPipelines(const vk::PipelineLayout pipelineLayout, 
     xrayPipeline = builder.build();
 
     const std::vector<vk::VertexInputAttributeDescription> shadowAttrs = {
-        attributeDescriptions[0],
-        attributeDescriptions[2],
-        instancePos,
-        instanceRot,
+        attributeDescriptions[0], attributeDescriptions[2], instancePos, instanceRot, instanceUVScale,
     };
 
     GraphicsPipelineBuilder shadowBuilder(vkCtx);
@@ -89,29 +88,26 @@ void InstanceRenderer::build() {
         batch.instanceCount = static_cast<uint32_t>(batch.objectIndices.size());
         batch.boundingRadius = batch.mesh->boundingRadius;
 
-        for (int i = 0; i < maxFramesInFlight; i++) {
-            using enum vk::BufferUsageFlagBits;
-            using enum vk::MemoryPropertyFlagBits;
+        using enum vk::BufferUsageFlagBits;
+        using enum vk::MemoryPropertyFlagBits;
 
-            const vk::DeviceSize bufferSize = sizeof(InstanceData) * batch.instanceCount;
-            constexpr vk::DeviceSize indirectSize = sizeof(vk::DrawIndexedIndirectCommand);
-            const auto frames = static_cast<uint32_t>(maxFramesInFlight);
+        const vk::DeviceSize bufferSize = sizeof(InstanceData) * batch.instanceCount;
+        constexpr vk::DeviceSize indirectSize = sizeof(vk::DrawIndexedIndirectCommand);
+        const auto frames = static_cast<uint32_t>(maxFramesInFlight);
 
-            batch.buffers =
-                PerFrameBuffer(vkCtx, frames, bufferSize, eVertexBuffer | eStorageBuffer, eHostVisible | eHostCoherent);
-            batch.culledBuffers = PerFrameBuffer(vkCtx, frames, bufferSize, eVertexBuffer | eStorageBuffer, eDeviceLocal);
-            batch.indirectBuffers = PerFrameBuffer(vkCtx, frames, indirectSize, eIndirectBuffer | eStorageBuffer | eTransferDst,
-                                                   eHostVisible | eHostCoherent);
-            batch.culledOnlyBuffers = PerFrameBuffer(vkCtx, frames, bufferSize, eVertexBuffer | eStorageBuffer, eDeviceLocal);
-            batch.culledOnlyIndirectBuffers = PerFrameBuffer(
-                vkCtx, frames, indirectSize, eIndirectBuffer | eStorageBuffer | eTransferDst, eHostVisible | eHostCoherent);
-            batch.shadowBuffers = PerFrameBuffer(vkCtx, frames, bufferSize, eVertexBuffer, eHostVisible | eHostCoherent);
+        batch.buffers = PerFrameBuffer(vkCtx, frames, bufferSize, eVertexBuffer | eStorageBuffer, eHostVisible | eHostCoherent);
+        batch.culledBuffers = PerFrameBuffer(vkCtx, frames, bufferSize, eVertexBuffer | eStorageBuffer, eDeviceLocal);
+        batch.indirectBuffers = PerFrameBuffer(vkCtx, frames, indirectSize, eIndirectBuffer | eStorageBuffer | eTransferDst,
+                                               eHostVisible | eHostCoherent);
+        batch.culledOnlyBuffers = PerFrameBuffer(vkCtx, frames, bufferSize, eVertexBuffer | eStorageBuffer, eDeviceLocal);
+        batch.culledOnlyIndirectBuffers = PerFrameBuffer(
+            vkCtx, frames, indirectSize, eIndirectBuffer | eStorageBuffer | eTransferDst, eHostVisible | eHostCoherent);
+        batch.shadowBuffers = PerFrameBuffer(vkCtx, frames, bufferSize, eVertexBuffer, eHostVisible | eHostCoherent);
 
-            const vk::DrawIndexedIndirectCommand initialCommand{static_cast<uint32_t>(batch.mesh->indices.size()), 0, 0, 0, 0};
-            for (uint32_t j = 0; j < frames; j++) {
-                std::memcpy(batch.indirectBuffers.mapped(j), &initialCommand, indirectSize);
-                std::memcpy(batch.culledOnlyIndirectBuffers.mapped(j), &initialCommand, indirectSize);
-            }
+        const vk::DrawIndexedIndirectCommand initialCommand{static_cast<uint32_t>(batch.mesh->indices.size()), 0, 0, 0, 0};
+        for (uint32_t j = 0; j < frames; j++) {
+            std::memcpy(batch.indirectBuffers.mapped(j), &initialCommand, indirectSize);
+            std::memcpy(batch.culledOnlyIndirectBuffers.mapped(j), &initialCommand, indirectSize);
         }
     }
 
@@ -246,6 +242,7 @@ void InstanceRenderer::update(const uint32_t currentImage, const CullingUtils::F
 
             dst[visibleCount].position = obj.position;
             dst[visibleCount].rotation = obj.rotation;
+            dst[visibleCount].uvScale = batch.mesh->uvScale;
             visibleCount++;
         }
 
@@ -256,6 +253,7 @@ void InstanceRenderer::update(const uint32_t currentImage, const CullingUtils::F
             const auto &obj = objects[batch.objectIndices[idx]];
             shadowDst[idx].position = obj.position;
             shadowDst[idx].rotation = obj.rotation;
+            shadowDst[idx].uvScale = batch.mesh->uvScale;
         }
     }
 }

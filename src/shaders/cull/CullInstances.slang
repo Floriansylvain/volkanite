@@ -17,6 +17,9 @@ struct InstanceDataGPU {
     float pad0;
     float3 rotation;
     float pad1;
+    float2 uvScale;
+    float pad2;
+    float pad3;
 };
 
 struct DrawIndexedIndirectCommand {

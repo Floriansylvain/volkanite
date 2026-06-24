@@ -41,6 +41,8 @@ class Mesh {
     float boundingRadius = 0.0f;
     glm::vec3 boundingCenter{0.0f};
 
+    glm::vec2 uvScale{1.0f, 1.0f};
+
   private:
     const VulkanContext &vkCtx;
 };

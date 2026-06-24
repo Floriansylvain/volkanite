@@ -6,6 +6,7 @@ struct InstancedVSInput {
     float3 inTangent;
     float3 instancePos;
     float3 instanceRotation;
+    float2 instanceUVScale;
 };
 
 struct CameraUniform {
@@ -25,6 +26,7 @@ struct VSOutput {
     float3 fragNormal;
     float3 fragTangent;
     float3 viewDiff;
+    float2 uvScale;
 };
 
 float4x4 eulerRotationMatrix(float3 angles) {
@@ -79,9 +81,14 @@ float3 fresnelSchlick(float VdotH, float3 Fzero) {
     return Fzero + (1.0 - Fzero) * pow5(saturate(1.0 - VdotH));
 }
 
+float3 fresnelSchlickRoughness(float cosTheta, float3 Fzero, float roughness) {
+    float3 r = float3(1.0 - roughness, 1.0 - roughness, 1.0 - roughness);
+    return Fzero + (max(r, Fzero) - Fzero) * pow5(saturate(1.0 - cosTheta));
+}
+
 [[vk::binding(1, 0)]] Sampler2D texture;
 [[vk::binding(2, 0)]] Sampler2D normalMap;
-[[vk::binding(3, 0)]] Sampler2D ormMap; // R=roughness G=metallic B=height
+[[vk::binding(3, 0)]] Sampler2D ormMap; 
 [[vk::binding(4, 0)]] Sampler2D shadowMap;
 
 float2 parallaxOcclusionMapping(float2 texCoords, float3 viewDirTS, float viewDistance) {
@@ -89,22 +96,18 @@ float2 parallaxOcclusionMapping(float2 texCoords, float3 viewDirTS, float viewDi
     const float fadeEnd = 100.0;
 
     float lodFactor = saturate((viewDistance - fadeStart) / (fadeEnd - fadeStart));
-
     if (lodFactor >= 1.0) {
         return texCoords;
     }
 
     const float baseHeightScale = 0.05;
     float currentHeightScale = lerp(baseHeightScale, 0.0, lodFactor);
-
     float maxLayers = lerp(12.0, 2.0, lodFactor);
     float minLayers = lerp(4.0, 2.0, lodFactor);
-
     float numLayers = lerp(maxLayers, minLayers, abs(dot(float3(0.0, 0.0, 1.0), viewDirTS)));
 
     float layerDepth = 1.0 / numLayers;
     float currentLayerDepth = 0.0;
-
     float2 p = viewDirTS.xy / max(viewDirTS.z, 0.001) * currentHeightScale;
     float2 deltaTexCoords = p / numLayers;
 
@@ -125,28 +128,48 @@ float2 parallaxOcclusionMapping(float2 texCoords, float3 viewDirTS, float viewDi
     return prevTexCoords * weight + currentTexCoords * (1.0 - weight);
 }
 
-float computeShadow(float3 worldPos, float3 N, float3 L) {
+float interleavedGradientNoise(float2 pixelCoord) {
+    float3 magic = float3(0.06711056, 0.00583715, 52.9829189);
+    return frac(magic.z * frac(dot(pixelCoord, magic.xy)));
+}
+
+float computeShadow(float3 worldPos, float3 N, float3 L, float2 fragCoord) {
     float4 shadowClip = mul(ubo.lightViewProj, float4(worldPos, 1.0));
     float3 shadowNDC = shadowClip.xyz / shadowClip.w;
     float2 shadowUV = shadowNDC.xy * 0.5 + 0.5;
     float receiverDepth = shadowNDC.z;
 
-    if (shadowUV.x < 0.0 || shadowUV.x > 1.0 || shadowUV.y < 0.0 || shadowUV.y > 1.0 || receiverDepth < 0.0 ||
-        receiverDepth > 1.0) {
-        return 1.0; 
+    if (shadowUV.x < 0.0 || shadowUV.x > 1.0 || shadowUV.y < 0.0 || shadowUV.y > 1.0 || receiverDepth < 0.0 || receiverDepth > 1.0) {
+        return 1.0;
     }
 
     const float bias = max(0.0015 * (1.0 - dot(N, L)), 0.00025);
     const float texelSize = ubo.lightDir.w;
-
     float shadow = 0.0;
-    for (int x = -1; x <= 1; x++) {
-        for (int y = -1; y <= 1; y++) {
-            float sampledDepth = shadowMap.Sample(shadowUV + float2(x, y) * texelSize).r;
-            shadow += (receiverDepth - bias) > sampledDepth ? 0.0 : 1.0;
-        }
+
+    float2 poissonDisk[16] = {
+        float2(-0.94201624, -0.39906216), float2(0.94558609, -0.76890725), float2(-0.094184101, -0.92938870), float2(0.34495938, 0.29387760),
+        float2(-0.91588401, 0.45771432), float2(-0.81544232, -0.87912464), float2(-0.38277543, 0.27676845), float2(0.97484398, 0.75648379),
+        float2(0.44323325, -0.97511554), float2(0.53742981, -0.47373420), float2(-0.26496911, -0.41893023), float2(0.79197514, 0.19090188),
+        float2(-0.24188840, 0.99706507), float2(-0.81409955, 0.91437590), float2(0.19984126, 0.78641367), float2(0.14383161, -0.14100790)
+    };
+
+    float spread = texelSize * 1.5;
+
+    float noise = interleavedGradientNoise(fragCoord);
+    float angle = noise * 2.0 * PI;
+    float s, c;
+    sincos(angle, s, c);
+    float2x2 rotMatrix = float2x2(c, -s, s, c);
+
+    for (int i = 0; i < 16; i++) {
+        float2 rotatedOffset = mul(poissonDisk[i], rotMatrix);
+        float sampledDepth = shadowMap.Sample(shadowUV + rotatedOffset * spread).r;
+        
+        shadow += (receiverDepth - bias) > sampledDepth ? 0.0 : 1.0;
     }
-    return shadow / 9.0;
+
+    return shadow / 16.0;
 }
 
 [shader("vertex")]
@@ -165,6 +188,7 @@ VSOutput vertMainInstanced(InstancedVSInput input) {
     output.fragTexCoord = input.inTexCoord;
 
     output.viewDiff = ubo.cameraPos.xyz - worldPos.xyz;
+    output.uvScale = input.instanceUVScale;
 
     return output;
 }
@@ -181,11 +205,11 @@ float4 fragMain(VSOutput vertIn) : SV_TARGET {
     float3x3 TBN = float3x3(T, B, N);
 
     float3 viewDirTS = normalize(mul((float3x3)TBN, V));
-
-    float2 texCoord = parallaxOcclusionMapping(vertIn.fragTexCoord, viewDirTS, viewDistance);
+   
+    float2 scaledTexCoord = vertIn.fragTexCoord * vertIn.uvScale;
+    float2 texCoord = parallaxOcclusionMapping(scaledTexCoord, viewDirTS, viewDistance);
 
     float4 texColor = texture.Sample(texCoord);
-
     if (texColor.a < 0.5)
         discard;
 
@@ -201,18 +225,20 @@ float4 fragMain(VSOutput vertIn) : SV_TARGET {
     float NdotH = saturate(dot(N, H));
 
     float3 worldPos = ubo.cameraPos.xyz - vertIn.viewDiff;
-    float shadow = computeShadow(worldPos, N, L);
+    
+    float shadow = computeShadow(worldPos, N, L, vertIn.pos.xy);
 
     float3 orm = ormMap.Sample(texCoord).rgb;
-    float roughness = orm.r;
+    float roughness = max(orm.r, 0.04); 
+    float metallic = orm.g;
+    
+    float3 diffuseColor = texColor.rgb;
+    float3 Fzero = lerp(float3(0.04, 0.04, 0.04), diffuseColor, metallic);
 
     float fd90 = 0.5 + 2.0 * roughness * LdotH * LdotH;
     float lightScatter = 1.0 + (fd90 - 1.0) * pow5(saturate(1.0 - NdotL));
     float viewScatter = 1.0 + (fd90 - 1.0) * pow5(saturate(1.0 - NdotV));
-    float burleyDiffuse = lightScatter * viewScatter * NdotL;
-
-    float metallic = orm.g;
-    float3 Fzero = lerp(float3(0.04, 0.04, 0.04), texColor.rgb, metallic);
+    float burleyDiffuse = lightScatter * viewScatter;
 
     float D = distributionGGX(NdotH, roughness);
     float G = geometrySmith(NdotV, NdotL, roughness);
@@ -220,26 +246,36 @@ float4 fragMain(VSOutput vertIn) : SV_TARGET {
 
     float3 specular = (D * G * F) / max(4.0 * NdotV * NdotL, 0.001);
 
+    float3 kS = F;
+    float3 kD = float3(1.0, 1.0, 1.0) - kS;
+    kD *= 1.0 - metallic;
+
+    float3 directLighting = (diffuseColor * burleyDiffuse * kD + specular) * NdotL * shadow;
+
     const float3 skyColor = float3(0.35, 0.38, 0.42);
     const float3 groundColor = float3(0.15, 0.13, 0.11);
-
     const float ambientDiffuseIntensity = 0.2;
     const float ambientSpecularIntensity = 0.1;
 
+    float3 kS_ambient = fresnelSchlickRoughness(NdotV, Fzero, roughness);
+    float3 kD_ambient = float3(1.0, 1.0, 1.0) - kS_ambient;
+    kD_ambient *= 1.0 - metallic;
+
     float skyFactor = N.z * 0.5 + 0.5;
-
     float3 ambientDiffuseColor = lerp(groundColor, skyColor, skyFactor) * ambientDiffuseIntensity;
-    float3 ambientSpecular = skyColor * fresnelSchlick(NdotV, Fzero) * ambientSpecularIntensity;
 
-    float3 diffuseColor = texColor.rgb * (1.0 - metallic);
+    float3 R = reflect(-V, N);
+    float R_z = R.z * 0.5 + 0.5;
+    float3 ambientReflectionColor = lerp(groundColor, skyColor, R_z);
+    
+    float specAtten = exp2(-roughness * 4.0);
+    float3 ambientSpecular = ambientReflectionColor * kS_ambient * ambientSpecularIntensity * specAtten;
 
-    float3 directLighting = (diffuseColor * burleyDiffuse + specular * NdotL) * shadow;
-    float3 ambientLighting = diffuseColor * ambientDiffuseColor + ambientSpecular;
+    float3 ambientLighting = diffuseColor * ambientDiffuseColor * kD_ambient + ambientSpecular;
 
     float3 finalColor = directLighting + ambientLighting;
 
     return float4(finalColor, 1.0);
-    //return float4(shadow, shadow, shadow, 1.0);
 }
 
 [shader("fragment")]
@@ -250,6 +286,7 @@ float4 fragMainXray(VSOutput vertIn) : SV_TARGET {
 struct ShadowVSOutput {
     float4 pos : SV_Position;
     float2 fragTexCoord;
+    float2 uvScale;
 };
 
 [shader("vertex")]
@@ -261,13 +298,15 @@ ShadowVSOutput vertShadowInstanced(InstancedVSInput input) {
 
     output.pos = mul(ubo.lightViewProj, worldPos);
     output.fragTexCoord = input.inTexCoord;
+    output.uvScale = input.instanceUVScale;
 
     return output;
 }
 
 [shader("fragment")]
 void fragShadow(ShadowVSOutput vertIn) {
-    float alpha = texture.Sample(vertIn.fragTexCoord).a;
+    float2 scaledTexCoord = vertIn.fragTexCoord * vertIn.uvScale;
+    float alpha = texture.Sample(scaledTexCoord).a;
     if (alpha < 0.5)
         discard;
 }
