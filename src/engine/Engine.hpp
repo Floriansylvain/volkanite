@@ -25,6 +25,9 @@ class Engine {
 
     [[nodiscard]] Camera &getCamera() { return camera; }
 
+    void setLightDirection(const glm::vec3 &direction) { lightDirection = glm::normalize(direction); }
+    [[nodiscard]] const glm::vec3 &getLightDirection() const { return lightDirection; }
+
     RenderObjectHandle addRenderObject(RenderObject object);
     [[nodiscard]] RenderObject &getRenderObject(RenderObjectHandle handle);
 
@@ -47,6 +50,10 @@ class Engine {
     constexpr static float PERF_PANEL_LEFT_MARGIN = 450.f;
     constexpr static int MAX_FRAMES_IN_FLIGHT = 2;
     constexpr static int MAX_TEXTURES = 256;
+
+    constexpr static uint32_t SHADOW_MAP_SIZE = 8192;
+    constexpr static float SHADOW_ORTHO_HALF_EXTENT = 60.0f;
+    constexpr static float SHADOW_LIGHT_DISTANCE = 100.0f;
 
     Window &window;
     VulkanContext &vkCtx;
@@ -98,6 +105,14 @@ class Engine {
 
     std::shared_ptr<Texture> defaultNormalMap;
 
+    glm::vec3 lightDirection = glm::normalize(glm::vec3(0.57735f, 0.57735f, 0.57735f));
+
+    vk::Format shadowDepthFormat = vk::Format::eD32Sfloat;
+    vk::raii::Image shadowDepthImage = nullptr;
+    vk::raii::DeviceMemory shadowDepthImageMemory = nullptr;
+    vk::raii::ImageView shadowDepthImageView = nullptr;
+    vk::raii::Sampler shadowSampler = nullptr;
+
     bool isInitialized = false;
     bool framebufferResized = false;
     bool isWireframe = false;
@@ -123,9 +138,13 @@ class Engine {
         glm::mat4 view;
         glm::mat4 proj;
         glm::vec4 cameraPos;
+        glm::mat4 lightViewProj;
+        glm::vec4 lightDir;
     };
     void createDescriptorSetLayout();
     void createCameraUniformBuffer();
+    void createShadowResources();
+    [[nodiscard]] glm::mat4 computeLightViewProj() const;
 
     void registerMaterial(const Material &material);
     [[nodiscard]] std::shared_ptr<Texture> getOrCreateFlatOrmMap(float roughness, float metallic);

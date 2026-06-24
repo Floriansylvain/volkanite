@@ -12,6 +12,8 @@ struct CameraUniform {
     float4x4 view;
     float4x4 proj;
     float4 cameraPos;
+    float4x4 lightViewProj;
+    float4 lightDir;
 };
 
 [[vk::binding(0, 0)]] ConstantBuffer<CameraUniform> ubo;
@@ -80,6 +82,7 @@ float3 fresnelSchlick(float VdotH, float3 Fzero) {
 [[vk::binding(1, 0)]] Sampler2D texture;
 [[vk::binding(2, 0)]] Sampler2D normalMap;
 [[vk::binding(3, 0)]] Sampler2D ormMap; // R=roughness G=metallic B=height
+[[vk::binding(4, 0)]] Sampler2D shadowMap;
 
 float2 parallaxOcclusionMapping(float2 texCoords, float3 viewDirTS, float viewDistance) {
     const float fadeStart = 10.0;
@@ -120,6 +123,30 @@ float2 parallaxOcclusionMapping(float2 texCoords, float3 viewDirTS, float viewDi
     float weight = afterDepth / (afterDepth - beforeDepth);
 
     return prevTexCoords * weight + currentTexCoords * (1.0 - weight);
+}
+
+float computeShadow(float3 worldPos, float3 N, float3 L) {
+    float4 shadowClip = mul(ubo.lightViewProj, float4(worldPos, 1.0));
+    float3 shadowNDC = shadowClip.xyz / shadowClip.w;
+    float2 shadowUV = shadowNDC.xy * 0.5 + 0.5;
+    float receiverDepth = shadowNDC.z;
+
+    if (shadowUV.x < 0.0 || shadowUV.x > 1.0 || shadowUV.y < 0.0 || shadowUV.y > 1.0 || receiverDepth < 0.0 ||
+        receiverDepth > 1.0) {
+        return 1.0; 
+    }
+
+    const float bias = max(0.0015 * (1.0 - dot(N, L)), 0.00025);
+    const float texelSize = ubo.lightDir.w;
+
+    float shadow = 0.0;
+    for (int x = -1; x <= 1; x++) {
+        for (int y = -1; y <= 1; y++) {
+            float sampledDepth = shadowMap.Sample(shadowUV + float2(x, y) * texelSize).r;
+            shadow += (receiverDepth - bias) > sampledDepth ? 0.0 : 1.0;
+        }
+    }
+    return shadow / 9.0;
 }
 
 [shader("vertex")]
@@ -165,13 +192,16 @@ float4 fragMain(VSOutput vertIn) : SV_TARGET {
     float3 tangentNormal = normalMap.Sample(texCoord).rgb * 2.0 - 1.0;
     N = normalize(mul(tangentNormal, TBN));
 
-    const float3 L = float3(0.57735, 0.57735, 0.57735);
+    const float3 L = normalize(ubo.lightDir.xyz);
     float3 H = normalize(L + V);
 
     float NdotL = saturate(dot(N, L));
     float NdotV = saturate(dot(N, V));
     float LdotH = saturate(dot(L, H));
     float NdotH = saturate(dot(N, H));
+
+    float3 worldPos = ubo.cameraPos.xyz - vertIn.viewDiff;
+    float shadow = computeShadow(worldPos, N, L);
 
     float3 orm = ormMap.Sample(texCoord).rgb;
     float roughness = orm.r;
@@ -203,15 +233,41 @@ float4 fragMain(VSOutput vertIn) : SV_TARGET {
 
     float3 diffuseColor = texColor.rgb * (1.0 - metallic);
 
-    float3 directLighting = diffuseColor * burleyDiffuse + specular * NdotL;
+    float3 directLighting = (diffuseColor * burleyDiffuse + specular * NdotL) * shadow;
     float3 ambientLighting = diffuseColor * ambientDiffuseColor + ambientSpecular;
 
     float3 finalColor = directLighting + ambientLighting;
 
     return float4(finalColor, 1.0);
+    //return float4(shadow, shadow, shadow, 1.0);
 }
 
 [shader("fragment")]
 float4 fragMainXray(VSOutput vertIn) : SV_TARGET {
     return float4(1.0, 0.0, 0.0, 0.35);
+}
+
+struct ShadowVSOutput {
+    float4 pos : SV_Position;
+    float2 fragTexCoord;
+};
+
+[shader("vertex")]
+ShadowVSOutput vertShadowInstanced(InstancedVSInput input) {
+    ShadowVSOutput output;
+    float4x4 rot = eulerRotationMatrix(input.instanceRotation);
+    float4 rotatedPos = mul(rot, float4(input.inPos, 1.0));
+    float4 worldPos = float4(rotatedPos.xyz + input.instancePos, 1.0);
+
+    output.pos = mul(ubo.lightViewProj, worldPos);
+    output.fragTexCoord = input.inTexCoord;
+
+    return output;
+}
+
+[shader("fragment")]
+void fragShadow(ShadowVSOutput vertIn) {
+    float alpha = texture.Sample(vertIn.fragTexCoord).a;
+    if (alpha < 0.5)
+        discard;
 }

@@ -58,6 +58,15 @@ GraphicsPipelineBuilder &GraphicsPipelineBuilder::setDepthTest(const bool testEn
     return *this;
 }
 
+GraphicsPipelineBuilder &GraphicsPipelineBuilder::setDepthBias(const float constantFactor, const float slopeFactor,
+                                                               const float clamp) {
+    depthBiasEnable = true;
+    depthBiasConstantFactor = constantFactor;
+    depthBiasSlopeFactor = slopeFactor;
+    depthBiasClamp = clamp;
+    return *this;
+}
+
 GraphicsPipelineBuilder &GraphicsPipelineBuilder::setBlendEnabled(const bool enabled) {
     blendEnable = enabled;
     return *this;
@@ -107,6 +116,10 @@ vk::raii::Pipeline GraphicsPipelineBuilder::build() {
     rasterizer.cullMode = cullMode;
     rasterizer.frontFace = frontFace;
     rasterizer.lineWidth = 1.0f;
+    rasterizer.depthBiasEnable = depthBiasEnable;
+    rasterizer.depthBiasConstantFactor = depthBiasConstantFactor;
+    rasterizer.depthBiasSlopeFactor = depthBiasSlopeFactor;
+    rasterizer.depthBiasClamp = depthBiasClamp;
 
     vk::PipelineMultisampleStateCreateInfo multisampling{};
     multisampling.rasterizationSamples = msaaSamples;

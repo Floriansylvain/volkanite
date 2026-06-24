@@ -8,7 +8,7 @@ InstanceRenderer::InstanceRenderer(VulkanContext &vkCtx, const int maxFramesInFl
     : vkCtx(vkCtx), maxFramesInFlight(maxFramesInFlight) {}
 
 void InstanceRenderer::createPipelines(const vk::PipelineLayout pipelineLayout, const vk::Format colorFormat,
-                                       const vk::Format depthFormat) {
+                                       const vk::Format depthFormat, const vk::Format shadowDepthFormat) {
     const auto bindingDescription = Mesh::Vertex::getBindingDescription();
     const auto attributeDescriptions = Mesh::Vertex::getAttributeDescriptions();
 
@@ -38,6 +38,24 @@ void InstanceRenderer::createPipelines(const vk::PipelineLayout pipelineLayout, 
         .setDepthTest(false, false)
         .overrideEntryPoint(vk::ShaderStageFlagBits::eFragment, "fragMainXray");
     xrayPipeline = builder.build();
+
+    const std::vector<vk::VertexInputAttributeDescription> shadowAttrs = {
+        attributeDescriptions[0],
+        attributeDescriptions[2],
+        instancePos,
+        instanceRot,
+    };
+
+    GraphicsPipelineBuilder shadowBuilder(vkCtx);
+    shadowBuilder.addShaderStage(vk::ShaderStageFlagBits::eVertex, "shaders/shader.spv", "vertShadowInstanced")
+        .addShaderStage(vk::ShaderStageFlagBits::eFragment, "shaders/shader.spv", "fragShadow")
+        .setVertexInput({bindingDescription, instanceBinding}, shadowAttrs)
+        .setLayout(pipelineLayout)
+        .setColorFormats({})
+        .setDepthFormat(shadowDepthFormat)
+        .setDepthBias(1.5f, 1.75f);
+
+    shadowPipeline = shadowBuilder.build();
 }
 
 RenderObjectHandle InstanceRenderer::addObject(RenderObject object) {
@@ -87,6 +105,7 @@ void InstanceRenderer::build() {
             batch.culledOnlyBuffers = PerFrameBuffer(vkCtx, frames, bufferSize, eVertexBuffer | eStorageBuffer, eDeviceLocal);
             batch.culledOnlyIndirectBuffers = PerFrameBuffer(
                 vkCtx, frames, indirectSize, eIndirectBuffer | eStorageBuffer | eTransferDst, eHostVisible | eHostCoherent);
+            batch.shadowBuffers = PerFrameBuffer(vkCtx, frames, bufferSize, eVertexBuffer, eHostVisible | eHostCoherent);
 
             const vk::DrawIndexedIndirectCommand initialCommand{static_cast<uint32_t>(batch.mesh->indices.size()), 0, 0, 0, 0};
             for (uint32_t j = 0; j < frames; j++) {
@@ -231,6 +250,13 @@ void InstanceRenderer::update(const uint32_t currentImage, const CullingUtils::F
         }
 
         batch.visibleInstanceCount = visibleCount;
+
+        auto *shadowDst = static_cast<InstanceData *>(batch.shadowBuffers.mapped(currentImage));
+        for (size_t idx = 0; idx < batch.objectIndices.size(); ++idx) {
+            const auto &obj = objects[batch.objectIndices[idx]];
+            shadowDst[idx].position = obj.position;
+            shadowDst[idx].rotation = obj.rotation;
+        }
     }
 }
 
@@ -277,6 +303,29 @@ void InstanceRenderer::drawXray(DrawCommand command) const {
 
         command.commandBuffer->drawIndexedIndirect(batch.culledOnlyIndirectBuffers[command.frameIndex], 0, 1,
                                                    sizeof(vk::DrawIndexedIndirectCommand));
+    }
+}
+
+void InstanceRenderer::drawShadow(DrawCommand command) const {
+    command.commandBuffer->bindPipeline(vk::PipelineBindPoint::eGraphics, *shadowPipeline);
+
+    for (const auto &batch : batches) {
+        if (batch.instanceCount == 0)
+            continue;
+
+        const MaterialKey key{batch.texture, batch.normalMap, batch.ormMap};
+        const auto &materialSets = command.materialDescriptorSets->at(key);
+        command.commandBuffer->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, command.pipelineLayout, 0,
+                                                  *materialSets[command.frameIndex], nullptr);
+
+        std::vector<vk::DeviceSize> vertexOffsets = {0};
+        command.commandBuffer->bindVertexBuffers(0, *batch.mesh->unifiedBuffer, vertexOffsets);
+        std::vector<vk::DeviceSize> instanceOffsets = {0};
+        command.commandBuffer->bindVertexBuffers(1, batch.shadowBuffers[command.frameIndex], instanceOffsets);
+        const vk::DeviceSize vertexSizeOffset = sizeof(Mesh::Vertex) * batch.mesh->vertices.size();
+        command.commandBuffer->bindIndexBuffer(*batch.mesh->unifiedBuffer, vertexSizeOffset, vk::IndexType::eUint32);
+
+        command.commandBuffer->drawIndexed(static_cast<uint32_t>(batch.mesh->indices.size()), batch.instanceCount, 0, 0, 0);
     }
 }
 

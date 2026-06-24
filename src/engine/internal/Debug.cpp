@@ -84,7 +84,9 @@ void Debug::rebuildDebugLines(const float avgFrameTimeMs, const DebugFrameInfo &
     debugLines.emplace_back("");
 
     debugLines.emplace_back("KEYBINDS");
-    debugLines.emplace_back("W A S D: Movements");
+    debugLines.emplace_back("Directions: W A S D");
+    debugLines.emplace_back("Height: SPACE LCTRL");
+    debugLines.emplace_back("Speed: LSHIFT LALT");
     debugLines.push_back(std::format("T: wireframe ({})", info.wireframe ? "ON" : "OFF"));
     debugLines.push_back(std::format("C: occlusion culling ({})", info.occlusionCulling ? "ON" : "OFF"));
     debugLines.push_back(std::format("X: x-ray ({})", info.xray ? "ON" : "OFF"));

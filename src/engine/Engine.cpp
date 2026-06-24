@@ -22,7 +22,7 @@ void Engine::createGraphicsPipeline() {
     const vk::Format depthFormat = swapChainHandler.findDepthFormat();
 
     textRenderer.createPipeline(colorFormat, depthFormat);
-    instanceRenderer.createPipelines(*pipelineLayout, colorFormat, depthFormat);
+    instanceRenderer.createPipelines(*pipelineLayout, colorFormat, depthFormat, shadowDepthFormat);
 }
 
 void Engine::createCommandPool() {
@@ -134,6 +134,60 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
     VulkanUtils::imageBarriers(commandBuffers[frameIndex], {colorTransition, msaaColorTransition, depthTransition});
     writeTimestamp(GpuPass::FrameSetup, false, eAllCommands);
 
+    InstanceRenderer::DrawCommand drawCommand = {};
+    drawCommand.commandBuffer = &commandBuffers[frameIndex];
+    drawCommand.frameIndex = frameIndex;
+    drawCommand.pipelineLayout = *pipelineLayout;
+    drawCommand.materialDescriptorSets = &materialDescriptorSets;
+
+    VulkanUtils::ImageBarrierCommand shadowToAttachment{};
+    shadowToAttachment.image = *shadowDepthImage;
+    shadowToAttachment.old_layout = eUndefined;
+    shadowToAttachment.new_layout = eDepthAttachmentOptimal;
+    shadowToAttachment.src_access_mask = {};
+    shadowToAttachment.dst_access_mask = vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
+    shadowToAttachment.src_stage_mask = eEarlyFragmentTests | eLateFragmentTests;
+    shadowToAttachment.dst_stage_mask = eEarlyFragmentTests | eLateFragmentTests;
+    shadowToAttachment.image_aspect_flags = vk::ImageAspectFlagBits::eDepth;
+    VulkanUtils::imageBarriers(commandBuffers[frameIndex], {shadowToAttachment});
+
+    constexpr vk::ClearValue shadowClearDepth = vk::ClearDepthStencilValue(1.0f, 0);
+    vk::RenderingAttachmentInfo shadowAttachmentInfo = {};
+    shadowAttachmentInfo.imageView = *shadowDepthImageView;
+    shadowAttachmentInfo.imageLayout = eDepthAttachmentOptimal;
+    shadowAttachmentInfo.loadOp = vk::AttachmentLoadOp::eClear;
+    shadowAttachmentInfo.storeOp = vk::AttachmentStoreOp::eStore;
+    shadowAttachmentInfo.clearValue = shadowClearDepth;
+
+    vk::Rect2D shadowRenderArea = {};
+    shadowRenderArea.offset = vk::Offset2D{0, 0};
+    shadowRenderArea.extent = vk::Extent2D{SHADOW_MAP_SIZE, SHADOW_MAP_SIZE};
+
+    vk::RenderingInfo shadowRenderingInfo = {};
+    shadowRenderingInfo.renderArea = shadowRenderArea;
+    shadowRenderingInfo.layerCount = 1;
+    shadowRenderingInfo.colorAttachmentCount = 0;
+    shadowRenderingInfo.pDepthAttachment = &shadowAttachmentInfo;
+
+    // TODO: add shadow-map entry to debug and write timings
+    commandBuffers[frameIndex].beginRendering(shadowRenderingInfo);
+    commandBuffers[frameIndex].setViewport(
+        0, vk::Viewport(0.0f, 0.0f, static_cast<float>(SHADOW_MAP_SIZE), static_cast<float>(SHADOW_MAP_SIZE), 0.0f, 1.0f));
+    commandBuffers[frameIndex].setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), vk::Extent2D{SHADOW_MAP_SIZE, SHADOW_MAP_SIZE}));
+    instanceRenderer.drawShadow(drawCommand);
+    commandBuffers[frameIndex].endRendering();
+
+    VulkanUtils::ImageBarrierCommand shadowToRead{};
+    shadowToRead.image = *shadowDepthImage;
+    shadowToRead.old_layout = eDepthAttachmentOptimal;
+    shadowToRead.new_layout = eShaderReadOnlyOptimal;
+    shadowToRead.src_access_mask = vk::AccessFlagBits2::eDepthStencilAttachmentWrite;
+    shadowToRead.dst_access_mask = vk::AccessFlagBits2::eShaderRead;
+    shadowToRead.src_stage_mask = eLateFragmentTests;
+    shadowToRead.dst_stage_mask = eFragmentShader;
+    shadowToRead.image_aspect_flags = vk::ImageAspectFlagBits::eDepth;
+    VulkanUtils::imageBarriers(commandBuffers[frameIndex], {shadowToRead});
+
     writeTimestamp(GpuPass::HiZBuild, true, eComputeShader);
     occlusionCuller.prepareDepthResolveTarget(commandBuffers[frameIndex], frameIndex);
     occlusionCuller.buildPyramid(commandBuffers[frameIndex], frameIndex);
@@ -191,12 +245,6 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
     commandBuffers[frameIndex].setViewport(0, vk::Viewport(0.0f, 0.0f, static_cast<float>(swapChainHandler.extent2D.width),
                                                            static_cast<float>(swapChainHandler.extent2D.height), 0.0f, 1.0f));
     commandBuffers[frameIndex].setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), swapChainHandler.extent2D));
-
-    InstanceRenderer::DrawCommand drawCommand = {};
-    drawCommand.commandBuffer = &commandBuffers[frameIndex];
-    drawCommand.frameIndex = frameIndex;
-    drawCommand.pipelineLayout = *pipelineLayout;
-    drawCommand.materialDescriptorSets = &materialDescriptorSets;
 
     writeTimestamp(GpuPass::OpaqueGeometry, true, eColorAttachmentOutput);
     instanceRenderer.draw(drawCommand, isWireframe, drawCallCount);
@@ -447,14 +495,56 @@ void Engine::createDescriptorSetLayout() {
     ormMapBinding.descriptorCount = 1;
     ormMapBinding.stageFlags = vk::ShaderStageFlagBits::eFragment;
 
-    descriptorSetLayout =
-        VulkanUtils::createDescriptorSetLayout(vkCtx, {uboLayoutBinding, albedoBinding, normalMapBinding, ormMapBinding});
+    vk::DescriptorSetLayoutBinding shadowMapBinding{};
+    shadowMapBinding.binding = 4;
+    shadowMapBinding.descriptorType = vk::DescriptorType::eCombinedImageSampler;
+    shadowMapBinding.descriptorCount = 1;
+    shadowMapBinding.stageFlags = vk::ShaderStageFlagBits::eFragment;
+
+    descriptorSetLayout = VulkanUtils::createDescriptorSetLayout(
+        vkCtx, {uboLayoutBinding, albedoBinding, normalMapBinding, ormMapBinding, shadowMapBinding});
 }
 
 void Engine::createCameraUniformBuffer() {
     cameraUniformBuffers = PerFrameBuffer(vkCtx, static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT), sizeof(UniformBufferObject),
                                           vk::BufferUsageFlagBits::eUniformBuffer,
                                           vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+}
+
+void Engine::createShadowResources() {
+    using enum vk::ImageUsageFlagBits;
+    VulkanUtils::CreateImageCommand createImageCommand = {};
+    createImageCommand.width = SHADOW_MAP_SIZE;
+    createImageCommand.height = SHADOW_MAP_SIZE;
+    createImageCommand.mipLevels = 1;
+    createImageCommand.samples = vk::SampleCountFlagBits::e1;
+    createImageCommand.format = shadowDepthFormat;
+    createImageCommand.tiling = vk::ImageTiling::eOptimal;
+    createImageCommand.usage = eDepthStencilAttachment | eSampled;
+    createImageCommand.properties = vk::MemoryPropertyFlagBits::eDeviceLocal;
+
+    std::tie(shadowDepthImage, shadowDepthImageMemory) = VulkanUtils::createImage(vkCtx, createImageCommand);
+    shadowDepthImageView =
+        VulkanUtils::createImageView(vkCtx, shadowDepthImage, shadowDepthFormat, vk::ImageAspectFlagBits::eDepth, 1);
+
+    vk::SamplerCreateInfo samplerInfo{};
+    samplerInfo.magFilter = vk::Filter::eLinear;
+    samplerInfo.minFilter = vk::Filter::eLinear;
+    samplerInfo.mipmapMode = vk::SamplerMipmapMode::eNearest;
+    samplerInfo.addressModeU = vk::SamplerAddressMode::eClampToBorder;
+    samplerInfo.addressModeV = vk::SamplerAddressMode::eClampToBorder;
+    samplerInfo.addressModeW = vk::SamplerAddressMode::eClampToBorder;
+    samplerInfo.borderColor = vk::BorderColor::eFloatOpaqueWhite;
+    samplerInfo.anisotropyEnable = vk::False;
+    samplerInfo.compareEnable = vk::False;
+    samplerInfo.compareOp = vk::CompareOp::eAlways;
+
+    shadowSampler = vk::raii::Sampler(vkCtx.device, samplerInfo);
+}
+
+glm::mat4 Engine::computeLightViewProj() const {
+    return Camera::lightViewProjMatrix(lightDirection, camera.position(), SHADOW_LIGHT_DISTANCE, SHADOW_ORTHO_HALF_EXTENT, 0.1f,
+                                       SHADOW_LIGHT_DISTANCE * 2.0f);
 }
 
 void Engine::updateUniformBuffer(const uint32_t currentImage) const {
@@ -464,13 +554,15 @@ void Engine::updateUniformBuffer(const uint32_t currentImage) const {
     ubo.view = camera.viewMatrix();
     ubo.proj = Camera::projMatrix(aspect);
     ubo.cameraPos = glm::vec4(camera.position(), 1.0f);
+    ubo.lightViewProj = computeLightViewProj();
+    ubo.lightDir = glm::vec4(lightDirection, 1.0f / static_cast<float>(SHADOW_MAP_SIZE));
     std::memcpy(cameraUniformBuffers.mapped(currentImage), &ubo, sizeof(ubo));
 }
 
 void Engine::createDescriptorPool() {
     constexpr vk::DescriptorPoolSize uboPoolSize{vk::DescriptorType::eUniformBuffer, MAX_FRAMES_IN_FLIGHT * MAX_TEXTURES};
     constexpr vk::DescriptorPoolSize samplerPoolSize{vk::DescriptorType::eCombinedImageSampler,
-                                                     MAX_FRAMES_IN_FLIGHT * MAX_TEXTURES * 3};
+                                                     MAX_FRAMES_IN_FLIGHT * MAX_TEXTURES * 4};
     constexpr std::array poolSize = {uboPoolSize, samplerPoolSize};
 
     vk::DescriptorPoolCreateInfo poolInfo{};
@@ -504,7 +596,8 @@ void Engine::registerMaterial(const Material &material) {
             .writeImage(*sets[i], 2, vk::DescriptorType::eCombinedImageSampler, *material.normalMap->textureImageView,
                         *material.normalMap->textureSampler)
             .writeImage(*sets[i], 3, vk::DescriptorType::eCombinedImageSampler, *material.ormMap->textureImageView,
-                        *material.ormMap->textureSampler);
+                        *material.ormMap->textureSampler)
+            .writeImage(*sets[i], 4, vk::DescriptorType::eCombinedImageSampler, *shadowDepthImageView, *shadowSampler);
     }
     writer.update();
 
@@ -752,6 +845,7 @@ void Engine::init() {
     createQueryPools();
     swapChainHandler.createColorResources();
     swapChainHandler.createDepthResources();
+    createShadowResources();
     createOcclusionCuller();
     createCameraUniformBuffer();
     createDescriptorPool();

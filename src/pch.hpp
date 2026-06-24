@@ -9,6 +9,7 @@ import vulkan_hpp;
 
 #include "VulkanContext.hpp"
 #include <chrono>
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
 #include <iostream>
 #include <memory>

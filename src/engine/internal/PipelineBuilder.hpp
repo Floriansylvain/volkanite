@@ -16,6 +16,7 @@ class GraphicsPipelineBuilder {
     GraphicsPipelineBuilder &setPolygonMode(vk::PolygonMode mode);
     GraphicsPipelineBuilder &setCullMode(vk::CullModeFlags mode, vk::FrontFace face = vk::FrontFace::eCounterClockwise);
     GraphicsPipelineBuilder &setDepthTest(bool testEnable, bool writeEnable = true, vk::CompareOp op = vk::CompareOp::eLess);
+    GraphicsPipelineBuilder &setDepthBias(float constantFactor, float slopeFactor, float clamp = 0.0f);
     GraphicsPipelineBuilder &setBlendEnabled(bool enabled);
     GraphicsPipelineBuilder &setColorFormats(std::vector<vk::Format> formats);
     GraphicsPipelineBuilder &setDepthFormat(vk::Format format);
@@ -40,6 +41,10 @@ class GraphicsPipelineBuilder {
     bool depthTestEnable = true;
     bool depthWriteEnable = true;
     vk::CompareOp depthCompareOp = vk::CompareOp::eLess;
+    bool depthBiasEnable = false;
+    float depthBiasConstantFactor = 0.0f;
+    float depthBiasSlopeFactor = 0.0f;
+    float depthBiasClamp = 0.0f;
     bool blendEnable = true;
     std::vector<vk::Format> colorFormats;
     vk::Format depthFormat = vk::Format::eUndefined;

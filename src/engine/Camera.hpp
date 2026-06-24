@@ -27,6 +27,22 @@ class Camera {
         proj[1][1] *= -1;
         return proj;
     }
+
+    [[nodiscard]] static glm::mat4 lightViewProjMatrix(const glm::vec3 &lightDir, const glm::vec3 &center, const float distance,
+                                                       const float halfExtent, const float nearPlane, const float farPlane) {
+        glm::vec3 up = glm::vec3(0.0f, 0.0f, 1.0f);
+        if (glm::abs(glm::dot(up, lightDir)) > 0.999f) {
+            up = glm::vec3(0.0f, 1.0f, 0.0f);
+        }
+
+        const glm::vec3 eye = center + lightDir * distance;
+        const glm::mat4 view = glm::lookAt(eye, center, up);
+
+        glm::mat4 proj = glm::ortho(-halfExtent, halfExtent, -halfExtent, halfExtent, nearPlane, farPlane);
+        proj[1][1] *= -1;
+
+        return proj * view;
+    }
 };
 
 #endif

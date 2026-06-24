@@ -14,7 +14,8 @@ class InstanceRenderer {
   public:
     explicit InstanceRenderer(VulkanContext &vkCtx, int maxFramesInFlight);
 
-    void createPipelines(vk::PipelineLayout pipelineLayout, vk::Format colorFormat, vk::Format depthFormat);
+    void createPipelines(vk::PipelineLayout pipelineLayout, vk::Format colorFormat, vk::Format depthFormat,
+                         vk::Format shadowDepthFormat);
 
     RenderObjectHandle addObject(RenderObject object);
     [[nodiscard]] RenderObject &getObject(const RenderObjectHandle handle) { return objects[handle]; }
@@ -68,6 +69,8 @@ class InstanceRenderer {
 
     void drawXray(DrawCommand command) const;
 
+    void drawShadow(DrawCommand command) const;
+
     [[nodiscard]] uint64_t getVisibleVertexEstimate(uint32_t frameIndex) const;
 
     void updateHiZViews(const std::vector<vk::ImageView> &hiZViews, vk::Sampler hiZSampler) const;
@@ -91,6 +94,8 @@ class InstanceRenderer {
         PerFrameBuffer culledOnlyBuffers;
         PerFrameBuffer culledOnlyIndirectBuffers;
 
+        PerFrameBuffer shadowBuffers;
+
         uint32_t instanceCount = 0;
         uint32_t visibleInstanceCount = 0;
         float boundingRadius = 0.0f;
@@ -109,6 +114,7 @@ class InstanceRenderer {
     vk::raii::Pipeline solidPipeline = nullptr;
     vk::raii::Pipeline wireframePipeline = nullptr;
     vk::raii::Pipeline xrayPipeline = nullptr;
+    vk::raii::Pipeline shadowPipeline = nullptr;
 
     vk::raii::DescriptorPool cullDescriptorPool = nullptr;
 
