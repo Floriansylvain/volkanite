@@ -52,41 +52,32 @@ void MeshUtils::generateCube(Mesh &mesh, const float &size) {
 
 void MeshUtils::generateTerrain(Mesh &mesh, int width, int depth, float spacing, float scale, float heightScale, int octaves,
                                 float persistence, float lacunarity) {
-    mesh.vertices.clear();
-    mesh.indices.clear();
+    const int totalGridPoints = width * depth;
+    std::vector<float> heights(totalGridPoints);
 
-    const int vertexCount = width * depth;
-    mesh.vertices.reserve(vertexCount);
-
-    std::vector<float> heights(vertexCount);
-
+#pragma omp parallel for schedule(static) if (depth > 16)
     for (int y = 0; y < depth; ++y) {
         for (int x = 0; x < width; ++x) {
             float amplitude = 1.0f;
             float frequency = 1.0f;
             float noiseHeight = 0.0f;
 
+            const float baseX = (float(x) * spacing) / scale;
+            const float baseY = (float(y) * spacing) / scale;
+
             for (int i = 0; i < octaves; ++i) {
-                float sampleX = (static_cast<float>(x) * spacing) / scale * frequency;
-                float sampleY = (static_cast<float>(y) * spacing) / scale * frequency;
-                noiseHeight += glm::perlin(glm::vec2(sampleX, sampleY)) * amplitude;
+                noiseHeight += glm::perlin(glm::vec2(baseX * frequency, baseY * frequency)) * amplitude;
 
                 amplitude *= persistence;
                 frequency *= lacunarity;
             }
 
-            float finalHeight = noiseHeight * heightScale;
-            heights[y * width + x] = finalHeight;
-
-            Mesh::Vertex v{};
-            v.pos = glm::vec3(x * spacing, y * spacing, finalHeight);
-            v.color = glm::vec3(1.0f, 1.0f, 1.0f);
-            v.texCoord = glm::vec2(static_cast<float>(x) / width, static_cast<float>(y) / depth);
-
-            mesh.vertices.push_back(v);
+            heights[y * width + x] = noiseHeight * heightScale;
         }
     }
 
+    std::vector<glm::vec3> normals(totalGridPoints);
+#pragma omp parallel for schedule(static) if (depth > 16)
     for (int y = 0; y < depth; ++y) {
         for (int x = 0; x < width; ++x) {
             float hL = x > 0 ? heights[y * width + (x - 1)] : heights[y * width + x];
@@ -94,28 +85,121 @@ void MeshUtils::generateTerrain(Mesh &mesh, int width, int depth, float spacing,
             float hD = y > 0 ? heights[(y - 1) * width + x] : heights[y * width + x];
             float hU = y < depth - 1 ? heights[(y + 1) * width + x] : heights[y * width + x];
 
-            glm::vec3 normal = glm::normalize(glm::vec3(hL - hR, hD - hU, 2.0f * spacing));
-            mesh.vertices[y * width + x].normal = normal;
+            const float inv2Spacing = 0.5f / spacing;
+            normals[y * width + x] = glm::normalize(glm::vec3((hL - hR) * inv2Spacing, (hD - hU) * inv2Spacing, 1.0f));
         }
     }
 
-    mesh.indices.reserve(static_cast<size_t>(width - 1) * (depth - 1) * 6);
-    for (int y = 0; y < depth - 1; ++y) {
-        for (int x = 0; x < width - 1; ++x) {
-            uint32_t topLeft = y * width + x;
-            uint32_t topRight = topLeft + 1;
-            uint32_t bottomLeft = (y + 1) * width + x;
-            uint32_t bottomRight = bottomLeft + 1;
+    mesh.vertices.clear();
+    mesh.indices.clear();
 
-            mesh.indices.push_back(topLeft);
-            mesh.indices.push_back(topRight);
-            mesh.indices.push_back(bottomLeft);
+    mesh.vertices.reserve(width * depth);
+    mesh.indices.reserve(width * depth * 6);
 
-            mesh.indices.push_back(topRight);
-            mesh.indices.push_back(bottomRight);
-            mesh.indices.push_back(bottomLeft);
+    std::vector<int32_t> gridToMeshIndex(totalGridPoints, -1);
+
+    auto getOrCreateVertex = [&](int gx, int gy) -> uint32_t {
+        int gridIdx = gy * width + gx;
+        if (gridToMeshIndex[gridIdx] != -1) {
+            return static_cast<uint32_t>(gridToMeshIndex[gridIdx]);
         }
-    }
+
+        Mesh::Vertex v{};
+        v.pos = glm::vec3(gx * spacing, gy * spacing, heights[gridIdx]);
+        v.color = glm::vec3(1.0f, 1.0f, 1.0f);
+        v.texCoord = glm::vec2(static_cast<float>(gx) / (width - 1), static_cast<float>(gy) / (depth - 1));
+        v.normal = normals[gridIdx];
+
+        mesh.vertices.push_back(v);
+        uint32_t newMeshIdx = static_cast<uint32_t>(mesh.vertices.size() - 1);
+        gridToMeshIndex[gridIdx] = newMeshIdx;
+        return newMeshIdx;
+    };
+
+    float terrainCenterX = (width - 1) * 0.5f * spacing;
+    float terrainCenterY = (depth - 1) * 0.5f * spacing;
+    const float lodThreshold = 50.f;
+
+    auto shouldSubdivide = [&](int x0, int y0, int x1, int y1) -> bool {
+        int nodeWidth = x1 - x0;
+        int nodeHeight = y1 - y0;
+        if (nodeWidth <= 1 || nodeHeight <= 1)
+            return false;
+
+        float nodeCenterX = (x0 + x1) * 0.5f * spacing;
+        float nodeCenterY = (y0 + y1) * 0.5f * spacing;
+        float dx = nodeCenterX - terrainCenterX;
+        float dy = nodeCenterY - terrainCenterY;
+        float distanceToCenter = std::sqrt(dx * dx + dy * dy);
+
+        float maxNodeSize = static_cast<float>(std::max(nodeWidth, nodeHeight)) * spacing;
+        return distanceToCenter < maxNodeSize * lodThreshold;
+    };
+
+    auto processNode = [&](auto &&self, int x0, int y0, int x1, int y1) -> void {
+        if (shouldSubdivide(x0, y0, x1, y1)) {
+            int midX = x0 + (x1 - x0) / 2;
+            int midY = y0 + (y1 - y0) / 2;
+
+            self(self, x0, y0, midX, midY); // Top-Left
+            self(self, midX, y0, x1, midY); // Top-Right
+            self(self, x0, midY, midX, y1); // Bottom-Left
+            self(self, midX, midY, x1, y1); // Bottom-Right
+        } else {
+            int nodeWidth = x1 - x0;
+            int nodeHeight = y1 - y0;
+
+            bool topSplit = (y0 - nodeHeight >= 0) && shouldSubdivide(x0, y0 - nodeHeight, x1, y0);
+            bool bottomSplit = (y1 + nodeHeight < depth) && shouldSubdivide(x0, y1, x1, y1 + nodeHeight);
+            bool leftSplit = (x0 - nodeWidth >= 0) && shouldSubdivide(x0 - nodeWidth, y0, x0, y1);
+            bool rightSplit = (x1 + nodeWidth < width) && shouldSubdivide(x1, y0, x1 + nodeWidth, y1);
+
+            if (!topSplit && !bottomSplit && !leftSplit && !rightSplit) {
+                uint32_t topLeft = getOrCreateVertex(x0, y0);
+                uint32_t topRight = getOrCreateVertex(x1, y0);
+                uint32_t bottomLeft = getOrCreateVertex(x0, y1);
+                uint32_t bottomRight = getOrCreateVertex(x1, y1);
+
+                mesh.indices.push_back(topLeft);
+                mesh.indices.push_back(topRight);
+                mesh.indices.push_back(bottomLeft);
+
+                mesh.indices.push_back(topRight);
+                mesh.indices.push_back(bottomRight);
+                mesh.indices.push_back(bottomLeft);
+            } else {
+                int midX = x0 + nodeWidth / 2;
+                int midY = y0 + nodeHeight / 2;
+
+                std::vector<uint32_t> perimeter;
+
+                perimeter.push_back(getOrCreateVertex(x0, y0)); // Top-Left
+                if (topSplit)
+                    perimeter.push_back(getOrCreateVertex(midX, y0));
+
+                perimeter.push_back(getOrCreateVertex(x1, y0)); // Top-Right
+                if (rightSplit)
+                    perimeter.push_back(getOrCreateVertex(x1, midY));
+
+                perimeter.push_back(getOrCreateVertex(x1, y1)); // Bottom-Right
+                if (bottomSplit)
+                    perimeter.push_back(getOrCreateVertex(midX, y1));
+
+                perimeter.push_back(getOrCreateVertex(x0, y1)); // Bottom-Left
+                if (leftSplit)
+                    perimeter.push_back(getOrCreateVertex(x0, midY));
+
+                uint32_t centerIdx = getOrCreateVertex(midX, midY);
+                for (size_t i = 0; i < perimeter.size(); ++i) {
+                    mesh.indices.push_back(centerIdx);
+                    mesh.indices.push_back(perimeter[i]);
+                    mesh.indices.push_back(perimeter[(i + 1) % perimeter.size()]);
+                }
+            }
+        }
+    };
+
+    processNode(processNode, 0, 0, width - 1, depth - 1);
 
     computeTangents(mesh.vertices, mesh.indices);
 }
@@ -123,15 +207,23 @@ void MeshUtils::generateTerrain(Mesh &mesh, int width, int depth, float spacing,
 void MeshUtils::computeTangents(std::vector<Mesh::Vertex> &vertices, const std::vector<uint32_t> &indices) {
     std::vector<glm::vec3> accum(vertices.size(), glm::vec3(0.0f));
 
-    for (size_t i = 0; i + 2 < indices.size(); i += 3) {
-        const uint32_t i0 = indices[i];
-        const uint32_t i1 = indices[i + 1];
-        const uint32_t i2 = indices[i + 2];
+    const size_t indexCount = indices.size();
+    const uint32_t *const indicesPtr = indices.data();
+    const Mesh::Vertex *const verticesPtr = vertices.data();
 
-        const glm::vec3 edge1 = vertices[i1].pos - vertices[i0].pos;
-        const glm::vec3 edge2 = vertices[i2].pos - vertices[i0].pos;
-        const glm::vec2 deltaUV1 = vertices[i1].texCoord - vertices[i0].texCoord;
-        const glm::vec2 deltaUV2 = vertices[i2].texCoord - vertices[i0].texCoord;
+    for (size_t i = 0; i + 2 < indexCount; i += 3) {
+        const uint32_t i0 = indicesPtr[i];
+        const uint32_t i1 = indicesPtr[i + 1];
+        const uint32_t i2 = indicesPtr[i + 2];
+
+        const Mesh::Vertex &v0 = verticesPtr[i0];
+        const Mesh::Vertex &v1 = verticesPtr[i1];
+        const Mesh::Vertex &v2 = verticesPtr[i2];
+
+        const glm::vec3 edge1 = v1.pos - v0.pos;
+        const glm::vec3 edge2 = v2.pos - v0.pos;
+        const glm::vec2 deltaUV1 = v1.texCoord - v0.texCoord;
+        const glm::vec2 deltaUV2 = v2.texCoord - v0.texCoord;
 
         const float denom = deltaUV1.x * deltaUV2.y - deltaUV2.x * deltaUV1.y;
         if (std::abs(denom) < 1e-8f)
@@ -145,16 +237,25 @@ void MeshUtils::computeTangents(std::vector<Mesh::Vertex> &vertices, const std::
         accum[i2] += tangent;
     }
 
-    for (size_t i = 0; i < vertices.size(); ++i) {
-        const glm::vec3 &n = vertices[i].normal;
-        glm::vec3 t = accum[i] - n * glm::dot(n, accum[i]);
+    const size_t vertexCount = vertices.size();
+    Mesh::Vertex *const outVerticesPtr = vertices.data();
+    const glm::vec3 *const accumPtr = accum.data();
 
-        if (glm::length(t) < 1e-6f) {
+    const int count = static_cast<int>(vertices.size());
+
+#pragma omp parallel for if (count > 1024)
+    for (int i = 0; i < count; ++i) {
+        const glm::vec3 &n = outVerticesPtr[i].normal;
+        const glm::vec3 &a = accumPtr[i];
+
+        glm::vec3 t = a - n * glm::dot(n, a);
+
+        if (glm::dot(t, t) < 1e-12f) {
             const glm::vec3 up = std::abs(n.z) < 0.999f ? glm::vec3(0.0f, 0.0f, 1.0f) : glm::vec3(1.0f, 0.0f, 0.0f);
             t = glm::cross(up, n);
         }
 
-        vertices[i].tangent = glm::normalize(t);
+        outVerticesPtr[i].tangent = glm::normalize(t);
     }
 }
 

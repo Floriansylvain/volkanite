@@ -15,76 +15,38 @@ void DemoGame::init(Engine &engine) {
     // const auto selectedTexture = std::string("oxidized-metal-clad");
     // const auto selectedTexture = std::string("steelplate1");
     // const auto selectedTexture = std::string("wet-stones-with-sand1");
-    // const auto selectedTexture = std::string("grassy-meadow1");
+    const auto selectedTexture = std::string("grassy-meadow1");
     // const auto selectedTexture = std::string("dented-metal");
     // const auto selectedTexture = std::string("base-white-tile");
-    const auto selectedTexture = std::string("grass1"); // no metallic map!
+    // const auto selectedTexture = std::string("grass1"); // no metallic map!
 
     auto cubeMesh = engine.createCubeMesh(1.f);
     cubeMesh->uvScale = glm::vec2(1.f);
     const auto albedo = engine.loadTexture(std::format("textures/{}_albedo.png", selectedTexture));
     const auto normalMap = engine.loadNormalMap(std::format("textures/{}_normal-ogl.png", selectedTexture));
-    // const auto ormMap = engine.loadOrmMap(std::format("textures/{}_roughness.png", selectedTexture),
-    //                                       std::format("textures/{}_metallic.png", selectedTexture),
-    //                                       std::format("textures/{}_height.png", selectedTexture));
-    const auto ormMap = engine.loadOrmMap(std::format("textures/{}_roughness.png", selectedTexture), "",
+    const auto ormMap = engine.loadOrmMap(std::format("textures/{}_roughness.png", selectedTexture),
+                                          std::format("textures/{}_metallic.png", selectedTexture),
                                           std::format("textures/{}_height.png", selectedTexture));
-    // const auto ormMap = engine.loadOrmMapFile("textures/oxidized-metal-clad_orm.dds");
+    // const auto ormMap = engine.loadOrmMap(std::format("textures/{}_roughness.png", selectedTexture), "",
+    //                                       std::format("textures/{}_height.png", selectedTexture));
+    //  const auto ormMap = engine.loadOrmMapFile("textures/oxidized-metal-clad_orm.dds");
 
     Material cubeMaterial = {};
     cubeMaterial.albedo = albedo;
     cubeMaterial.normalMap = normalMap;
     cubeMaterial.ormMap = ormMap;
 
-    // constexpr int OFFSET = 3;
-    // constexpr float INNER_RADIUS = 25.0f;
-    // constexpr float OUTER_RADIUS = 40.0f;
-    // constexpr float INNER_RADIUS_SQ = INNER_RADIUS * INNER_RADIUS;
-    // constexpr float OUTER_RADIUS_SQ = OUTER_RADIUS * OUTER_RADIUS;
-    // constexpr auto BOUND = static_cast<int>(OUTER_RADIUS);
-
-    // auto trySpawnCube = [&](int x, int y, int z) {
-    //     if (const auto distSq = static_cast<float>(x * x + y * y + z * z);
-    //         distSq < INNER_RADIUS_SQ || distSq > OUTER_RADIUS_SQ) {
-    //         return;
-    //     }
-
-    //    RenderObject cube;
-    //    cube.mesh = cubeMesh;
-    //    cube.material = cubeMaterial;
-    //    cube.position = {x, y, z};
-    //    cube.rotation =
-    //        glm::vec3(glm::sin(static_cast<float>(x)), glm::sin(static_cast<float>(y)), glm::sin(static_cast<float>(z)));
-    //    engine.addRenderObject(std::move(cube));
-    //};
-
-    // for (int x = -BOUND; x <= BOUND; x += OFFSET) {
-    //     for (int y = -BOUND; y <= BOUND; y += OFFSET) {
-    //         for (int z = 0; z <= BOUND; z += OFFSET) {
-    //             trySpawnCube(x, y, z);
-    //         }
-    //     }
-    // }
-
-    //{
-    //    const auto bigCubeMesh = engine.createCubeMesh(100.f);
-    //    bigCubeMesh->uvScale = glm::vec2(8.f);
-    //    RenderObject bigCube;
-    //    bigCube.mesh = bigCubeMesh;
-    //    bigCube.material = cubeMaterial;
-    //    bigCube.position = {0.f, 0.f, -150.f};
-    //    bigCube.rotation = glm::vec3(0.f);
-    //    engine.addRenderObject(std::move(bigCube));
-    //}
-
     {
-        const auto terrainMesh = engine.createTerrainMesh(500, 500, 1.f, 150.f, 40.f, 7, 0.5f, 2.f);
-        terrainMesh->uvScale = glm::vec2(250.f);
+        constexpr int size = 1025;
+        constexpr int half = size / 2;
+
+        const auto terrainMesh = engine.createTerrainMesh(size, size, 1.f, 150.f, 40.f, 7, 0.5f, 2.f);
+        terrainMesh->uvScale = glm::vec2(1000.f);
 
         RenderObject terrain;
         terrain.mesh = terrainMesh;
         terrain.material = cubeMaterial;
-        terrain.position = glm::vec3(-250.f, -250.f, -100.f);
+        terrain.position = glm::vec3(-half, -half, -100.f);
 
         engine.addRenderObject(terrain);
     }
