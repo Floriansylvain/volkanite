@@ -576,28 +576,9 @@ float2 stochasticHash(float2 p) {
 
 float4 sampleTextureStochastic(Sampler2D tex, float2 uv, float2 dx, float2 dy) {
     float2 gridId = floor(uv);
-    float2 gridFrac = frac(uv);
-
-    float2 h00 = stochasticHash(gridId + float2(0.0, 0.0));
-    float2 h10 = stochasticHash(gridId + float2(1.0, 0.0));
-    float2 h01 = stochasticHash(gridId + float2(0.0, 1.0));
-    float2 h11 = stochasticHash(gridId + float2(1.0, 1.0));
-
-    float2 uv00 = uv + h00;
-    float2 uv10 = uv + h10;
-    float2 uv01 = uv + h01;
-    float2 uv11 = uv + h11;
-
-    float4 col00 = tex.SampleGrad(uv00, dx, dy);
-    float4 col10 = tex.SampleGrad(uv10, dx, dy);
-    float4 col01 = tex.SampleGrad(uv01, dx, dy);
-    float4 col11 = tex.SampleGrad(uv11, dx, dy);
-
-    float2 blend = smoothstep(0.1, 0.9, gridFrac);
-
-    float4 colX0 = lerp(col00, col10, blend.x);
-    float4 colX1 = lerp(col01, col11, blend.x);
-    return lerp(colX0, colX1, blend.y);
+    float2 h = stochasticHash(gridId);
+    float2 jitteredUV = uv + h;
+    return tex.SampleGrad(jitteredUV, dx, dy);
 }
 
 static const float TRIPLANAR_AXIS_EPSILON = 0.04;
@@ -627,8 +608,8 @@ float4 sampleTriplanarDominantStochastic(Sampler2D tex, TerrainTriplanarUVs uvs,
 }
 
 float4 sampleTriplanar(Sampler2D tex, TerrainTriplanarUVs uvs, float3 weights, TerrainTriplanarUVs dx, TerrainTriplanarUVs dy, float viewDistance, int dominantAxis) {
-    const float fadeStart = 80.0;
-    const float fadeEnd = 200.0;
+    const float fadeStart = 1000.0;
+    const float fadeEnd = 1100.0;
 
     if (viewDistance >= fadeEnd) {
         return sampleTriplanarStandard(tex, uvs, weights, dx, dy);
