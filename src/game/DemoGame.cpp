@@ -11,12 +11,10 @@ void DemoGame::init(Engine &engine) {
     const Engine::FBXModel house = engine.createFBXModel("models/House_scene_01.fbx", ".png");
     engine.placeFBXModel(house, glm::vec3(0.f, 0.f, -300.f));
 
-    //  const auto ormMap = engine.loadOrmMapFile("textures/oxidized-metal-clad_orm.dds");
-
     const auto rockAlbedo = engine.loadTexture("textures/layered-cliff_albedo.png");
     const auto rockNormalMap = engine.loadNormalMap("textures/layered-cliff_normal-ogl.png");
-    const auto rockOrmMap = engine.loadOrmMap("textures/layered-cliff_roughness.png", "textures/layered-cliff_metallic.png",
-                                              "textures/layered-cliff_height.png");
+    const auto rockOrmMap = engine.loadOrmMapFile("textures/layered-cliff_orm.dds");
+
     Material rockMaterial = {};
     rockMaterial.albedo = rockAlbedo;
     rockMaterial.normalMap = rockNormalMap;
@@ -33,8 +31,8 @@ void DemoGame::init(Engine &engine) {
 
     const auto grassAlbedo = engine.loadTexture("textures/grassy-meadow1_albedo.png");
     const auto grassNormalMap = engine.loadNormalMap("textures/grassy-meadow1_normal-ogl.png");
-    const auto grassOrmMap = engine.loadOrmMap("textures/grassy-meadow1_roughness.png", "textures/grassy-meadow1_metallic.png",
-                                               "textures/grassy-meadow1_height.png");
+    const auto grassOrmMap = engine.loadOrmMapFile("textures/grassy-meadow1_orm.dds");
+
     Material grassMaterial = {};
     grassMaterial.albedo = grassAlbedo;
     grassMaterial.normalMap = grassNormalMap;
@@ -42,8 +40,8 @@ void DemoGame::init(Engine &engine) {
 
     const auto snowAlbedo = engine.loadTexture("textures/snow-packed12_albedo.png");
     const auto snowNormalMap = engine.loadNormalMap("textures/snow-packed12_normal-ogl.png");
-    const auto snowOrmMap = engine.loadOrmMap("textures/snow-packed12_roughness.png", "textures/snow-packed12_metallic.png",
-                                              "textures/snow-packed12_height.png");
+    const auto snowOrmMap = engine.loadOrmMapFile("textures/snow-packed12_orm.dds");
+
     Material snowMaterial = {};
     snowMaterial.albedo = snowAlbedo;
     snowMaterial.normalMap = snowNormalMap;
