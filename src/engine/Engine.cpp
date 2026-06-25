@@ -178,9 +178,9 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
         0, vk::Viewport(0.0f, 0.0f, static_cast<float>(SHADOW_MAP_SIZE), static_cast<float>(SHADOW_MAP_SIZE), 0.0f, 1.0f));
     commandBuffers[frameIndex].setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), vk::Extent2D{SHADOW_MAP_SIZE, SHADOW_MAP_SIZE}));
     instanceRenderer.drawShadow(drawCommand);
-    if (terrainSystem) {
-        terrainPatchRenderer.drawShadow({&commandBuffers[frameIndex], frameIndex});
-    }
+    // if (terrainSystem) {
+    //     terrainPatchRenderer.drawShadow({&commandBuffers[frameIndex], frameIndex});
+    // }
     commandBuffers[frameIndex].endRendering();
 
     VulkanUtils::ImageBarrierCommand shadowToRead{};

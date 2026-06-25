@@ -569,22 +569,105 @@ TerrainTriplanarUVs terrainReplaceAxisUV(TerrainTriplanarUVs uvs, int axis, floa
     return uvs;
 }
 
-float4 sampleTriplanar(Sampler2D tex, TerrainTriplanarUVs uvs, float3 weights, TerrainTriplanarUVs dx, TerrainTriplanarUVs dy) {
-    return tex.SampleGrad(uvs.uvX, dx.uvX, dy.uvX) * weights.x + 
-           tex.SampleGrad(uvs.uvY, dx.uvY, dy.uvY) * weights.y +
-           tex.SampleGrad(uvs.uvZ, dx.uvZ, dy.uvZ) * weights.z;
+float2 stochasticHash(float2 p) {
+    p = float2(dot(p, float2(127.1, 311.7)), dot(p, float2(269.5, 183.3)));
+    return frac(sin(p) * 43758.5453123);
+}
+
+float4 sampleTextureStochastic(Sampler2D tex, float2 uv, float2 dx, float2 dy) {
+    float2 gridId = floor(uv);
+    float2 gridFrac = frac(uv);
+
+    float2 h00 = stochasticHash(gridId + float2(0.0, 0.0));
+    float2 h10 = stochasticHash(gridId + float2(1.0, 0.0));
+    float2 h01 = stochasticHash(gridId + float2(0.0, 1.0));
+    float2 h11 = stochasticHash(gridId + float2(1.0, 1.0));
+
+    float2 uv00 = uv + h00;
+    float2 uv10 = uv + h10;
+    float2 uv01 = uv + h01;
+    float2 uv11 = uv + h11;
+
+    float4 col00 = tex.SampleGrad(uv00, dx, dy);
+    float4 col10 = tex.SampleGrad(uv10, dx, dy);
+    float4 col01 = tex.SampleGrad(uv01, dx, dy);
+    float4 col11 = tex.SampleGrad(uv11, dx, dy);
+
+    float2 blend = smoothstep(0.1, 0.9, gridFrac);
+
+    float4 colX0 = lerp(col00, col10, blend.x);
+    float4 colX1 = lerp(col01, col11, blend.x);
+    return lerp(colX0, colX1, blend.y);
+}
+
+static const float TRIPLANAR_AXIS_EPSILON = 0.04;
+
+float4 sampleTriplanarStandard(Sampler2D tex, TerrainTriplanarUVs uvs, float3 weights, TerrainTriplanarUVs dx, TerrainTriplanarUVs dy) {
+    float4 col = float4(0.0, 0.0, 0.0, 0.0);
+
+    if (weights.x > TRIPLANAR_AXIS_EPSILON) col += tex.SampleGrad(uvs.uvX, dx.uvX, dy.uvX) * weights.x;
+    if (weights.y > TRIPLANAR_AXIS_EPSILON) col += tex.SampleGrad(uvs.uvY, dx.uvY, dy.uvY) * weights.y;
+    if (weights.z > TRIPLANAR_AXIS_EPSILON) col += tex.SampleGrad(uvs.uvZ, dx.uvZ, dy.uvZ) * weights.z;
+
+    return col;
+}
+
+float4 sampleAxisBlended(Sampler2D tex, float2 uv, float2 dx, float2 dy, bool useStochastic) {
+    return useStochastic ? sampleTextureStochastic(tex, uv, dx, dy) : tex.SampleGrad(uv, dx, dy);
+}
+
+float4 sampleTriplanarDominantStochastic(Sampler2D tex, TerrainTriplanarUVs uvs, float3 weights, TerrainTriplanarUVs dx, TerrainTriplanarUVs dy, int dominantAxis) {
+    float4 col = float4(0.0, 0.0, 0.0, 0.0);
+
+    if (weights.x > TRIPLANAR_AXIS_EPSILON) col += sampleAxisBlended(tex, uvs.uvX, dx.uvX, dy.uvX, dominantAxis == 0) * weights.x;
+    if (weights.y > TRIPLANAR_AXIS_EPSILON) col += sampleAxisBlended(tex, uvs.uvY, dx.uvY, dy.uvY, dominantAxis == 1) * weights.y;
+    if (weights.z > TRIPLANAR_AXIS_EPSILON) col += sampleAxisBlended(tex, uvs.uvZ, dx.uvZ, dy.uvZ, dominantAxis == 2) * weights.z;
+
+    return col;
+}
+
+float4 sampleTriplanar(Sampler2D tex, TerrainTriplanarUVs uvs, float3 weights, TerrainTriplanarUVs dx, TerrainTriplanarUVs dy, float viewDistance, int dominantAxis) {
+    const float fadeStart = 80.0;
+    const float fadeEnd = 200.0;
+
+    if (viewDistance >= fadeEnd) {
+        return sampleTriplanarStandard(tex, uvs, weights, dx, dy);
+    }
+
+    float4 dominantStochasticCol = sampleTriplanarDominantStochastic(tex, uvs, weights, dx, dy, dominantAxis);
+
+    if (viewDistance <= fadeStart) {
+        return dominantStochasticCol;
+    }
+
+    float blend = saturate((viewDistance - fadeStart) / (fadeEnd - fadeStart));
+
+    float4 standardCol = sampleTriplanarStandard(tex, uvs, weights, dx, dy);
+
+    return lerp(dominantStochasticCol, standardCol, blend);
+}
+
+float3 triplanarNormalStandard(Sampler2D tex, TerrainTriplanarUVs uvs, float3 N, float3 weights, TerrainTriplanarUVs dx, TerrainTriplanarUVs dy) {
+    float3 result = float3(0.0, 0.0, 0.0);
+
+    if (weights.x > TRIPLANAR_AXIS_EPSILON) {
+        float3 ts = tex.SampleGrad(uvs.uvX, dx.uvX, dy.uvX).rgb * 2.0 - 1.0;
+        result += float3(N.x, ts.x + N.y, ts.y + N.z) * weights.x;
+    }
+    if (weights.y > TRIPLANAR_AXIS_EPSILON) {
+        float3 ts = tex.SampleGrad(uvs.uvY, dx.uvY, dy.uvY).rgb * 2.0 - 1.0;
+        result += float3(ts.x + N.x, N.y, ts.y + N.z) * weights.y;
+    }
+    if (weights.z > TRIPLANAR_AXIS_EPSILON) {
+        float3 ts = tex.SampleGrad(uvs.uvZ, dx.uvZ, dy.uvZ).rgb * 2.0 - 1.0;
+        result += float3(ts.x + N.x, ts.y + N.y, N.z) * weights.z;
+    }
+
+    return normalize(result);
 }
 
 float3 sampleTriplanarNormal(Sampler2D tex, TerrainTriplanarUVs uvs, float3 N, float3 weights, TerrainTriplanarUVs dx, TerrainTriplanarUVs dy) {
-    float3 tx = tex.SampleGrad(uvs.uvX, dx.uvX, dy.uvX).rgb * 2.0 - 1.0;
-    float3 ty = tex.SampleGrad(uvs.uvY, dx.uvY, dy.uvY).rgb * 2.0 - 1.0;
-    float3 tz = tex.SampleGrad(uvs.uvZ, dx.uvZ, dy.uvZ).rgb * 2.0 - 1.0;
-
-    float3 nx = float3(N.x, tx.x + N.y, tx.y + N.z);
-    float3 ny = float3(ty.x + N.x, N.y, ty.y + N.z);
-    float3 nz = float3(tz.x + N.x, tz.y + N.y, N.z);
-
-    return normalize(nx * weights.x + ny * weights.y + nz * weights.z);
+    return triplanarNormalStandard(tex, uvs, N, weights, dx, dy);
 }
 
 struct TerrainLayerSample {
@@ -597,14 +680,19 @@ TerrainLayerSample sampleTerrainLayer(Sampler2D albedoTex, Sampler2D normalTex, 
                                       TerrainTriplanarUVs baseUVs, float3 triWeights, int dominantAxis,
                                       float3 viewDirTS, float viewDistance,
                                       TerrainTriplanarUVs dx, TerrainTriplanarUVs dy) {
+
     float2 dominantBaseUV = terrainAxisUV(baseUVs, dominantAxis);
+
     float2 dominantParallaxUV = parallaxOcclusionMapping(ormTex, dominantBaseUV, viewDirTS, viewDistance);
     TerrainTriplanarUVs uvs = terrainReplaceAxisUV(baseUVs, dominantAxis, dominantParallaxUV);
 
     TerrainLayerSample result;
-    result.albedo = sampleTriplanar(albedoTex, uvs, triWeights, dx, dy);
-    result.orm = sampleTriplanar(ormTex, uvs, triWeights, dx, dy).rgb;
+
+    result.albedo = sampleTriplanar(albedoTex, uvs, triWeights, dx, dy, viewDistance, dominantAxis);
     result.worldNormal = sampleTriplanarNormal(normalTex, uvs, N, triWeights, dx, dy);
+
+    result.orm = sampleTriplanarStandard(ormTex, uvs, triWeights, dx, dy).rgb;
+
     return result;
 }
 
@@ -615,6 +703,7 @@ float4 fragTerrain(VSOutput vertIn) : SV_TARGET {
 
     float3 N = normalize(vertIn.fragNormal);
     float3 worldPos = ubo.cameraPos.xyz - vertIn.viewDiff;
+
     float4 weights = terrainLayerWeights(worldPos.z, 1.0 - N.z);
     float3 triWeights = terrainTriplanarWeights(N);
 
@@ -629,21 +718,44 @@ float4 fragTerrain(VSOutput vertIn) : SV_TARGET {
     float3x3 axisBasis = terrainAxisBasis(dominantAxis);
     float3 viewDirTS = normalize(mul(axisBasis, V));
 
-    TerrainLayerSample s0 = sampleTerrainLayer(layerAlbedo[0], layerNormalMap[0], layerOrmMap[0], N, baseUVs, triWeights, dominantAxis, viewDirTS, viewDistance, dx, dy);
-    TerrainLayerSample s1 = sampleTerrainLayer(layerAlbedo[1], layerNormalMap[1], layerOrmMap[1], N, baseUVs, triWeights, dominantAxis, viewDirTS, viewDistance, dx, dy);
-    TerrainLayerSample s2 = sampleTerrainLayer(layerAlbedo[2], layerNormalMap[2], layerOrmMap[2], N, baseUVs, triWeights, dominantAxis, viewDirTS, viewDistance, dx, dy);
-    TerrainLayerSample s3 = sampleTerrainLayer(layerAlbedo[3], layerNormalMap[3], layerOrmMap[3], N, baseUVs, triWeights, dominantAxis, viewDirTS, viewDistance, dx, dy);
+    float4 texColor = float4(0.0, 0.0, 0.0, 0.0);
+    float3 totalNormal = float3(0.0, 0.0, 0.0);
+    float3 totalOrm = float3(0.0, 0.0, 0.0);
 
-    float4 texColor = s0.albedo * weights.x + s1.albedo * weights.y + s2.albedo * weights.z + s3.albedo * weights.w;
+    if (weights.x > 0.01) {
+        TerrainLayerSample s = sampleTerrainLayer(layerAlbedo[0], layerNormalMap[0], layerOrmMap[0], N, baseUVs, triWeights, dominantAxis, viewDirTS, viewDistance, dx, dy);
+        texColor += s.albedo * weights.x;
+        totalNormal += s.worldNormal * weights.x;
+        totalOrm += s.orm * weights.x;
+    }
+    if (weights.y > 0.01) {
+        TerrainLayerSample s = sampleTerrainLayer(layerAlbedo[1], layerNormalMap[1], layerOrmMap[1], N, baseUVs, triWeights, dominantAxis, viewDirTS, viewDistance, dx, dy);
+        texColor += s.albedo * weights.y;
+        totalNormal += s.worldNormal * weights.y;
+        totalOrm += s.orm * weights.y;
+    }
+    if (weights.z > 0.01) {
+        TerrainLayerSample s = sampleTerrainLayer(layerAlbedo[2], layerNormalMap[2], layerOrmMap[2], N, baseUVs, triWeights, dominantAxis, viewDirTS, viewDistance, dx, dy);
+        texColor += s.albedo * weights.z;
+        totalNormal += s.worldNormal * weights.z;
+        totalOrm += s.orm * weights.z;
+    }
+    if (weights.w > 0.01) {
+        TerrainLayerSample s = sampleTerrainLayer(layerAlbedo[3], layerNormalMap[3], layerOrmMap[3], N, baseUVs, triWeights, dominantAxis, viewDirTS, viewDistance, dx, dy);
+        texColor += s.albedo * weights.w;
+        totalNormal += s.worldNormal * weights.w;
+        totalOrm += s.orm * weights.w;
+    }
+
     if (texColor.a < 0.5)
         discard;
 
-    N = normalize(s0.worldNormal * weights.x + s1.worldNormal * weights.y + s2.worldNormal * weights.z + s3.worldNormal * weights.w);
+    N = normalize(totalNormal);
+    float3 orm = totalOrm;
 
     const float3 L = normalize(ubo.lightDir.xyz);
     float shadow = computeShadow(worldPos, N, L, vertIn.pos.xy);
 
-    float3 orm = s0.orm * weights.x + s1.orm * weights.y + s2.orm * weights.z + s3.orm * weights.w;
     float roughness = max(orm.r, 0.04);
     float metallic = orm.g;
 
