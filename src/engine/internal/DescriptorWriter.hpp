@@ -13,7 +13,7 @@ class DescriptorWriter {
 
     DescriptorWriter &writeImage(vk::DescriptorSet set, uint32_t binding, vk::DescriptorType type,
                                  vk::ImageView imageView = nullptr, vk::Sampler sampler = nullptr,
-                                 vk::ImageLayout layout = vk::ImageLayout::eShaderReadOnlyOptimal);
+                                 vk::ImageLayout layout = vk::ImageLayout::eShaderReadOnlyOptimal, uint32_t arrayElement = 0);
 
     void update();
 

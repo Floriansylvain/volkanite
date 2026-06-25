@@ -19,6 +19,19 @@ struct TerrainNoiseSettings {
     float regionScale = 800.0f;
     float regionThreshold = 1.5f;
     float regionBlendWidth = 0.25f;
+
+    float flatScale = 1500.0f;
+    float flatThreshold = -1.5f;
+    float flatBlendWidth = 0.25f;
+    float minRelief = 0.12f;
+};
+
+struct TerrainMaterialLayer {
+    Material material;
+    float preferredHeight = 0.0f;
+    float heightRange = 50.0f;
+    float preferredSlope = 0.0f;
+    float slopeRange = 0.5f;
 };
 
 struct TerrainConfig {
@@ -32,7 +45,7 @@ struct TerrainConfig {
     float textureWorldScale = 8.0f;
     glm::vec2 uvScale{1.0f, 1.0f};
     TerrainNoiseSettings noise;
-    Material material;
+    std::vector<TerrainMaterialLayer> materialLayers;
 };
 
 struct TerrainPatchInstance {

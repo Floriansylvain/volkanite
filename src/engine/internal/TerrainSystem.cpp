@@ -1,6 +1,7 @@
 #include "TerrainSystem.hpp"
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <limits>
 
 namespace {
@@ -20,7 +21,7 @@ float TerrainSystem::nearestDistance(const TerrainChunk &chunk, const glm::vec2 
     return nearestPointDistance(cameraXY, chunk.center, chunk.size * 0.5f);
 }
 
-void TerrainSystem::update(const glm::vec3 &cameraPosition) {
+void TerrainSystem::update(const glm::vec3 &cameraPosition, const CullingUtils::Frustum &frustum) {
     if (!root) {
         root = std::make_unique<TerrainChunk>(config.origin, config.rootSize, 0);
     }
@@ -30,7 +31,7 @@ void TerrainSystem::update(const glm::vec3 &cameraPosition) {
 
     patches.clear();
     finePatches.clear();
-    collectPatches(*root);
+    collectPatches(*root, frustum);
 }
 
 void TerrainSystem::decideShape(TerrainChunk &chunk, const glm::vec3 &cameraPosition) {
@@ -143,10 +144,23 @@ bool TerrainSystem::balancePass(TerrainChunk &chunk) {
     return false;
 }
 
-void TerrainSystem::collectPatches(const TerrainChunk &chunk) {
+bool TerrainSystem::isChunkVisible(const TerrainChunk &chunk, const CullingUtils::Frustum &frustum) const {
+    constexpr float verticalRangeMultiplier = 3.0f;
+    const float verticalHalfExtent = config.noise.heightScale * verticalRangeMultiplier;
+    const glm::vec3 boundsCenter(chunk.center.x, chunk.center.y, config.noise.baseHeight);
+    const float horizontalRadius = chunk.size * 0.70710678f;
+    const float boundsRadius = std::sqrt(horizontalRadius * horizontalRadius + verticalHalfExtent * verticalHalfExtent);
+    return CullingUtils::sphereInFrustum(frustum, boundsCenter, boundsRadius);
+}
+
+void TerrainSystem::collectPatches(const TerrainChunk &chunk, const CullingUtils::Frustum &frustum) {
+    if (!isChunkVisible(chunk, frustum)) {
+        return;
+    }
+
     if (chunk.isSplit()) {
         for (const auto &child : chunk.children) {
-            collectPatches(*child);
+            collectPatches(*child, frustum);
         }
         return;
     }

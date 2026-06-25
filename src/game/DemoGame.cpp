@@ -9,69 +9,113 @@ constexpr glm::vec3 SHOWCASE_ORIGIN{15.0f, -5.0f, 10.0f};
 
 void DemoGame::init(Engine &engine) {
     const Engine::FBXModel house = engine.createFBXModel("models/House_scene_01.fbx", ".png");
+    engine.placeFBXModel(house, glm::vec3(0.f, 0.f, -300.f));
 
-    engine.placeFBXModel(house, glm::vec3(0.f, 0.f, 0.f));
-
-    // const auto selectedTexture = std::string("pirate-gold");
-    // const auto selectedTexture = std::string("oxidized-metal-clad");
-    // const auto selectedTexture = std::string("steelplate1");
-    const auto selectedTexture = std::string("wet-stones-with-sand1");
-    // const auto selectedTexture = std::string("grassy-meadow1");
-    //  const auto selectedTexture = std::string("dented-metal");
-    //  const auto selectedTexture = std::string("base-white-tile");
-    //  const auto selectedTexture = std::string("grass1"); // no metallic map!
-
-    auto cubeMesh = engine.createCubeMesh(1.f);
-    cubeMesh->uvScale = glm::vec2(1.f);
-    const auto albedo = engine.loadTexture(std::format("textures/{}_albedo.png", selectedTexture));
-    const auto normalMap = engine.loadNormalMap(std::format("textures/{}_normal-ogl.png", selectedTexture));
-    const auto ormMap = engine.loadOrmMap(std::format("textures/{}_roughness.png", selectedTexture),
-                                          std::format("textures/{}_metallic.png", selectedTexture),
-                                          std::format("textures/{}_height.png", selectedTexture));
-    // const auto ormMap = engine.loadOrmMap(std::format("textures/{}_roughness.png", selectedTexture), "",
-    //                                       std::format("textures/{}_height.png", selectedTexture));
     //  const auto ormMap = engine.loadOrmMapFile("textures/oxidized-metal-clad_orm.dds");
 
-    Material cubeMaterial = {};
-    cubeMaterial.albedo = albedo;
-    cubeMaterial.normalMap = normalMap;
-    cubeMaterial.ormMap = ormMap;
+    const auto rockAlbedo = engine.loadTexture("textures/cliff-rockface1_albedo.png");
+    const auto rockNormalMap = engine.loadNormalMap("textures/cliff-rockface1_normal-ogl.png");
+    const auto rockOrmMap = engine.loadOrmMap("textures/cliff-rockface1_roughness.png", "textures/cliff-rockface1_metallic.png",
+                                              "textures/cliff-rockface1_height.png");
+    Material rockMaterial = {};
+    rockMaterial.albedo = rockAlbedo;
+    rockMaterial.normalMap = rockNormalMap;
+    rockMaterial.ormMap = rockOrmMap;
+
+    // const auto cavernAlbedo = engine.loadTexture("textures/cavern-walls_albedo.png");
+    // const auto cavernNormalMap = engine.loadNormalMap("textures/cavern-walls_normal-ogl.png");
+    // const auto cavernOrmMap = engine.loadOrmMap("textures/cavern-walls_roughness.png", "textures/cavern-walls_metallic.png",
+    //                                             "textures/cavern-walls_height.png");
+    // Material cavernMaterial = {};
+    // cavernMaterial.albedo = cavernAlbedo;
+    // cavernMaterial.normalMap = cavernNormalMap;
+    // cavernMaterial.ormMap = cavernOrmMap;
+
+    const auto grassAlbedo = engine.loadTexture("textures/grassy-meadow1_albedo.png");
+    const auto grassNormalMap = engine.loadNormalMap("textures/grassy-meadow1_normal-ogl.png");
+    const auto grassOrmMap = engine.loadOrmMap("textures/grassy-meadow1_roughness.png", "textures/grassy-meadow1_metallic.png",
+                                               "textures/grassy-meadow1_height.png");
+    Material grassMaterial = {};
+    grassMaterial.albedo = grassAlbedo;
+    grassMaterial.normalMap = grassNormalMap;
+    grassMaterial.ormMap = grassOrmMap;
+
+    const auto snowAlbedo = engine.loadTexture("textures/snow-packed12_albedo.png");
+    const auto snowNormalMap = engine.loadNormalMap("textures/snow-packed12_normal-ogl.png");
+    const auto snowOrmMap = engine.loadOrmMap("textures/snow-packed12_roughness.png", "textures/snow-packed12_metallic.png",
+                                              "textures/snow-packed12_height.png");
+    Material snowMaterial = {};
+    snowMaterial.albedo = snowAlbedo;
+    snowMaterial.normalMap = snowNormalMap;
+    snowMaterial.ormMap = snowOrmMap;
 
     {
         TerrainConfig terrainConfig;
         terrainConfig.origin = glm::vec2(0.0f, 0.0f);
-        terrainConfig.rootSize = 16384.0f;
-        terrainConfig.maxDepth = 6;
+        terrainConfig.rootSize = 131073.f;
+        terrainConfig.maxDepth = 12;
+        terrainConfig.fineChunkResolution = 128;
         terrainConfig.chunkResolution = 33;
         terrainConfig.splitFactor = 2.0f;
-        terrainConfig.textureWorldScale = 16.0f;
+        terrainConfig.textureWorldScale = 32.0f;
 
-        terrainConfig.uvScale = glm::vec2(16.0f);
+        terrainConfig.uvScale = glm::vec2(24.0f);
 
-        terrainConfig.noise.scale = 150.0f;
-        terrainConfig.noise.heightScale = 100.0f;
-        terrainConfig.noise.baseHeight = -100.0f;
-        terrainConfig.noise.octaves = 7;
-        terrainConfig.noise.persistence = 0.5f;
-        terrainConfig.noise.lacunarity = 2.0f;
+        terrainConfig.noise.scale = 4500.f;
+        terrainConfig.noise.heightScale = 1200.0f;
+        terrainConfig.noise.baseHeight = -200.0f;
+        terrainConfig.noise.octaves = 8;
+        terrainConfig.noise.persistence = 0.45f;
+        terrainConfig.noise.lacunarity = 2.15f;
 
-        terrainConfig.noise.regionThreshold = 0.55f;
-        terrainConfig.noise.regionBlendWidth = 0.2f;
-        terrainConfig.noise.regionScale = 1000.0f;
-        terrainConfig.noise.ridgeSharpness = 0.15f;
-        terrainConfig.noise.heightRedistribution = 1.00f;
-        terrainConfig.fineChunkResolution = 100;
+        terrainConfig.noise.ridgeSharpness = 0.75f;
+        terrainConfig.noise.heightRedistribution = 1.85f;
 
-        terrainConfig.material = cubeMaterial;
-        terrainConfig.morphRatio = 0.1f;
+        terrainConfig.noise.regionScale = 8000.0f;
+        terrainConfig.noise.regionThreshold = 0.45f;
+        terrainConfig.noise.regionBlendWidth = 0.3f;
+
+        terrainConfig.noise.flatScale = 3500.0f;
+        terrainConfig.noise.flatThreshold = 0.4f;
+        terrainConfig.noise.flatBlendWidth = 0.15f;
+        terrainConfig.noise.minRelief = 0.02f;
+
+        terrainConfig.materialLayers.push_back(TerrainMaterialLayer{
+            .material = grassMaterial,
+            .preferredHeight = 0.0f,
+            .heightRange = 450.0f,
+            .preferredSlope = 0.0f,
+            .slopeRange = 0.45f,
+        });
+
+        terrainConfig.materialLayers.push_back(TerrainMaterialLayer{
+            .material = rockMaterial,
+            .preferredHeight = 450.0f,
+            .heightRange = 800.0f,
+            .preferredSlope = 0.8f,
+            .slopeRange = 0.55f,
+        });
+
+        terrainConfig.materialLayers.push_back(TerrainMaterialLayer{
+            .material = snowMaterial,
+            .preferredHeight = 900.0f,
+            .heightRange = 400.0f,
+            .preferredSlope = 0.1f,
+            .slopeRange = 0.65f,
+        });
+
+        terrainConfig.morphRatio = 0.15f;
 
         engine.createTerrain(terrainConfig);
     }
 
+    auto cubeMesh = engine.createCubeMesh(1.f);
+    cubeMesh->uvScale = glm::vec2(1.f);
+
     {
         RenderObject obj;
         obj.mesh = cubeMesh;
-        obj.material = cubeMaterial;
+        obj.material = rockMaterial;
         obj.position = SHOWCASE_ORIGIN + glm::vec3(0.f, -6.f, 2.f);
         const RenderObjectHandle handle = engine.addRenderObject(std::move(obj));
         spinningObjects.emplace_back(handle, glm::vec3(0.6f, 1.0f, 1.4f));
@@ -80,7 +124,7 @@ void DemoGame::init(Engine &engine) {
     {
         RenderObject obj;
         obj.mesh = cubeMesh;
-        obj.material = cubeMaterial;
+        obj.material = rockMaterial;
         obj.position = SHOWCASE_ORIGIN;
         const RenderObjectHandle handle = engine.addRenderObject(std::move(obj));
         orbitingObjects.emplace_back(handle, SHOWCASE_ORIGIN, 6.0f, 1.2f, 0.0f);
@@ -90,7 +134,7 @@ void DemoGame::init(Engine &engine) {
         const glm::vec3 center = SHOWCASE_ORIGIN + glm::vec3(0.f, 6.f, -2.f);
         RenderObject obj;
         obj.mesh = cubeMesh;
-        obj.material = cubeMaterial;
+        obj.material = rockMaterial;
         obj.position = center;
         const RenderObjectHandle handle = engine.addRenderObject(std::move(obj));
         spinningObjects.emplace_back(handle, glm::vec3(2.0f, -1.5f, 0.8f));
@@ -134,7 +178,7 @@ void DemoGame::update(Engine &engine, const float deltaTime) {
     if (key_states[SDL_SCANCODE_LSHIFT])
         speed *= 5.f;
     if (key_states[SDL_SCANCODE_LALT])
-        speed *= 0.25f;
+        speed *= 0.05f;
     if (key_states[SDL_SCANCODE_W])
         input.y += 1.f;
     if (key_states[SDL_SCANCODE_S])

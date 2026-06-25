@@ -19,7 +19,8 @@ DescriptorWriter &DescriptorWriter::writeBuffer(const vk::DescriptorSet set, con
 
 DescriptorWriter &DescriptorWriter::writeImage(const vk::DescriptorSet set, const uint32_t binding,
                                                const vk::DescriptorType type, const vk::ImageView imageView,
-                                               const vk::Sampler sampler, const vk::ImageLayout layout) {
+                                               const vk::Sampler sampler, const vk::ImageLayout layout,
+                                               const uint32_t arrayElement) {
     vk::DescriptorImageInfo &info = imageInfos.emplace_back();
     info.sampler = sampler;
     info.imageView = imageView;
@@ -28,6 +29,7 @@ DescriptorWriter &DescriptorWriter::writeImage(const vk::DescriptorSet set, cons
     vk::WriteDescriptorSet write{};
     write.dstSet = set;
     write.dstBinding = binding;
+    write.dstArrayElement = arrayElement;
     write.descriptorCount = 1;
     write.descriptorType = type;
     write.pImageInfo = &info;

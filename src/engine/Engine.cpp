@@ -25,7 +25,7 @@ void Engine::createGraphicsPipeline() {
 
     textRenderer.createPipeline(colorFormat, depthFormat);
     instanceRenderer.createPipelines(*pipelineLayout, colorFormat, depthFormat, shadowDepthFormat);
-    terrainPatchRenderer.createPipelines(*descriptorSetLayout, colorFormat, depthFormat, shadowDepthFormat);
+    terrainPatchRenderer.createPipelines(colorFormat, depthFormat, shadowDepthFormat);
 }
 
 void Engine::createCommandPool() {
@@ -179,8 +179,7 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
     commandBuffers[frameIndex].setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), vk::Extent2D{SHADOW_MAP_SIZE, SHADOW_MAP_SIZE}));
     instanceRenderer.drawShadow(drawCommand);
     if (terrainSystem) {
-        terrainPatchRenderer.drawShadow(
-            {&commandBuffers[frameIndex], *materialDescriptorSets.at(terrainMaterialKey)[frameIndex], frameIndex});
+        terrainPatchRenderer.drawShadow({&commandBuffers[frameIndex], frameIndex});
     }
     commandBuffers[frameIndex].endRendering();
 
@@ -257,9 +256,7 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
     instanceRenderer.draw(drawCommand, isWireframe, drawCallCount);
     vertexCount = instanceRenderer.getVisibleVertexEstimate(frameIndex);
     if (terrainSystem) {
-        terrainPatchRenderer.draw(
-            {&commandBuffers[frameIndex], *materialDescriptorSets.at(terrainMaterialKey)[frameIndex], frameIndex}, isWireframe,
-            drawCallCount);
+        terrainPatchRenderer.draw({&commandBuffers[frameIndex], frameIndex}, isWireframe, drawCallCount);
         vertexCount += terrainPatchRenderer.getVisibleVertexEstimate();
     }
     writeTimestamp(GpuPass::OpaqueGeometry, false, eColorAttachmentOutput);
@@ -670,12 +667,15 @@ std::shared_ptr<Mesh> Engine::createMeshFromData(std::vector<Mesh::Vertex> verti
 TerrainSystem &Engine::createTerrain(const TerrainConfig &config) {
     terrainPatchRenderer.createGridMeshes(commandPool, config);
 
-    Material material = finalizeMaterial(config.material);
-    registerMaterial(material);
-    terrainMaterialKey = MaterialKey{material.albedo, material.normalMap, material.ormMap};
+    std::vector<TerrainMaterialLayer> finalizedLayers = config.materialLayers;
+    for (auto &layer : finalizedLayers) {
+        layer.material = finalizeMaterial(layer.material);
+    }
+    terrainPatchRenderer.setMaterialLayers(finalizedLayers, cameraUniformBuffers.handles(), *shadowDepthImageView,
+                                           *shadowSampler);
 
     terrainSystem = std::make_unique<TerrainSystem>(config);
-    terrainSystem->update(camera.position());
+    terrainSystem->update(camera.position(), computeCullFrustum());
     terrainPatchRenderer.setPatches(terrainSystem->activePatches(), terrainSystem->activeFinePatches());
 
     return *terrainSystem;
@@ -687,11 +687,15 @@ std::shared_ptr<Texture> Engine::loadTexture(const std::string &path) const {
     return texture;
 }
 
-void Engine::updateInstanceBuffers(const uint32_t currentImage) {
+CullingUtils::Frustum Engine::computeCullFrustum() const {
     const float aspect = swapChainHandler.getAspectRatio();
     constexpr float cullFovMargin = 4.0f;
     const glm::mat4 cullProj = Camera::projMatrix(aspect, 55.0f + cullFovMargin);
-    const CullingUtils::Frustum frustum = CullingUtils::extractFrustum(cullProj * camera.viewMatrix());
+    return CullingUtils::extractFrustum(cullProj * camera.viewMatrix());
+}
+
+void Engine::updateInstanceBuffers(const uint32_t currentImage) {
+    const CullingUtils::Frustum frustum = computeCullFrustum();
 
     instanceRenderer.update(currentImage, frustum);
     terrainPatchRenderer.upload(currentImage);
@@ -882,6 +886,7 @@ void Engine::init() {
     swapChainHandler.createImageViews();
     createDescriptorSetLayout();
     textRenderer.createDescriptorSetLayout();
+    terrainPatchRenderer.createMaterialSetLayout();
     createGraphicsPipeline();
     createCommandPool();
     createQueryPools();
@@ -933,7 +938,7 @@ void Engine::update() {
     }
 
     if (terrainSystem) {
-        terrainSystem->update(camera.position());
+        terrainSystem->update(camera.position(), computeCullFrustum());
         terrainPatchRenderer.setPatches(terrainSystem->activePatches(), terrainSystem->activeFinePatches());
     }
 

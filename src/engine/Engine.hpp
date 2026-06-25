@@ -3,6 +3,7 @@
 
 #pragma once
 #include "Camera.hpp"
+#include "CullingUtils.hpp"
 #include "Debug.hpp"
 #include "Game.hpp"
 #include "InstanceRenderer.hpp"
@@ -58,7 +59,7 @@ class Engine {
     constexpr static float DEBUG_FONT_SIZE = 38.f;
     constexpr static float PERF_PANEL_LEFT_MARGIN = 450.f;
     constexpr static int MAX_FRAMES_IN_FLIGHT = 2;
-    constexpr static int MAX_TEXTURES = 256;
+    constexpr static int MAX_TEXTURES = 1024;
 
     constexpr static uint32_t SHADOW_MAP_SIZE = 8192;
     constexpr static float SHADOW_ORTHO_HALF_EXTENT = 100.0f;
@@ -102,7 +103,6 @@ class Engine {
     PerFrameBuffer cameraUniformBuffers;
 
     InstanceRenderer::MapDescriptorSets materialDescriptorSets;
-    MaterialKey terrainMaterialKey;
 
     std::unordered_map<std::string, std::shared_ptr<Texture>> textureCache;
     std::unordered_map<std::string, std::shared_ptr<Texture>> normalMapCache;
@@ -174,6 +174,8 @@ class Engine {
 
     void recreateSwapChain();
     void createOcclusionCuller();
+
+    [[nodiscard]] CullingUtils::Frustum computeCullFrustum() const;
 
     void update();
 };

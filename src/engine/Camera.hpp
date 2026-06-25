@@ -22,7 +22,7 @@ class Camera {
 
     [[nodiscard]] static glm::mat4 projMatrix(const float aspect, const float fovDegrees = 55.0f) {
         constexpr float near = 0.1f;
-        constexpr float far = 20'000.0f;
+        constexpr float far = 100'000.0f;
         glm::mat4 proj = glm::perspective(glm::radians(fovDegrees), aspect, near, far);
         proj[1][1] *= -1;
         return proj;

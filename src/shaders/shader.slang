@@ -37,6 +37,27 @@ struct TerrainPushConstants {
     float regionThreshold;
     float regionBlendWidth;
     float morphSnapStride;
+    float flatScale;
+    float flatThreshold;
+    float flatBlendWidth;
+    float minRelief;
+    int layerCount;
+    float layer0PreferredHeight;
+    float layer0HeightRange;
+    float layer0PreferredSlope;
+    float layer0SlopeRange;
+    float layer1PreferredHeight;
+    float layer1HeightRange;
+    float layer1PreferredSlope;
+    float layer1SlopeRange;
+    float layer2PreferredHeight;
+    float layer2HeightRange;
+    float layer2PreferredSlope;
+    float layer2SlopeRange;
+    float layer3PreferredHeight;
+    float layer3HeightRange;
+    float layer3PreferredSlope;
+    float layer3SlopeRange;
 };
 
 [[vk::push_constant]] TerrainPushConstants terrainPC;
@@ -79,6 +100,13 @@ float terrainRegionMask(float2 worldPos) {
     return smoothstep(terrainPC.regionThreshold - halfWidth, terrainPC.regionThreshold + halfWidth, n);
 }
 
+float terrainReliefMask(float2 worldPos) {
+    float2 base = worldPos / max(terrainPC.flatScale, 1.0) + float2(91.7, -57.3);
+    float n = saturate(terrainGradientNoise2D(base) * 0.5 + 0.5);
+    float halfWidth = max(terrainPC.flatBlendWidth, 0.001);
+    return smoothstep(terrainPC.flatThreshold - halfWidth, terrainPC.flatThreshold + halfWidth, n);
+}
+
 float terrainHeight(float2 worldPos) {
     float amplitude = 1.0;
     float frequency = 1.0;
@@ -102,6 +130,9 @@ float terrainHeight(float2 worldPos) {
 
     float mountainAmount = terrainRegionMask(worldPos);
     float combined = lerp(hills, mountains, mountainAmount);
+
+    float relief = lerp(saturate(terrainPC.minRelief), 1.0, terrainReliefMask(worldPos));
+    combined *= relief;
 
     float sign_h = combined < 0.0 ? -1.0 : 1.0;
     float h = sign_h * pow(abs(combined), max(terrainPC.heightRedistribution, 0.0001));
@@ -216,7 +247,34 @@ float3 fresnelSchlickRoughness(float cosTheta, float3 Fzero, float roughness) {
 [[vk::binding(3, 0)]] Sampler2D ormMap; 
 [[vk::binding(4, 0)]] Sampler2D shadowMap;
 
-float2 parallaxOcclusionMapping(float2 texCoords, float3 viewDirTS, float viewDistance) {
+[[vk::binding(8, 0)]] Sampler2D layerAlbedo[4];
+[[vk::binding(9, 0)]] Sampler2D layerNormalMap[4];
+[[vk::binding(10, 0)]] Sampler2D layerOrmMap[4];
+
+float4 terrainLayerWeights(float height, float slope) {
+    float4 preferredHeight = float4(terrainPC.layer0PreferredHeight, terrainPC.layer1PreferredHeight,
+                                    terrainPC.layer2PreferredHeight, terrainPC.layer3PreferredHeight);
+    float4 heightRange = float4(terrainPC.layer0HeightRange, terrainPC.layer1HeightRange, terrainPC.layer2HeightRange,
+                                terrainPC.layer3HeightRange);
+    float4 preferredSlope = float4(terrainPC.layer0PreferredSlope, terrainPC.layer1PreferredSlope,
+                                   terrainPC.layer2PreferredSlope, terrainPC.layer3PreferredSlope);
+    float4 slopeRange = float4(terrainPC.layer0SlopeRange, terrainPC.layer1SlopeRange, terrainPC.layer2SlopeRange,
+                               terrainPC.layer3SlopeRange);
+
+    float4 epsilon = float4(0.001, 0.001, 0.001, 0.001);
+    float4 heightTerm = (height - preferredHeight) / max(heightRange, epsilon);
+    float4 slopeTerm = (slope - preferredSlope) / max(slopeRange, epsilon);
+    float4 rawWeight = exp(-(heightTerm * heightTerm) - (slopeTerm * slopeTerm));
+
+    float4 activeMask = float4(terrainPC.layerCount > 0 ? 1.0 : 0.0, terrainPC.layerCount > 1 ? 1.0 : 0.0,
+                               terrainPC.layerCount > 2 ? 1.0 : 0.0, terrainPC.layerCount > 3 ? 1.0 : 0.0);
+    rawWeight *= activeMask;
+
+    float sum = max(rawWeight.x + rawWeight.y + rawWeight.z + rawWeight.w, 0.0001);
+    return rawWeight / sum;
+}
+
+float2 parallaxOcclusionMapping(Sampler2D heightTex, float2 texCoords, float3 viewDirTS, float viewDistance) {
     const float fadeStart = 10.0;
     const float fadeEnd = 100.0;
 
@@ -237,17 +295,17 @@ float2 parallaxOcclusionMapping(float2 texCoords, float3 viewDirTS, float viewDi
     float2 deltaTexCoords = p / numLayers;
 
     float2 currentTexCoords = texCoords;
-    float currentDepthMapValue = 1.0 - ormMap.SampleLevel(currentTexCoords, 0.0).b;
+    float currentDepthMapValue = 1.0 - heightTex.SampleLevel(currentTexCoords, 0.0).b;
 
     for (int i = 0; i < 32 && currentLayerDepth < currentDepthMapValue; i++) {
         currentTexCoords -= deltaTexCoords;
-        currentDepthMapValue = 1.0 - ormMap.SampleLevel(currentTexCoords, 0.0).b;
+        currentDepthMapValue = 1.0 - heightTex.SampleLevel(currentTexCoords, 0.0).b;
         currentLayerDepth += layerDepth;
     }
 
     float2 prevTexCoords = currentTexCoords + deltaTexCoords;
     float afterDepth = currentDepthMapValue - currentLayerDepth;
-    float beforeDepth = (1.0 - ormMap.SampleLevel(prevTexCoords, 0.0).b) - currentLayerDepth + layerDepth;
+    float beforeDepth = (1.0 - heightTex.SampleLevel(prevTexCoords, 0.0).b) - currentLayerDepth + layerDepth;
     float weight = afterDepth / (afterDepth - beforeDepth);
 
     return prevTexCoords * weight + currentTexCoords * (1.0 - weight);
@@ -354,46 +412,13 @@ VSOutput vertTerrain(TerrainVSInput input) {
     return output;
 }
 
-[shader("fragment")]
-float4 fragMain(VSOutput vertIn) : SV_TARGET {
-    float viewDistance = length(vertIn.viewDiff);
-    float3 V = vertIn.viewDiff / viewDistance;
-
-    float3 N = normalize(vertIn.fragNormal);
-    float3 T = normalize(vertIn.fragTangent);
-    T = normalize(T - N * dot(N, T));
-    float3 B = cross(N, T);
-    float3x3 TBN = float3x3(T, B, N);
-
-    float3 viewDirTS = normalize(mul((float3x3)TBN, V));
-   
-    float2 scaledTexCoord = vertIn.fragTexCoord * vertIn.uvScale;
-    float2 texCoord = parallaxOcclusionMapping(scaledTexCoord, viewDirTS, viewDistance);
-
-    float4 texColor = texture.Sample(texCoord);
-    if (texColor.a < 0.5)
-        discard;
-
-    float3 tangentNormal = normalMap.Sample(texCoord).rgb * 2.0 - 1.0;
-    N = normalize(mul(tangentNormal, TBN));
-
-    const float3 L = normalize(ubo.lightDir.xyz);
+float3 evaluatePBR(float3 N, float3 V, float3 L, float3 diffuseColor, float roughness, float metallic, float shadow) {
     float3 H = normalize(L + V);
-
     float NdotL = saturate(dot(N, L));
     float NdotV = saturate(dot(N, V));
     float LdotH = saturate(dot(L, H));
     float NdotH = saturate(dot(N, H));
 
-    float3 worldPos = ubo.cameraPos.xyz - vertIn.viewDiff;
-    
-    float shadow = computeShadow(worldPos, N, L, vertIn.pos.xy);
-
-    float3 orm = ormMap.Sample(texCoord).rgb;
-    float roughness = max(orm.r, 0.04); 
-    float metallic = orm.g;
-    
-    float3 diffuseColor = texColor.rgb;
     float3 Fzero = lerp(float3(0.04, 0.04, 0.04), diffuseColor, metallic);
 
     float fd90 = 0.5 + 2.0 * roughness * LdotH * LdotH;
@@ -428,13 +453,191 @@ float4 fragMain(VSOutput vertIn) : SV_TARGET {
     float3 R = reflect(-V, N);
     float R_z = R.z * 0.5 + 0.5;
     float3 ambientReflectionColor = lerp(groundColor, skyColor, R_z);
-    
+
     float specAtten = exp2(-roughness * 4.0);
     float3 ambientSpecular = ambientReflectionColor * kS_ambient * ambientSpecularIntensity * specAtten;
 
     float3 ambientLighting = diffuseColor * ambientDiffuseColor * kD_ambient + ambientSpecular;
 
-    float3 finalColor = directLighting + ambientLighting;
+    return directLighting + ambientLighting;
+}
+
+[shader("fragment")]
+float4 fragMain(VSOutput vertIn) : SV_TARGET {
+    float viewDistance = length(vertIn.viewDiff);
+    float3 V = vertIn.viewDiff / viewDistance;
+
+    float3 N = normalize(vertIn.fragNormal);
+    float3 T = normalize(vertIn.fragTangent);
+    T = normalize(T - N * dot(N, T));
+    float3 B = cross(N, T);
+    float3x3 TBN = float3x3(T, B, N);
+
+    float3 viewDirTS = normalize(mul((float3x3)TBN, V));
+   
+    float2 scaledTexCoord = vertIn.fragTexCoord * vertIn.uvScale;
+    float2 texCoord = parallaxOcclusionMapping(ormMap, scaledTexCoord, viewDirTS, viewDistance);
+
+    float4 texColor = texture.Sample(texCoord);
+    if (texColor.a < 0.5)
+        discard;
+
+    float3 tangentNormal = normalMap.Sample(texCoord).rgb * 2.0 - 1.0;
+    N = normalize(mul(tangentNormal, TBN));
+
+    const float3 L = normalize(ubo.lightDir.xyz);
+
+    float3 worldPos = ubo.cameraPos.xyz - vertIn.viewDiff;
+    float shadow = computeShadow(worldPos, N, L, vertIn.pos.xy);
+
+    float3 orm = ormMap.Sample(texCoord).rgb;
+    float roughness = max(orm.r, 0.04); 
+    float metallic = orm.g;
+
+    float3 finalColor = evaluatePBR(N, V, L, texColor.rgb, roughness, metallic, shadow);
+
+    return float4(finalColor, 1.0);
+}
+
+float3 terrainTriplanarWeights(float3 N) {
+    float3 blend = pow(abs(N), 4.0);
+    return blend / max(blend.x + blend.y + blend.z, 0.0001);
+}
+
+struct TerrainTriplanarUVs {
+    float2 uvX;
+    float2 uvY;
+    float2 uvZ;
+};
+
+TerrainTriplanarUVs terrainBaseUVs(float3 worldPos, float2 uvScale, float texScale) {
+    TerrainTriplanarUVs uvs;
+    uvs.uvX = worldPos.yz / texScale * uvScale;
+    uvs.uvY = worldPos.xz / texScale * uvScale;
+    uvs.uvZ = worldPos.xy / texScale * uvScale;
+    return uvs;
+}
+
+int terrainDominantAxis(float3 triWeights) {
+    if (triWeights.x >= triWeights.y && triWeights.x >= triWeights.z) {
+        return 0;
+    }
+    if (triWeights.y >= triWeights.z) {
+        return 1;
+    }
+    return 2;
+}
+
+float3x3 terrainAxisBasis(int axis) {
+    if (axis == 0) {
+        return float3x3(float3(0.0, 1.0, 0.0), float3(0.0, 0.0, 1.0), float3(1.0, 0.0, 0.0));
+    }
+    if (axis == 1) {
+        return float3x3(float3(1.0, 0.0, 0.0), float3(0.0, 0.0, 1.0), float3(0.0, 1.0, 0.0));
+    }
+    return float3x3(float3(1.0, 0.0, 0.0), float3(0.0, 1.0, 0.0), float3(0.0, 0.0, 1.0));
+}
+
+float2 terrainAxisUV(TerrainTriplanarUVs uvs, int axis) {
+    if (axis == 0) {
+        return uvs.uvX;
+    }
+    if (axis == 1) {
+        return uvs.uvY;
+    }
+    return uvs.uvZ;
+}
+
+TerrainTriplanarUVs terrainReplaceAxisUV(TerrainTriplanarUVs uvs, int axis, float2 replacement) {
+    if (axis == 0) {
+        uvs.uvX = replacement;
+    } else if (axis == 1) {
+        uvs.uvY = replacement;
+    } else {
+        uvs.uvZ = replacement;
+    }
+    return uvs;
+}
+
+float4 sampleTriplanar(Sampler2D tex, TerrainTriplanarUVs uvs, float3 weights) {
+    return tex.Sample(uvs.uvX) * weights.x + tex.Sample(uvs.uvY) * weights.y + tex.Sample(uvs.uvZ) * weights.z;
+}
+
+float3 sampleTriplanarNormal(Sampler2D tex, TerrainTriplanarUVs uvs, float3 N, float3 weights) {
+    float3 tx = tex.Sample(uvs.uvX).rgb * 2.0 - 1.0;
+    float3 ty = tex.Sample(uvs.uvY).rgb * 2.0 - 1.0;
+    float3 tz = tex.Sample(uvs.uvZ).rgb * 2.0 - 1.0;
+
+    float3 nx = float3(N.x, tx.x + N.y, tx.y + N.z);
+    float3 ny = float3(ty.x + N.x, N.y, ty.y + N.z);
+    float3 nz = float3(tz.x + N.x, tz.y + N.y, N.z);
+
+    return normalize(nx * weights.x + ny * weights.y + nz * weights.z);
+}
+
+struct TerrainLayerSample {
+    float4 albedo;
+    float3 orm;
+    float3 worldNormal;
+};
+
+TerrainLayerSample sampleTerrainLayer(Sampler2D albedoTex, Sampler2D normalTex, Sampler2D ormTex, float3 N,
+                                      TerrainTriplanarUVs baseUVs, float3 triWeights, int dominantAxis,
+                                      float3 viewDirTS, float viewDistance) {
+    float2 dominantBaseUV = terrainAxisUV(baseUVs, dominantAxis);
+    float2 dominantParallaxUV = parallaxOcclusionMapping(ormTex, dominantBaseUV, viewDirTS, viewDistance);
+    TerrainTriplanarUVs uvs = terrainReplaceAxisUV(baseUVs, dominantAxis, dominantParallaxUV);
+
+    TerrainLayerSample result;
+    result.albedo = sampleTriplanar(albedoTex, uvs, triWeights);
+    result.orm = sampleTriplanar(ormTex, uvs, triWeights).rgb;
+    result.worldNormal = sampleTriplanarNormal(normalTex, uvs, N, triWeights);
+    return result;
+}
+
+[shader("fragment")]
+float4 fragTerrain(VSOutput vertIn) : SV_TARGET {
+    float viewDistance = length(vertIn.viewDiff);
+    float3 V = vertIn.viewDiff / viewDistance;
+
+    float3 N = normalize(vertIn.fragNormal);
+    float3 worldPos = ubo.cameraPos.xyz - vertIn.viewDiff;
+    float4 weights = terrainLayerWeights(worldPos.z, 1.0 - N.z);
+    float3 triWeights = terrainTriplanarWeights(N);
+
+    TerrainTriplanarUVs baseUVs = terrainBaseUVs(worldPos, vertIn.uvScale, terrainPC.textureWorldScale);
+    int dominantAxis = terrainDominantAxis(triWeights);
+    float3x3 axisBasis = terrainAxisBasis(dominantAxis);
+    float3 viewDirTS = normalize(mul(axisBasis, V));
+
+    TerrainLayerSample s0 =
+        sampleTerrainLayer(layerAlbedo[0], layerNormalMap[0], layerOrmMap[0], N, baseUVs, triWeights, dominantAxis,
+                           viewDirTS, viewDistance);
+    TerrainLayerSample s1 =
+        sampleTerrainLayer(layerAlbedo[1], layerNormalMap[1], layerOrmMap[1], N, baseUVs, triWeights, dominantAxis,
+                           viewDirTS, viewDistance);
+    TerrainLayerSample s2 =
+        sampleTerrainLayer(layerAlbedo[2], layerNormalMap[2], layerOrmMap[2], N, baseUVs, triWeights, dominantAxis,
+                           viewDirTS, viewDistance);
+    TerrainLayerSample s3 =
+        sampleTerrainLayer(layerAlbedo[3], layerNormalMap[3], layerOrmMap[3], N, baseUVs, triWeights, dominantAxis,
+                           viewDirTS, viewDistance);
+
+    float4 texColor = s0.albedo * weights.x + s1.albedo * weights.y + s2.albedo * weights.z + s3.albedo * weights.w;
+    if (texColor.a < 0.5)
+        discard;
+
+    N = normalize(s0.worldNormal * weights.x + s1.worldNormal * weights.y + s2.worldNormal * weights.z +
+                  s3.worldNormal * weights.w);
+
+    const float3 L = normalize(ubo.lightDir.xyz);
+    float shadow = computeShadow(worldPos, N, L, vertIn.pos.xy);
+
+    float3 orm = s0.orm * weights.x + s1.orm * weights.y + s2.orm * weights.z + s3.orm * weights.w;
+    float roughness = max(orm.r, 0.04);
+    float metallic = orm.g;
+
+    float3 finalColor = evaluatePBR(N, V, L, texColor.rgb, roughness, metallic, shadow);
 
     return float4(finalColor, 1.0);
 }
@@ -492,4 +695,8 @@ void fragShadow(ShadowVSOutput vertIn) {
     float alpha = texture.Sample(scaledTexCoord).a;
     if (alpha < 0.5)
         discard;
+}
+
+[shader("fragment")]
+void fragTerrainShadow(ShadowVSOutput vertIn) {
 }
