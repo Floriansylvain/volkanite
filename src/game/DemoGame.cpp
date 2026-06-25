@@ -51,14 +51,14 @@ void DemoGame::init(Engine &engine) {
         terrainConfig.noise.scale = 150.0f;
         terrainConfig.noise.heightScale = 100.0f;
         terrainConfig.noise.baseHeight = -100.0f;
-        terrainConfig.noise.octaves = 4;
+        terrainConfig.noise.octaves = 7;
         terrainConfig.noise.persistence = 0.5f;
         terrainConfig.noise.lacunarity = 2.0f;
 
         terrainConfig.noise.regionThreshold = 0.55f;
         terrainConfig.noise.regionBlendWidth = 0.2f;
         terrainConfig.noise.regionScale = 1000.0f;
-        terrainConfig.noise.ridgeSharpness = 0.01f;
+        terrainConfig.noise.ridgeSharpness = 0.15f;
         terrainConfig.noise.heightRedistribution = 1.00f;
         terrainConfig.fineChunkResolution = 100;
 

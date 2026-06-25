@@ -83,21 +83,25 @@ float terrainHeight(float2 worldPos) {
     float amplitude = 1.0;
     float frequency = 1.0;
     float hills = 0.0;
-    float ridged = 0.0;
+    float mountains = 0.0;
     float2 base = worldPos / terrainPC.noiseScale + terrainPC.noiseOffset;
-    float ridgeExponent = 2.0 + terrainPC.ridgeSharpness * 4.0;
+
+    float sharpness = saturate(terrainPC.ridgeSharpness);
+    float ridgeExponent = lerp(1.0, 6.0, sharpness);
 
     for (int i = 0; i < terrainPC.octaves; i++) {
         float n = terrainGradientNoise2D(base * frequency);
+        float ridgeShape = pow(saturate(1.0 - abs(n)), ridgeExponent) * 2.0 - 1.0;
+
         hills += n * amplitude;
-        ridged += pow(saturate(1.0 - abs(n)), ridgeExponent) * amplitude;
+        mountains += lerp(n, ridgeShape, sharpness) * amplitude;
 
         amplitude *= terrainPC.persistence;
         frequency *= terrainPC.lacunarity;
     }
 
     float mountainAmount = terrainRegionMask(worldPos);
-    float combined = lerp(hills, ridged, mountainAmount);
+    float combined = lerp(hills, mountains, mountainAmount);
 
     float sign_h = combined < 0.0 ? -1.0 : 1.0;
     float h = sign_h * pow(abs(combined), max(terrainPC.heightRedistribution, 0.0001));
@@ -489,4 +493,3 @@ void fragShadow(ShadowVSOutput vertIn) {
     if (alpha < 0.5)
         discard;
 }
-
