@@ -487,35 +487,38 @@ std::array<vk::VertexInputAttributeDescription, 5> Mesh::Vertex::getAttributeDes
 }
 
 void Engine::createDescriptorSetLayout() {
+    using enum vk::ShaderStageFlagBits;
+    using enum vk::DescriptorType;
+
     vk::DescriptorSetLayoutBinding uboLayoutBinding{};
     uboLayoutBinding.binding = 0;
-    uboLayoutBinding.descriptorType = vk::DescriptorType::eUniformBuffer;
+    uboLayoutBinding.descriptorType = eUniformBuffer;
     uboLayoutBinding.descriptorCount = 1;
-    uboLayoutBinding.stageFlags = vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment;
+    uboLayoutBinding.stageFlags = eVertex | eFragment;
 
     vk::DescriptorSetLayoutBinding albedoBinding{};
     albedoBinding.binding = 1;
-    albedoBinding.descriptorType = vk::DescriptorType::eCombinedImageSampler;
+    albedoBinding.descriptorType = eCombinedImageSampler;
     albedoBinding.descriptorCount = 1;
-    albedoBinding.stageFlags = vk::ShaderStageFlagBits::eFragment;
+    albedoBinding.stageFlags = eFragment;
 
     vk::DescriptorSetLayoutBinding normalMapBinding{};
     normalMapBinding.binding = 2;
-    normalMapBinding.descriptorType = vk::DescriptorType::eCombinedImageSampler;
+    normalMapBinding.descriptorType = eCombinedImageSampler;
     normalMapBinding.descriptorCount = 1;
-    normalMapBinding.stageFlags = vk::ShaderStageFlagBits::eFragment;
+    normalMapBinding.stageFlags = eFragment;
 
     vk::DescriptorSetLayoutBinding ormMapBinding{};
     ormMapBinding.binding = 3;
-    ormMapBinding.descriptorType = vk::DescriptorType::eCombinedImageSampler;
+    ormMapBinding.descriptorType = eCombinedImageSampler;
     ormMapBinding.descriptorCount = 1;
-    ormMapBinding.stageFlags = vk::ShaderStageFlagBits::eFragment;
+    ormMapBinding.stageFlags = eFragment;
 
     vk::DescriptorSetLayoutBinding shadowMapBinding{};
     shadowMapBinding.binding = 4;
-    shadowMapBinding.descriptorType = vk::DescriptorType::eCombinedImageSampler;
+    shadowMapBinding.descriptorType = eCombinedImageSampler;
     shadowMapBinding.descriptorCount = 1;
-    shadowMapBinding.stageFlags = vk::ShaderStageFlagBits::eFragment;
+    shadowMapBinding.stageFlags = eFragment;
 
     descriptorSetLayout = VulkanUtils::createDescriptorSetLayout(
         vkCtx, {uboLayoutBinding, albedoBinding, normalMapBinding, ormMapBinding, shadowMapBinding});
@@ -605,15 +608,16 @@ void Engine::registerMaterial(const Material &material) {
 
     DescriptorWriter writer(vkCtx);
     for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        writer
-            .writeBuffer(*sets[i], 0, cameraUniformBuffers[i], sizeof(UniformBufferObject), vk::DescriptorType::eUniformBuffer)
-            .writeImage(*sets[i], 1, vk::DescriptorType::eCombinedImageSampler, *material.albedo->textureImageView,
+        using enum vk::DescriptorType;
+
+        writer.writeBuffer(*sets[i], 0, cameraUniformBuffers[i], sizeof(UniformBufferObject), eUniformBuffer)
+            .writeImage(*sets[i], 1, eCombinedImageSampler, *material.albedo->textureImageView,
                         *material.albedo->textureSampler)
-            .writeImage(*sets[i], 2, vk::DescriptorType::eCombinedImageSampler, *material.normalMap->textureImageView,
+            .writeImage(*sets[i], 2, eCombinedImageSampler, *material.normalMap->textureImageView,
                         *material.normalMap->textureSampler)
-            .writeImage(*sets[i], 3, vk::DescriptorType::eCombinedImageSampler, *material.ormMap->textureImageView,
+            .writeImage(*sets[i], 3, eCombinedImageSampler, *material.ormMap->textureImageView,
                         *material.ormMap->textureSampler)
-            .writeImage(*sets[i], 4, vk::DescriptorType::eCombinedImageSampler, *shadowDepthImageView, *shadowSampler);
+            .writeImage(*sets[i], 4, eCombinedImageSampler, *shadowDepthImageView, *shadowSampler);
     }
     writer.update();
 

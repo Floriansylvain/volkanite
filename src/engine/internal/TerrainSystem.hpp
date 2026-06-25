@@ -23,12 +23,12 @@ class TerrainSystem {
     std::vector<TerrainPatchInstance> patches;
     std::vector<TerrainPatchInstance> finePatches;
 
-    [[nodiscard]] float nearestDistance(const TerrainChunk &chunk, const glm::vec2 &cameraXY) const;
+    [[nodiscard]] static float nearestDistance(const TerrainChunk &chunk, const glm::vec2 &cameraXY);
     [[nodiscard]] bool isChunkVisible(const TerrainChunk &chunk, const CullingUtils::Frustum &frustum) const;
 
     void decideShape(TerrainChunk &chunk, const glm::vec3 &cameraPosition);
-    void ensureChildren(TerrainChunk &chunk);
-    void collapseChildren(TerrainChunk &chunk);
+    static void ensureChildren(TerrainChunk &chunk);
+    static void collapseChildren(TerrainChunk &chunk);
 
     void enforceBalance();
     bool balancePass(TerrainChunk &chunk);

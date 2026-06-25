@@ -81,7 +81,7 @@ void TerrainPatchRenderer::createMaterialSetLayout() {
     materialSetLayout = VulkanUtils::createDescriptorSetLayout(vkCtx, bindings);
 }
 
-void TerrainPatchRenderer::buildTierMesh(Tier &tier, const vk::raii::CommandPool &commandPool, const int resolution) {
+void TerrainPatchRenderer::buildTierMesh(Tier &tier, const vk::raii::CommandPool &commandPool, const int resolution) const {
     using enum vk::BufferUsageFlagBits;
     using enum vk::MemoryPropertyFlagBits;
 
@@ -223,11 +223,12 @@ void TerrainPatchRenderer::createPipelines(const vk::Format colorFormat, const v
     const auto attributeDescriptions = Mesh::Vertex::getAttributeDescriptions();
     const vk::VertexInputBindingDescription bindingDescription = Mesh::Vertex::getBindingDescription();
 
-    const vk::VertexInputBindingDescription instanceBinding{1, sizeof(TerrainPatchInstance), vk::VertexInputRate::eInstance};
-    const vk::VertexInputAttributeDescription instanceOriginAttr{5, 1, vk::Format::eR32G32Sfloat,
-                                                                 offsetof(TerrainPatchInstance, origin)};
-    const vk::VertexInputAttributeDescription instanceParamsAttr{6, 1, vk::Format::eR32G32B32A32Sfloat,
-                                                                 offsetof(TerrainPatchInstance, params)};
+    constexpr vk::VertexInputBindingDescription instanceBinding{1, sizeof(TerrainPatchInstance),
+                                                                vk::VertexInputRate::eInstance};
+    constexpr vk::VertexInputAttributeDescription instanceOriginAttr{5, 1, vk::Format::eR32G32Sfloat,
+                                                                     offsetof(TerrainPatchInstance, origin)};
+    constexpr vk::VertexInputAttributeDescription instanceParamsAttr{6, 1, vk::Format::eR32G32B32A32Sfloat,
+                                                                     offsetof(TerrainPatchInstance, params)};
 
     const std::vector<vk::VertexInputAttributeDescription> patchAttrs = {attributeDescriptions[0], instanceOriginAttr,
                                                                          instanceParamsAttr};

@@ -12,10 +12,13 @@ void InstanceRenderer::createPipelines(const vk::PipelineLayout pipelineLayout, 
     const auto bindingDescription = Mesh::Vertex::getBindingDescription();
     const auto attributeDescriptions = Mesh::Vertex::getAttributeDescriptions();
 
-    const vk::VertexInputBindingDescription instanceBinding{1, sizeof(InstanceData), vk::VertexInputRate::eInstance};
-    const vk::VertexInputAttributeDescription instancePos{5, 1, vk::Format::eR32G32B32Sfloat, offsetof(InstanceData, position)};
-    const vk::VertexInputAttributeDescription instanceRot{6, 1, vk::Format::eR32G32B32Sfloat, offsetof(InstanceData, rotation)};
-    const vk::VertexInputAttributeDescription instanceUVScale{7, 1, vk::Format::eR32G32Sfloat, offsetof(InstanceData, uvScale)};
+    constexpr vk::VertexInputBindingDescription instanceBinding{1, sizeof(InstanceData), vk::VertexInputRate::eInstance};
+    constexpr vk::VertexInputAttributeDescription instancePos{5, 1, vk::Format::eR32G32B32Sfloat,
+                                                              offsetof(InstanceData, position)};
+    constexpr vk::VertexInputAttributeDescription instanceRot{6, 1, vk::Format::eR32G32B32Sfloat,
+                                                              offsetof(InstanceData, rotation)};
+    constexpr vk::VertexInputAttributeDescription instanceUVScale{7, 1, vk::Format::eR32G32Sfloat,
+                                                                  offsetof(InstanceData, uvScale)};
 
     std::vector attrs(attributeDescriptions.begin(), attributeDescriptions.end());
     attrs.push_back(instancePos);
@@ -84,7 +87,7 @@ void InstanceRenderer::setCullResources(const vk::DescriptorSetLayout cullSetLay
     cullResourcesReady = true;
 }
 
-void InstanceRenderer::createCullDescriptorSetForBatch(InstanceBatch &batch) {
+void InstanceRenderer::createCullDescriptorSetForBatch(InstanceBatch &batch) const {
     if (!cullResourcesReady) {
         return;
     }
@@ -100,13 +103,15 @@ void InstanceRenderer::createCullDescriptorSetForBatch(InstanceBatch &batch) {
         allocInfo.pSetLayouts = &cachedCullSetLayout;
         vk::raii::DescriptorSet set = std::move(vk::raii::DescriptorSets(vkCtx.device, allocInfo).front());
 
-        writer.writeBuffer(*set, 0, batch.buffers[f], vk::WholeSize, vk::DescriptorType::eStorageBuffer)
-            .writeBuffer(*set, 1, batch.culledBuffers[f], vk::WholeSize, vk::DescriptorType::eStorageBuffer)
-            .writeBuffer(*set, 2, batch.indirectBuffers[f], vk::WholeSize, vk::DescriptorType::eStorageBuffer)
-            .writeImage(*set, 3, vk::DescriptorType::eCombinedImageSampler, cachedHiZViews[f], cachedHiZSampler)
-            .writeBuffer(*set, 4, cachedCameraUniformBuffers[f], vk::WholeSize, vk::DescriptorType::eUniformBuffer)
-            .writeBuffer(*set, 6, batch.culledOnlyBuffers[f], vk::WholeSize, vk::DescriptorType::eStorageBuffer)
-            .writeBuffer(*set, 7, batch.culledOnlyIndirectBuffers[f], vk::WholeSize, vk::DescriptorType::eStorageBuffer);
+        using enum vk::DescriptorType;
+
+        writer.writeBuffer(*set, 0, batch.buffers[f], vk::WholeSize, eStorageBuffer)
+            .writeBuffer(*set, 1, batch.culledBuffers[f], vk::WholeSize, eStorageBuffer)
+            .writeBuffer(*set, 2, batch.indirectBuffers[f], vk::WholeSize, eStorageBuffer)
+            .writeImage(*set, 3, eCombinedImageSampler, cachedHiZViews[f], cachedHiZSampler)
+            .writeBuffer(*set, 4, cachedCameraUniformBuffers[f], vk::WholeSize, eUniformBuffer)
+            .writeBuffer(*set, 6, batch.culledOnlyBuffers[f], vk::WholeSize, eStorageBuffer)
+            .writeBuffer(*set, 7, batch.culledOnlyIndirectBuffers[f], vk::WholeSize, eStorageBuffer);
 
         batch.cullDescriptorSets.push_back(std::move(set));
     }
@@ -114,7 +119,7 @@ void InstanceRenderer::createCullDescriptorSetForBatch(InstanceBatch &batch) {
     writer.update();
 }
 
-void InstanceRenderer::recreateBatchGpuResources(InstanceBatch &batch) {
+void InstanceRenderer::recreateBatchGpuResources(InstanceBatch &batch) const {
     using enum vk::BufferUsageFlagBits;
     using enum vk::MemoryPropertyFlagBits;
 
@@ -179,7 +184,7 @@ RenderObjectHandle InstanceRenderer::addObject(RenderObject object) {
         newBatch.ormMap = obj.material.ormMap;
         newBatch.occupied = true;
 
-        batchLookup.emplace(key, batchIndex);
+        batchLookup.try_emplace(key, batchIndex);
     }
 
     InstanceBatch &batch = batches[batchIndex];
@@ -202,8 +207,7 @@ void InstanceRenderer::removeObject(const RenderObjectHandle handle) {
     InstanceBatch &batch = batches[batchIndex];
 
     const size_t pos = slot.positionInBatch;
-    const size_t lastPos = batch.memberHandles.size() - 1;
-    if (pos != lastPos) {
+    if (const size_t lastPos = batch.memberHandles.size() - 1; pos != lastPos) {
         const RenderObjectHandle movedHandle = batch.memberHandles[lastPos];
         batch.memberHandles[pos] = movedHandle;
         slots[movedHandle].positionInBatch = pos;
@@ -302,7 +306,7 @@ void InstanceRenderer::update(const uint32_t currentImage, const CullingUtils::F
     }
 }
 
-void InstanceRenderer::draw(DrawCommand command, bool wireframe, uint32_t &drawCallCount) const {
+void InstanceRenderer::draw(const DrawCommand &command, const bool wireframe, uint32_t &drawCallCount) const {
     command.commandBuffer->bindPipeline(vk::PipelineBindPoint::eGraphics, wireframe ? *wireframePipeline : *solidPipeline);
 
     for (const auto &batch : batches) {
@@ -327,7 +331,7 @@ void InstanceRenderer::draw(DrawCommand command, bool wireframe, uint32_t &drawC
     }
 }
 
-void InstanceRenderer::drawXray(DrawCommand command) const {
+void InstanceRenderer::drawXray(const DrawCommand &command) const {
     command.commandBuffer->bindPipeline(vk::PipelineBindPoint::eGraphics, *xrayPipeline);
 
     for (const auto &batch : batches) {
@@ -351,7 +355,7 @@ void InstanceRenderer::drawXray(DrawCommand command) const {
     }
 }
 
-void InstanceRenderer::drawShadow(DrawCommand command) const {
+void InstanceRenderer::drawShadow(const DrawCommand &command) const {
     command.commandBuffer->bindPipeline(vk::PipelineBindPoint::eGraphics, *shadowPipeline);
 
     for (const auto &batch : batches) {

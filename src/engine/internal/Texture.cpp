@@ -72,7 +72,7 @@ struct DDSHeader {
     uint32_t pitchOrLinearSize;
     uint32_t depth;
     uint32_t mipMapCount;
-    uint32_t reserved1[11];
+    std::array<uint32_t, 11> reserved1;
     DDSPixelFormat pixelFormat;
     uint32_t caps;
     uint32_t caps2;
@@ -96,39 +96,43 @@ struct BlockFormatInfo {
 };
 
 BlockFormatInfo blockFormatFromDxgi(const uint32_t dxgiFormat, const bool srgb) {
+    using enum vk::Format;
+
     switch (dxgiFormat) {
     case 71:
     case 72:
-        return {srgb ? vk::Format::eBc1RgbaSrgbBlock : vk::Format::eBc1RgbaUnormBlock, 8};
+        return {srgb ? eBc1RgbaSrgbBlock : eBc1RgbaUnormBlock, 8};
     case 74:
     case 75:
-        return {srgb ? vk::Format::eBc2SrgbBlock : vk::Format::eBc2UnormBlock, 16};
+        return {srgb ? eBc2SrgbBlock : eBc2UnormBlock, 16};
     case 77:
     case 78:
-        return {srgb ? vk::Format::eBc3SrgbBlock : vk::Format::eBc3UnormBlock, 16};
+        return {srgb ? eBc3SrgbBlock : eBc3UnormBlock, 16};
     case 80:
-        return {vk::Format::eBc4UnormBlock, 8};
+        return {eBc4UnormBlock, 8};
     case 83:
-        return {vk::Format::eBc5UnormBlock, 16};
+        return {eBc5UnormBlock, 16};
     case 98:
     case 99:
-        return {srgb ? vk::Format::eBc7SrgbBlock : vk::Format::eBc7UnormBlock, 16};
+        return {srgb ? eBc7SrgbBlock : eBc7UnormBlock, 16};
     default:
-        throw EngineExceptions::Compatibility("Unsupported DDS DXGI format (" + std::to_string(dxgiFormat) + ").");
+        throw EngineExceptions::Compatibility(std::format("Unsupported DDS DXGI format ({}).", std::to_string(dxgiFormat)));
     }
 }
 
 BlockFormatInfo blockFormatFromFourCC(const uint32_t fourCCValue, const bool srgb) {
+    using enum vk::Format;
+
     if (fourCCValue == makeFourCC('D', 'X', 'T', '1'))
-        return {srgb ? vk::Format::eBc1RgbaSrgbBlock : vk::Format::eBc1RgbaUnormBlock, 8};
+        return {srgb ? eBc1RgbaSrgbBlock : eBc1RgbaUnormBlock, 8};
     if (fourCCValue == makeFourCC('D', 'X', 'T', '3'))
-        return {srgb ? vk::Format::eBc2SrgbBlock : vk::Format::eBc2UnormBlock, 16};
+        return {srgb ? eBc2SrgbBlock : eBc2UnormBlock, 16};
     if (fourCCValue == makeFourCC('D', 'X', 'T', '5'))
-        return {srgb ? vk::Format::eBc3SrgbBlock : vk::Format::eBc3UnormBlock, 16};
+        return {srgb ? eBc3SrgbBlock : eBc3UnormBlock, 16};
     if (fourCCValue == makeFourCC('A', 'T', 'I', '1') || fourCCValue == makeFourCC('B', 'C', '4', 'U'))
-        return {vk::Format::eBc4UnormBlock, 8};
+        return {eBc4UnormBlock, 8};
     if (fourCCValue == makeFourCC('A', 'T', 'I', '2') || fourCCValue == makeFourCC('B', 'C', '5', 'U'))
-        return {vk::Format::eBc5UnormBlock, 16};
+        return {eBc5UnormBlock, 16};
     throw EngineExceptions::Compatibility("Unsupported DDS FourCC.");
 }
 } // namespace

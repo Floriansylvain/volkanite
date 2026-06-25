@@ -53,11 +53,11 @@ class InstanceRenderer {
         MapDescriptorSets *materialDescriptorSets;
     };
 
-    void draw(DrawCommand command, bool wireframe, uint32_t &drawCallCount) const;
+    void draw(const DrawCommand &command, bool wireframe, uint32_t &drawCallCount) const;
 
-    void drawXray(DrawCommand command) const;
+    void drawXray(const DrawCommand &command) const;
 
-    void drawShadow(DrawCommand command) const;
+    void drawShadow(const DrawCommand &command) const;
 
     [[nodiscard]] uint64_t getVisibleVertexEstimate(uint32_t frameIndex) const;
 
@@ -171,8 +171,8 @@ class InstanceRenderer {
     std::unordered_map<BatchKey, size_t, BatchKeyHash> batchLookup;
     std::unordered_set<size_t> dirtyBatches;
 
-    void recreateBatchGpuResources(InstanceBatch &batch);
-    void createCullDescriptorSetForBatch(InstanceBatch &batch);
+    void recreateBatchGpuResources(InstanceBatch &batch) const;
+    void createCullDescriptorSetForBatch(InstanceBatch &batch) const;
 };
 
 #endif

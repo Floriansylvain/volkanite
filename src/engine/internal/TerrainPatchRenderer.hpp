@@ -83,8 +83,8 @@ class TerrainPatchRenderer {
         float morphSnapStride = 2.0f;
     };
 
-    void buildTierMesh(Tier &tier, const vk::raii::CommandPool &commandPool, int resolution);
-    void uploadTier(Tier &tier, uint32_t frameIndex);
+    void buildTierMesh(Tier &tier, const vk::raii::CommandPool &commandPool, int resolution) const;
+    static void uploadTier(Tier &tier, uint32_t frameIndex);
     void drawTier(const Tier &tier, vk::Pipeline pipeline, const DrawCommand &command) const;
 
     VulkanContext &vkCtx;

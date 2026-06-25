@@ -51,7 +51,7 @@ void MeshUtils::generateCube(Mesh &mesh, const float &size) {
 }
 
 void MeshUtils::computeTangents(std::vector<Mesh::Vertex> &vertices, const std::vector<uint32_t> &indices) {
-    std::vector<glm::vec3> accum(vertices.size(), glm::vec3(0.0f));
+    std::vector accum(vertices.size(), glm::vec3(0.0f));
 
     const size_t indexCount = indices.size();
     const uint32_t *const indicesPtr = indices.data();
@@ -83,11 +83,10 @@ void MeshUtils::computeTangents(std::vector<Mesh::Vertex> &vertices, const std::
         accum[i2] += tangent;
     }
 
-    const size_t vertexCount = vertices.size();
     Mesh::Vertex *const outVerticesPtr = vertices.data();
     const glm::vec3 *const accumPtr = accum.data();
 
-    const int count = static_cast<int>(vertices.size());
+    const auto count = static_cast<int>(vertices.size());
 
 #pragma omp parallel for if (count > 1024)
     for (int i = 0; i < count; ++i) {

@@ -17,7 +17,7 @@ float nearestPointDistance(const glm::vec2 &point, const glm::vec2 &center, cons
 
 TerrainSystem::TerrainSystem(TerrainConfig config) : config(std::move(config)) {}
 
-float TerrainSystem::nearestDistance(const TerrainChunk &chunk, const glm::vec2 &cameraXY) const {
+float TerrainSystem::nearestDistance(const TerrainChunk &chunk, const glm::vec2 &cameraXY) {
     return nearestPointDistance(cameraXY, chunk.center, chunk.size * 0.5f);
 }
 
@@ -36,12 +36,11 @@ void TerrainSystem::update(const glm::vec3 &cameraPosition, const CullingUtils::
 
 void TerrainSystem::decideShape(TerrainChunk &chunk, const glm::vec3 &cameraPosition) {
     const glm::vec2 cameraXY(cameraPosition.x, cameraPosition.y);
-    const float distance = nearestDistance(chunk, cameraXY);
-    const bool wantsSplit = chunk.depth < config.maxDepth && distance < chunk.size * config.splitFactor;
 
-    if (wantsSplit) {
+    if (const float distance = nearestDistance(chunk, cameraXY);
+        chunk.depth < config.maxDepth && distance < chunk.size * config.splitFactor) {
         ensureChildren(chunk);
-        for (auto &child : chunk.children) {
+        for (const auto &child : chunk.children) {
             decideShape(*child, cameraPosition);
         }
     } else {
@@ -77,9 +76,8 @@ const TerrainChunk *TerrainSystem::findLeafContaining(const glm::vec2 &point) co
         return nullptr;
     }
 
-    const float halfRoot = root->size * 0.5f;
-    if (point.x < root->center.x - halfRoot || point.x > root->center.x + halfRoot || point.y < root->center.y - halfRoot ||
-        point.y > root->center.y + halfRoot) {
+    if (const float halfRoot = root->size * 0.5f; point.x < root->center.x - halfRoot || point.x > root->center.x + halfRoot ||
+                                                  point.y < root->center.y - halfRoot || point.y > root->center.y + halfRoot) {
         return nullptr;
     }
 
@@ -118,7 +116,7 @@ void TerrainSystem::enforceBalance() {
 bool TerrainSystem::balancePass(TerrainChunk &chunk) {
     if (chunk.isSplit()) {
         bool changed = false;
-        for (auto &child : chunk.children) {
+        for (const auto &child : chunk.children) {
             changed = balancePass(*child) || changed;
         }
         return changed;
@@ -134,8 +132,8 @@ bool TerrainSystem::balancePass(TerrainChunk &chunk) {
     const float probe = chunk.size * 0.5f + std::max(chunk.size * 0.001f, 0.01f);
 
     for (const auto &dir : edgeDirections) {
-        const TerrainChunk *neighbor = findLeafContaining(chunk.center + dir * probe);
-        if (neighbor && neighbor->depth > chunk.depth + 1) {
+        if (const TerrainChunk *neighbor = findLeafContaining(chunk.center + dir * probe);
+            neighbor && neighbor->depth > chunk.depth + 1) {
             ensureChildren(chunk);
             return true;
         }
