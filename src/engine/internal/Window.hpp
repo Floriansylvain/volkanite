@@ -16,7 +16,7 @@ class Window {
     static std::vector<const char *> getInstanceExtensions(uint32_t *count);
     bool getSizeInPixels(int *w, int *h) const;
 
-    void init(const char *title, int width, int height);
+    void init(const char *title, int width, int height, bool maximised, bool resizable);
     [[nodiscard]] bool isRunning() const;
     [[nodiscard]] bool isMinimized() const;
     void pollEvents();

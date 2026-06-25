@@ -17,7 +17,7 @@ Window::~Window() {
     }
 }
 
-void Window::init(const char *title, const int width, const int height) {
+void Window::init(const char *title, const int width, const int height, const bool maximised, const bool resizable) {
     if (!isInitialized) {
         if (SDL_Init(SDL_INIT_VIDEO) == false) {
             throw EngineExceptions::Compatibility(std::string("Failed to initialize SDL : ") + SDL_GetError());
@@ -25,8 +25,16 @@ void Window::init(const char *title, const int width, const int height) {
         isInitialized = true;
     }
 
+    auto flags = SDL_WINDOW_VULKAN;
+    if (maximised) {
+        flags |= SDL_WINDOW_MAXIMIZED;
+    }
+    if (resizable) {
+        flags |= SDL_WINDOW_RESIZABLE;
+    }
+
     if (!isWindowCreated) {
-        SDL_Window = SDL_CreateWindow(title, width, height, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_MAXIMIZED);
+        SDL_Window = SDL_CreateWindow(title, width, height, flags);
         if (!SDL_Window) {
             throw EngineExceptions::Compatibility(std::string("Failed to create window : ") + SDL_GetError());
         }
