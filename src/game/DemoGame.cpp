@@ -13,10 +13,10 @@ void DemoGame::init(Engine &engine) {
 
     //  const auto ormMap = engine.loadOrmMapFile("textures/oxidized-metal-clad_orm.dds");
 
-    const auto rockAlbedo = engine.loadTexture("textures/cliff-rockface1_albedo.png");
-    const auto rockNormalMap = engine.loadNormalMap("textures/cliff-rockface1_normal-ogl.png");
-    const auto rockOrmMap = engine.loadOrmMap("textures/cliff-rockface1_roughness.png", "textures/cliff-rockface1_metallic.png",
-                                              "textures/cliff-rockface1_height.png");
+    const auto rockAlbedo = engine.loadTexture("textures/layered-cliff_albedo.png");
+    const auto rockNormalMap = engine.loadNormalMap("textures/layered-cliff_normal-ogl.png");
+    const auto rockOrmMap = engine.loadOrmMap("textures/layered-cliff_roughness.png", "textures/layered-cliff_metallic.png",
+                                              "textures/layered-cliff_height.png");
     Material rockMaterial = {};
     rockMaterial.albedo = rockAlbedo;
     rockMaterial.normalMap = rockNormalMap;
@@ -53,30 +53,30 @@ void DemoGame::init(Engine &engine) {
         TerrainConfig terrainConfig;
         terrainConfig.origin = glm::vec2(0.0f, 0.0f);
         terrainConfig.rootSize = 131073.f;
-        terrainConfig.maxDepth = 12;
-        terrainConfig.fineChunkResolution = 128;
+        terrainConfig.maxDepth = 9;
+        terrainConfig.fineChunkResolution = 64;
         terrainConfig.chunkResolution = 33;
         terrainConfig.splitFactor = 2.0f;
         terrainConfig.textureWorldScale = 32.0f;
 
-        terrainConfig.uvScale = glm::vec2(24.0f);
+        terrainConfig.uvScale = glm::vec2(8.f);
 
-        terrainConfig.noise.scale = 4500.f;
+        terrainConfig.noise.scale = 6500.f;
         terrainConfig.noise.heightScale = 1200.0f;
         terrainConfig.noise.baseHeight = -200.0f;
-        terrainConfig.noise.octaves = 8;
+        terrainConfig.noise.octaves = 12;
         terrainConfig.noise.persistence = 0.45f;
         terrainConfig.noise.lacunarity = 2.15f;
 
         terrainConfig.noise.ridgeSharpness = 0.75f;
-        terrainConfig.noise.heightRedistribution = 1.85f;
+        terrainConfig.noise.heightRedistribution = 2.2f;
 
         terrainConfig.noise.regionScale = 8000.0f;
         terrainConfig.noise.regionThreshold = 0.45f;
         terrainConfig.noise.regionBlendWidth = 0.3f;
 
         terrainConfig.noise.flatScale = 3500.0f;
-        terrainConfig.noise.flatThreshold = 0.4f;
+        terrainConfig.noise.flatThreshold = 0.25f; // 0.4
         terrainConfig.noise.flatBlendWidth = 0.15f;
         terrainConfig.noise.minRelief = 0.02f;
 

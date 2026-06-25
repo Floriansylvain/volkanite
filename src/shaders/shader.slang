@@ -278,26 +278,32 @@ float2 parallaxOcclusionMapping(Sampler2D heightTex, float2 texCoords, float3 vi
     const float fadeStart = 10.0;
     const float fadeEnd = 100.0;
 
-    float lodFactor = saturate((viewDistance - fadeStart) / (fadeEnd - fadeStart));
-    if (lodFactor >= 1.0) {
+    if (viewDistance >= fadeEnd) {
         return texCoords;
     }
 
-    const float baseHeightScale = 0.05;
-    float currentHeightScale = lerp(baseHeightScale, 0.0, lodFactor);
-    float maxLayers = lerp(12.0, 2.0, lodFactor);
-    float minLayers = lerp(4.0, 2.0, lodFactor);
-    float numLayers = lerp(maxLayers, minLayers, abs(dot(float3(0.0, 0.0, 1.0), viewDirTS)));
+    static const float MIN_LAYERS = 4.0;
+    static const float MAX_LAYERS = 12.0;
+    const float heightScale = 0.05;
+
+    float numLayers = round(lerp(MAX_LAYERS, MIN_LAYERS, abs(viewDirTS.z)));
 
     float layerDepth = 1.0 / numLayers;
     float currentLayerDepth = 0.0;
-    float2 p = viewDirTS.xy / max(viewDirTS.z, 0.001) * currentHeightScale;
-    float2 deltaTexCoords = p / numLayers;
 
+    float2 p = viewDirTS.xy / max(viewDirTS.z, 0.05) * heightScale;
+    const float maxParallaxOffset = heightScale * 2.0;
+
+    float pLength = length(p);
+    if (pLength > maxParallaxOffset) {
+        p *= maxParallaxOffset / pLength;
+    }
+
+    float2 deltaTexCoords = p / numLayers;
     float2 currentTexCoords = texCoords;
     float currentDepthMapValue = 1.0 - heightTex.SampleLevel(currentTexCoords, 0.0).b;
 
-    for (int i = 0; i < 32 && currentLayerDepth < currentDepthMapValue; i++) {
+    for (int i = 0; i < int(MAX_LAYERS) && currentLayerDepth < currentDepthMapValue; i++) {
         currentTexCoords -= deltaTexCoords;
         currentDepthMapValue = 1.0 - heightTex.SampleLevel(currentTexCoords, 0.0).b;
         currentLayerDepth += layerDepth;
@@ -306,7 +312,8 @@ float2 parallaxOcclusionMapping(Sampler2D heightTex, float2 texCoords, float3 vi
     float2 prevTexCoords = currentTexCoords + deltaTexCoords;
     float afterDepth = currentDepthMapValue - currentLayerDepth;
     float beforeDepth = (1.0 - heightTex.SampleLevel(prevTexCoords, 0.0).b) - currentLayerDepth + layerDepth;
-    float weight = afterDepth / (afterDepth - beforeDepth);
+    float depthDelta = afterDepth - beforeDepth;
+    float weight = abs(depthDelta) > 0.0001 ? afterDepth / depthDelta : 0.0;
 
     return prevTexCoords * weight + currentTexCoords * (1.0 - weight);
 }
@@ -474,24 +481,27 @@ float4 fragMain(VSOutput vertIn) : SV_TARGET {
     float3x3 TBN = float3x3(T, B, N);
 
     float3 viewDirTS = normalize(mul((float3x3)TBN, V));
-   
+
     float2 scaledTexCoord = vertIn.fragTexCoord * vertIn.uvScale;
+
+    float2 dx = ddx(scaledTexCoord);
+    float2 dy = ddy(scaledTexCoord);
+
     float2 texCoord = parallaxOcclusionMapping(ormMap, scaledTexCoord, viewDirTS, viewDistance);
 
-    float4 texColor = texture.Sample(texCoord);
+    float4 texColor = texture.SampleGrad(texCoord, dx, dy);
     if (texColor.a < 0.5)
         discard;
 
-    float3 tangentNormal = normalMap.Sample(texCoord).rgb * 2.0 - 1.0;
+    float3 tangentNormal = normalMap.SampleGrad(texCoord, dx, dy).rgb * 2.0 - 1.0;
     N = normalize(mul(tangentNormal, TBN));
 
     const float3 L = normalize(ubo.lightDir.xyz);
-
     float3 worldPos = ubo.cameraPos.xyz - vertIn.viewDiff;
     float shadow = computeShadow(worldPos, N, L, vertIn.pos.xy);
 
-    float3 orm = ormMap.Sample(texCoord).rgb;
-    float roughness = max(orm.r, 0.04); 
+    float3 orm = ormMap.SampleGrad(texCoord, dx, dy).rgb;
+    float roughness = max(orm.r, 0.04);
     float metallic = orm.g;
 
     float3 finalColor = evaluatePBR(N, V, L, texColor.rgb, roughness, metallic, shadow);
@@ -559,14 +569,16 @@ TerrainTriplanarUVs terrainReplaceAxisUV(TerrainTriplanarUVs uvs, int axis, floa
     return uvs;
 }
 
-float4 sampleTriplanar(Sampler2D tex, TerrainTriplanarUVs uvs, float3 weights) {
-    return tex.Sample(uvs.uvX) * weights.x + tex.Sample(uvs.uvY) * weights.y + tex.Sample(uvs.uvZ) * weights.z;
+float4 sampleTriplanar(Sampler2D tex, TerrainTriplanarUVs uvs, float3 weights, TerrainTriplanarUVs dx, TerrainTriplanarUVs dy) {
+    return tex.SampleGrad(uvs.uvX, dx.uvX, dy.uvX) * weights.x + 
+           tex.SampleGrad(uvs.uvY, dx.uvY, dy.uvY) * weights.y +
+           tex.SampleGrad(uvs.uvZ, dx.uvZ, dy.uvZ) * weights.z;
 }
 
-float3 sampleTriplanarNormal(Sampler2D tex, TerrainTriplanarUVs uvs, float3 N, float3 weights) {
-    float3 tx = tex.Sample(uvs.uvX).rgb * 2.0 - 1.0;
-    float3 ty = tex.Sample(uvs.uvY).rgb * 2.0 - 1.0;
-    float3 tz = tex.Sample(uvs.uvZ).rgb * 2.0 - 1.0;
+float3 sampleTriplanarNormal(Sampler2D tex, TerrainTriplanarUVs uvs, float3 N, float3 weights, TerrainTriplanarUVs dx, TerrainTriplanarUVs dy) {
+    float3 tx = tex.SampleGrad(uvs.uvX, dx.uvX, dy.uvX).rgb * 2.0 - 1.0;
+    float3 ty = tex.SampleGrad(uvs.uvY, dx.uvY, dy.uvY).rgb * 2.0 - 1.0;
+    float3 tz = tex.SampleGrad(uvs.uvZ, dx.uvZ, dy.uvZ).rgb * 2.0 - 1.0;
 
     float3 nx = float3(N.x, tx.x + N.y, tx.y + N.z);
     float3 ny = float3(ty.x + N.x, N.y, ty.y + N.z);
@@ -583,15 +595,16 @@ struct TerrainLayerSample {
 
 TerrainLayerSample sampleTerrainLayer(Sampler2D albedoTex, Sampler2D normalTex, Sampler2D ormTex, float3 N,
                                       TerrainTriplanarUVs baseUVs, float3 triWeights, int dominantAxis,
-                                      float3 viewDirTS, float viewDistance) {
+                                      float3 viewDirTS, float viewDistance,
+                                      TerrainTriplanarUVs dx, TerrainTriplanarUVs dy) {
     float2 dominantBaseUV = terrainAxisUV(baseUVs, dominantAxis);
     float2 dominantParallaxUV = parallaxOcclusionMapping(ormTex, dominantBaseUV, viewDirTS, viewDistance);
     TerrainTriplanarUVs uvs = terrainReplaceAxisUV(baseUVs, dominantAxis, dominantParallaxUV);
 
     TerrainLayerSample result;
-    result.albedo = sampleTriplanar(albedoTex, uvs, triWeights);
-    result.orm = sampleTriplanar(ormTex, uvs, triWeights).rgb;
-    result.worldNormal = sampleTriplanarNormal(normalTex, uvs, N, triWeights);
+    result.albedo = sampleTriplanar(albedoTex, uvs, triWeights, dx, dy);
+    result.orm = sampleTriplanar(ormTex, uvs, triWeights, dx, dy).rgb;
+    result.worldNormal = sampleTriplanarNormal(normalTex, uvs, N, triWeights, dx, dy);
     return result;
 }
 
@@ -606,29 +619,26 @@ float4 fragTerrain(VSOutput vertIn) : SV_TARGET {
     float3 triWeights = terrainTriplanarWeights(N);
 
     TerrainTriplanarUVs baseUVs = terrainBaseUVs(worldPos, vertIn.uvScale, terrainPC.textureWorldScale);
+
+    TerrainTriplanarUVs dx;
+    dx.uvX = ddx(baseUVs.uvX); dx.uvY = ddx(baseUVs.uvY); dx.uvZ = ddx(baseUVs.uvZ);
+    TerrainTriplanarUVs dy;
+    dy.uvX = ddy(baseUVs.uvX); dy.uvY = ddy(baseUVs.uvY); dy.uvZ = ddy(baseUVs.uvZ);
+
     int dominantAxis = terrainDominantAxis(triWeights);
     float3x3 axisBasis = terrainAxisBasis(dominantAxis);
     float3 viewDirTS = normalize(mul(axisBasis, V));
 
-    TerrainLayerSample s0 =
-        sampleTerrainLayer(layerAlbedo[0], layerNormalMap[0], layerOrmMap[0], N, baseUVs, triWeights, dominantAxis,
-                           viewDirTS, viewDistance);
-    TerrainLayerSample s1 =
-        sampleTerrainLayer(layerAlbedo[1], layerNormalMap[1], layerOrmMap[1], N, baseUVs, triWeights, dominantAxis,
-                           viewDirTS, viewDistance);
-    TerrainLayerSample s2 =
-        sampleTerrainLayer(layerAlbedo[2], layerNormalMap[2], layerOrmMap[2], N, baseUVs, triWeights, dominantAxis,
-                           viewDirTS, viewDistance);
-    TerrainLayerSample s3 =
-        sampleTerrainLayer(layerAlbedo[3], layerNormalMap[3], layerOrmMap[3], N, baseUVs, triWeights, dominantAxis,
-                           viewDirTS, viewDistance);
+    TerrainLayerSample s0 = sampleTerrainLayer(layerAlbedo[0], layerNormalMap[0], layerOrmMap[0], N, baseUVs, triWeights, dominantAxis, viewDirTS, viewDistance, dx, dy);
+    TerrainLayerSample s1 = sampleTerrainLayer(layerAlbedo[1], layerNormalMap[1], layerOrmMap[1], N, baseUVs, triWeights, dominantAxis, viewDirTS, viewDistance, dx, dy);
+    TerrainLayerSample s2 = sampleTerrainLayer(layerAlbedo[2], layerNormalMap[2], layerOrmMap[2], N, baseUVs, triWeights, dominantAxis, viewDirTS, viewDistance, dx, dy);
+    TerrainLayerSample s3 = sampleTerrainLayer(layerAlbedo[3], layerNormalMap[3], layerOrmMap[3], N, baseUVs, triWeights, dominantAxis, viewDirTS, viewDistance, dx, dy);
 
     float4 texColor = s0.albedo * weights.x + s1.albedo * weights.y + s2.albedo * weights.z + s3.albedo * weights.w;
     if (texColor.a < 0.5)
         discard;
 
-    N = normalize(s0.worldNormal * weights.x + s1.worldNormal * weights.y + s2.worldNormal * weights.z +
-                  s3.worldNormal * weights.w);
+    N = normalize(s0.worldNormal * weights.x + s1.worldNormal * weights.y + s2.worldNormal * weights.z + s3.worldNormal * weights.w);
 
     const float3 L = normalize(ubo.lightDir.xyz);
     float shadow = computeShadow(worldPos, N, L, vertIn.pos.xy);
