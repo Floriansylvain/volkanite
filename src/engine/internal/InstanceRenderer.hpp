@@ -3,6 +3,7 @@
 
 #pragma once
 #include "CullingUtils.hpp"
+#include "MaterialBinding.hpp"
 #include "Mesh.hpp"
 #include "PerFrameBuffer.hpp"
 #include "PipelineBuilder.hpp"
@@ -42,24 +43,7 @@ class InstanceRenderer {
     };
     void cull(const CullCommand &command) const;
 
-    struct MaterialKey {
-        std::shared_ptr<Texture> albedo;
-        std::shared_ptr<Texture> normalMap;
-        std::shared_ptr<Texture> ormMap;
-
-        bool operator==(const MaterialKey &other) const = default;
-    };
-
-    struct MaterialKeyHash {
-        size_t operator()(const MaterialKey &key) const noexcept {
-            const size_t h1 = std::hash<std::shared_ptr<Texture>>{}(key.albedo);
-            const size_t h2 = std::hash<std::shared_ptr<Texture>>{}(key.normalMap);
-            const size_t h3 = std::hash<std::shared_ptr<Texture>>{}(key.ormMap);
-            return ((h1 ^ (h2 << 1)) >> 1) ^ (h3 << 1);
-        }
-    };
-
-    using MapDescriptorSets = std::unordered_map<MaterialKey, std::vector<vk::raii::DescriptorSet>, MaterialKeyHash>;
+    using MapDescriptorSets = MaterialDescriptorSets;
 
     struct DrawCommand {
         vk::raii::CommandBuffer *commandBuffer;
@@ -147,6 +131,21 @@ class InstanceRenderer {
     };
 
     static constexpr size_t MAX_CONCURRENT_BATCHES = 4096;
+
+    struct RetiredBatchResources {
+        PerFrameBuffer buffers;
+        PerFrameBuffer culledBuffers;
+        PerFrameBuffer indirectBuffers;
+        PerFrameBuffer culledOnlyBuffers;
+        PerFrameBuffer culledOnlyIndirectBuffers;
+        PerFrameBuffer shadowBuffers;
+        std::vector<vk::raii::DescriptorSet> cullDescriptorSets;
+        int framesRemaining = 0;
+    };
+    std::vector<RetiredBatchResources> retiringResources;
+
+    void retireBatchResources(InstanceBatch &batch);
+    void decrementRetiredResources();
 
     VulkanContext &vkCtx;
     int maxFramesInFlight;

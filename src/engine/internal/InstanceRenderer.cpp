@@ -223,20 +223,39 @@ void InstanceRenderer::removeObject(const RenderObjectHandle handle) {
     dirtyBatches.insert(batchIndex);
 }
 
+void InstanceRenderer::retireBatchResources(InstanceBatch &batch) {
+    RetiredBatchResources retired;
+    retired.buffers = std::move(batch.buffers);
+    retired.culledBuffers = std::move(batch.culledBuffers);
+    retired.indirectBuffers = std::move(batch.indirectBuffers);
+    retired.culledOnlyBuffers = std::move(batch.culledOnlyBuffers);
+    retired.culledOnlyIndirectBuffers = std::move(batch.culledOnlyIndirectBuffers);
+    retired.shadowBuffers = std::move(batch.shadowBuffers);
+    retired.cullDescriptorSets = std::move(batch.cullDescriptorSets);
+    retired.framesRemaining = maxFramesInFlight;
+    retiringResources.push_back(std::move(retired));
+}
+
+void InstanceRenderer::decrementRetiredResources() {
+    std::erase_if(retiringResources, [](RetiredBatchResources &retired) { return --retired.framesRemaining <= 0; });
+}
+
 void InstanceRenderer::applyPendingChanges() {
+    decrementRetiredResources();
+
     if (dirtyBatches.empty()) {
         return;
     }
 
-    vkCtx.device.waitIdle();
-
     for (const size_t batchIndex : dirtyBatches) {
         InstanceBatch &batch = batches[batchIndex];
         if (batch.pendingDestroy) {
+            retireBatchResources(batch);
             batch = InstanceBatch{};
             batch.occupied = false;
             freeBatchSlots.push_back(batchIndex);
         } else if (batch.occupied) {
+            retireBatchResources(batch);
             recreateBatchGpuResources(batch);
         }
     }

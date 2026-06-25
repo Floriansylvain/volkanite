@@ -6,10 +6,12 @@
 #include "Debug.hpp"
 #include "Game.hpp"
 #include "InstanceRenderer.hpp"
+#include "MaterialBinding.hpp"
 #include "Mesh.hpp"
 #include "OcclusionCuller.hpp"
 #include "RenderObject.hpp"
 #include "SwapChainHandler.hpp"
+#include "TerrainPatchRenderer.hpp"
 #include "TerrainTypes.hpp"
 #include "TextRenderer.hpp"
 
@@ -69,6 +71,7 @@ class Engine {
     InstanceRenderer instanceRenderer;
     TextRenderer textRenderer;
     OcclusionCuller occlusionCuller;
+    TerrainPatchRenderer terrainPatchRenderer;
     std::unique_ptr<TerrainSystem> terrainSystem;
 
     uint32_t drawCallCount = 0;
@@ -99,6 +102,7 @@ class Engine {
     PerFrameBuffer cameraUniformBuffers;
 
     InstanceRenderer::MapDescriptorSets materialDescriptorSets;
+    MaterialKey terrainMaterialKey;
 
     std::unordered_map<std::string, std::shared_ptr<Texture>> textureCache;
     std::unordered_map<std::string, std::shared_ptr<Texture>> normalMapCache;

@@ -13,7 +13,8 @@
 
 Engine::Engine(Window *_window, VulkanContext *_vkCtx)
     : window(*_window), vkCtx(*_vkCtx), swapChainHandler(vkCtx, window), instanceRenderer(vkCtx, MAX_FRAMES_IN_FLIGHT),
-      textRenderer(vkCtx, MAX_FRAMES_IN_FLIGHT), occlusionCuller(vkCtx, MAX_FRAMES_IN_FLIGHT) {}
+      textRenderer(vkCtx, MAX_FRAMES_IN_FLIGHT), occlusionCuller(vkCtx, MAX_FRAMES_IN_FLIGHT),
+      terrainPatchRenderer(vkCtx, MAX_FRAMES_IN_FLIGHT) {}
 
 Engine::~Engine() = default;
 
@@ -24,6 +25,7 @@ void Engine::createGraphicsPipeline() {
 
     textRenderer.createPipeline(colorFormat, depthFormat);
     instanceRenderer.createPipelines(*pipelineLayout, colorFormat, depthFormat, shadowDepthFormat);
+    terrainPatchRenderer.createPipelines(*descriptorSetLayout, colorFormat, depthFormat, shadowDepthFormat);
 }
 
 void Engine::createCommandPool() {
@@ -176,6 +178,10 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
         0, vk::Viewport(0.0f, 0.0f, static_cast<float>(SHADOW_MAP_SIZE), static_cast<float>(SHADOW_MAP_SIZE), 0.0f, 1.0f));
     commandBuffers[frameIndex].setScissor(0, vk::Rect2D(vk::Offset2D(0, 0), vk::Extent2D{SHADOW_MAP_SIZE, SHADOW_MAP_SIZE}));
     instanceRenderer.drawShadow(drawCommand);
+    if (terrainSystem) {
+        terrainPatchRenderer.drawShadow(
+            {&commandBuffers[frameIndex], *materialDescriptorSets.at(terrainMaterialKey)[frameIndex], frameIndex});
+    }
     commandBuffers[frameIndex].endRendering();
 
     VulkanUtils::ImageBarrierCommand shadowToRead{};
@@ -249,6 +255,11 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
 
     writeTimestamp(GpuPass::OpaqueGeometry, true, eColorAttachmentOutput);
     instanceRenderer.draw(drawCommand, isWireframe, drawCallCount);
+    if (terrainSystem) {
+        terrainPatchRenderer.draw(
+            {&commandBuffers[frameIndex], *materialDescriptorSets.at(terrainMaterialKey)[frameIndex], frameIndex}, isWireframe,
+            drawCallCount);
+    }
     vertexCount = instanceRenderer.getVisibleVertexEstimate(frameIndex);
     writeTimestamp(GpuPass::OpaqueGeometry, false, eColorAttachmentOutput);
 
@@ -582,7 +593,7 @@ void Engine::createDescriptorPool() {
 }
 
 void Engine::registerMaterial(const Material &material) {
-    const InstanceRenderer::MaterialKey key{material.albedo, material.normalMap, material.ormMap};
+    const MaterialKey key{material.albedo, material.normalMap, material.ormMap};
     if (materialDescriptorSets.contains(key))
         return;
 
@@ -656,8 +667,16 @@ std::shared_ptr<Mesh> Engine::createMeshFromData(std::vector<Mesh::Vertex> verti
 }
 
 TerrainSystem &Engine::createTerrain(const TerrainConfig &config) {
-    terrainSystem = std::make_unique<TerrainSystem>(*this, config);
+    terrainPatchRenderer.createGridMesh(commandPool, config);
+
+    Material material = finalizeMaterial(config.material);
+    registerMaterial(material);
+    terrainMaterialKey = MaterialKey{material.albedo, material.normalMap, material.ormMap};
+
+    terrainSystem = std::make_unique<TerrainSystem>(config);
     terrainSystem->update(camera.position());
+    terrainPatchRenderer.setPatches(terrainSystem->activePatches());
+
     return *terrainSystem;
 }
 
@@ -674,6 +693,7 @@ void Engine::updateInstanceBuffers(const uint32_t currentImage) {
     const CullingUtils::Frustum frustum = CullingUtils::extractFrustum(cullProj * camera.viewMatrix());
 
     instanceRenderer.update(currentImage, frustum);
+    terrainPatchRenderer.upload(currentImage);
 }
 
 Engine::FBXModel Engine::createFBXModel(const std::string &fbxPath, const std::string &fileExtension) {
@@ -913,6 +933,7 @@ void Engine::update() {
 
     if (terrainSystem) {
         terrainSystem->update(camera.position());
+        terrainPatchRenderer.setPatches(terrainSystem->activePatches());
     }
 
     instanceRenderer.applyPendingChanges();

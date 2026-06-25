@@ -40,18 +40,29 @@ void DemoGame::init(Engine &engine) {
     {
         TerrainConfig terrainConfig;
         terrainConfig.origin = glm::vec2(0.0f, 0.0f);
-        terrainConfig.rootSize = 2048.0f;
+        terrainConfig.rootSize = 16384.0f;
         terrainConfig.maxDepth = 6;
         terrainConfig.chunkResolution = 33;
         terrainConfig.splitFactor = 2.0f;
-        terrainConfig.textureWorldScale = 8.0f;
+        terrainConfig.textureWorldScale = 16.0f;
+
+        terrainConfig.uvScale = glm::vec2(16.0f);
+
         terrainConfig.noise.scale = 150.0f;
-        terrainConfig.noise.heightScale = 40.0f;
+        terrainConfig.noise.heightScale = 100.0f;
         terrainConfig.noise.baseHeight = -100.0f;
-        terrainConfig.noise.octaves = 7;
+        terrainConfig.noise.octaves = 4;
         terrainConfig.noise.persistence = 0.5f;
         terrainConfig.noise.lacunarity = 2.0f;
+
+        terrainConfig.noise.regionThreshold = 0.55f;
+        terrainConfig.noise.regionBlendWidth = 0.2f;
+        terrainConfig.noise.regionScale = 1000.0f;
+        terrainConfig.noise.ridgeSharpness = 0.01f;
+        terrainConfig.noise.heightRedistribution = 1.3f;
+
         terrainConfig.material = cubeMaterial;
+        terrainConfig.morphRatio = 0.1f;
 
         engine.createTerrain(terrainConfig);
     }
@@ -117,7 +128,7 @@ void DemoGame::update(Engine &engine, const float deltaTime) {
     const bool *key_states = SDL_GetKeyboardState(nullptr);
     glm::vec3 input = {0.f, 0.f, 0.f};
 
-    float speed = 10.0f;
+    float speed = 500.0f;
 
     if (key_states[SDL_SCANCODE_LSHIFT])
         speed *= 5.f;

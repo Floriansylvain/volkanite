@@ -26,7 +26,7 @@ void Window::init(const char *title, const int width, const int height) {
     }
 
     if (!isWindowCreated) {
-        SDL_Window = SDL_CreateWindow(title, width, height, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
+        SDL_Window = SDL_CreateWindow(title, width, height, SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_MAXIMIZED);
         if (!SDL_Window) {
             throw EngineExceptions::Compatibility(std::string("Failed to create window : ") + SDL_GetError());
         }

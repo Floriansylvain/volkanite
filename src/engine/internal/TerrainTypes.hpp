@@ -12,6 +12,13 @@ struct TerrainNoiseSettings {
     float persistence = 0.5f;
     float lacunarity = 2.0f;
     glm::vec2 offset{0.0f, 0.0f};
+
+    float ridgeSharpness = 0.6f;
+    float heightRedistribution = 1.0f;
+
+    float regionScale = 800.0f;
+    float regionThreshold = 1.5f;
+    float regionBlendWidth = 0.25f;
 };
 
 struct TerrainConfig {
@@ -20,9 +27,16 @@ struct TerrainConfig {
     int maxDepth = 6;
     int chunkResolution = 33;
     float splitFactor = 2.0f;
+    float morphRatio = 0.3f;
     float textureWorldScale = 8.0f;
+    glm::vec2 uvScale{1.0f, 1.0f};
     TerrainNoiseSettings noise;
     Material material;
+};
+
+struct TerrainPatchInstance {
+    glm::vec2 origin;
+    glm::vec4 params;
 };
 
 #endif

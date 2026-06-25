@@ -29,6 +29,13 @@ struct TerrainPushConstants {
     int octaves;
     float textureWorldScale;
     float gridDim;
+    float uvScaleX;
+    float uvScaleY;
+    float ridgeSharpness;
+    float heightRedistribution;
+    float regionScale;
+    float regionThreshold;
+    float regionBlendWidth;
 };
 
 [[vk::push_constant]] TerrainPushConstants terrainPC;
@@ -64,17 +71,35 @@ float terrainGradientNoise2D(float2 p) {
     return lerp(x1, x2, v);
 }
 
+float terrainRegionMask(float2 worldPos) {
+    float2 base = worldPos / max(terrainPC.regionScale, 1.0);
+    float n = saturate(terrainGradientNoise2D(base) * 0.5 + 0.5);
+    float halfWidth = max(terrainPC.regionBlendWidth, 0.001);
+    return smoothstep(terrainPC.regionThreshold - halfWidth, terrainPC.regionThreshold + halfWidth, n);
+}
+
 float terrainHeight(float2 worldPos) {
     float amplitude = 1.0;
     float frequency = 1.0;
-    float h = 0.0;
+    float hills = 0.0;
+    float ridged = 0.0;
     float2 base = worldPos / terrainPC.noiseScale + terrainPC.noiseOffset;
+    float ridgeExponent = 2.0 + terrainPC.ridgeSharpness * 4.0;
 
     for (int i = 0; i < terrainPC.octaves; i++) {
-        h += terrainGradientNoise2D(base * frequency) * amplitude;
+        float n = terrainGradientNoise2D(base * frequency);
+        hills += n * amplitude;
+        ridged += pow(saturate(1.0 - abs(n)), ridgeExponent) * amplitude;
+
         amplitude *= terrainPC.persistence;
         frequency *= terrainPC.lacunarity;
     }
+
+    float mountainAmount = terrainRegionMask(worldPos);
+    float combined = lerp(hills, ridged, mountainAmount);
+
+    float sign_h = combined < 0.0 ? -1.0 : 1.0;
+    float h = sign_h * pow(abs(combined), max(terrainPC.heightRedistribution, 0.0001));
 
     return h * terrainPC.heightScale + terrainPC.baseHeight;
 }
@@ -320,7 +345,7 @@ VSOutput vertTerrain(TerrainVSInput input) {
     output.fragColor = float3(1.0, 1.0, 1.0);
     output.fragTexCoord = center.worldXY / terrainPC.textureWorldScale;
     output.viewDiff = ubo.cameraPos.xyz - worldPos;
-    output.uvScale = float2(1.0, 1.0);
+    output.uvScale = float2(terrainPC.uvScaleX, terrainPC.uvScaleY);
 
     return output;
 }
@@ -452,7 +477,7 @@ ShadowVSOutput vertTerrainShadow(TerrainVSInput input) {
 
     output.pos = mul(ubo.lightViewProj, float4(worldPos, 1.0));
     output.fragTexCoord = center.worldXY / terrainPC.textureWorldScale;
-    output.uvScale = float2(1.0, 1.0);
+    output.uvScale = float2(terrainPC.uvScaleX, terrainPC.uvScaleY);
 
     return output;
 }
