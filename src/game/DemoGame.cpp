@@ -59,7 +59,8 @@ void DemoGame::init(Engine &engine) {
         terrainConfig.noise.regionBlendWidth = 0.2f;
         terrainConfig.noise.regionScale = 1000.0f;
         terrainConfig.noise.ridgeSharpness = 0.01f;
-        terrainConfig.noise.heightRedistribution = 1.3f;
+        terrainConfig.noise.heightRedistribution = 1.00f;
+        terrainConfig.fineChunkResolution = 100;
 
         terrainConfig.material = cubeMaterial;
         terrainConfig.morphRatio = 0.1f;

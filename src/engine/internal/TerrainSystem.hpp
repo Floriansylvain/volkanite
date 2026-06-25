@@ -13,12 +13,14 @@ class TerrainSystem {
     void update(const glm::vec3 &cameraPosition);
 
     [[nodiscard]] const std::vector<TerrainPatchInstance> &activePatches() const { return patches; }
+    [[nodiscard]] const std::vector<TerrainPatchInstance> &activeFinePatches() const { return finePatches; }
 
   private:
     TerrainConfig config;
 
     std::unique_ptr<TerrainChunk> root;
     std::vector<TerrainPatchInstance> patches;
+    std::vector<TerrainPatchInstance> finePatches;
 
     [[nodiscard]] float nearestDistance(const TerrainChunk &chunk, const glm::vec2 &cameraXY) const;
 

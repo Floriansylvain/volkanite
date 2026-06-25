@@ -29,6 +29,7 @@ void TerrainSystem::update(const glm::vec3 &cameraPosition) {
     enforceBalance();
 
     patches.clear();
+    finePatches.clear();
     collectPatches(*root);
 }
 
@@ -164,5 +165,9 @@ void TerrainSystem::collectPatches(const TerrainChunk &chunk) {
         patch.params = glm::vec4(chunk.size, morphStart, morphEnd, 0.0f);
     }
 
-    patches.push_back(patch);
+    if (chunk.depth == config.maxDepth) {
+        finePatches.push_back(patch);
+    } else {
+        patches.push_back(patch);
+    }
 }

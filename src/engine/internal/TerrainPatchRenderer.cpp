@@ -3,18 +3,9 @@
 #include "VulkanUtils.hpp"
 #include <algorithm>
 
-TerrainPatchRenderer::TerrainPatchRenderer(VulkanContext &vkCtx, const int maxFramesInFlight)
-    : vkCtx(vkCtx), maxFramesInFlight(maxFramesInFlight) {}
+namespace {
 
-void TerrainPatchRenderer::createGridMesh(const vk::raii::CommandPool &commandPool, const TerrainConfig &config) {
-    using enum vk::BufferUsageFlagBits;
-    using enum vk::MemoryPropertyFlagBits;
-
-    instanceBuffers = PerFrameBuffer(vkCtx, static_cast<uint32_t>(maxFramesInFlight),
-                                     sizeof(TerrainPatchInstance) * MAX_PATCHES, eVertexBuffer, eHostVisible | eHostCoherent);
-
-    const int resolution = std::max(config.chunkResolution, 2);
-
+std::shared_ptr<Mesh> buildGridMesh(VulkanContext &vkCtx, const vk::raii::CommandPool &commandPool, const int resolution) {
     std::vector<Mesh::Vertex> vertices;
     vertices.reserve(static_cast<size_t>(resolution) * resolution);
     for (int y = 0; y < resolution; ++y) {
@@ -46,12 +37,44 @@ void TerrainPatchRenderer::createGridMesh(const vk::raii::CommandPool &commandPo
         }
     }
 
-    gridMesh = std::make_shared<Mesh>(vkCtx);
-    gridMesh->vertices = std::move(vertices);
-    gridMesh->indices = std::move(indices);
-    gridMesh->createGeometryBuffers(commandPool);
+    auto mesh = std::make_shared<Mesh>(vkCtx);
+    mesh->vertices = std::move(vertices);
+    mesh->indices = std::move(indices);
+    mesh->createGeometryBuffers(commandPool);
+    return mesh;
+}
 
-    pushConstants.gridDim = static_cast<float>(resolution - 1);
+} // namespace
+
+TerrainPatchRenderer::TerrainPatchRenderer(VulkanContext &vkCtx, const int maxFramesInFlight)
+    : vkCtx(vkCtx), maxFramesInFlight(maxFramesInFlight) {}
+
+void TerrainPatchRenderer::buildTierMesh(Tier &tier, const vk::raii::CommandPool &commandPool, const int resolution) {
+    using enum vk::BufferUsageFlagBits;
+    using enum vk::MemoryPropertyFlagBits;
+
+    tier.instanceBuffer =
+        PerFrameBuffer(vkCtx, static_cast<uint32_t>(maxFramesInFlight), sizeof(TerrainPatchInstance) * MAX_PATCHES,
+                       eVertexBuffer, eHostVisible | eHostCoherent);
+    tier.mesh = buildGridMesh(vkCtx, commandPool, resolution);
+    tier.gridDim = static_cast<float>(resolution - 1);
+}
+
+void TerrainPatchRenderer::createGridMeshes(const vk::raii::CommandPool &commandPool, const TerrainConfig &config) {
+    const int coarseResolution = std::max(config.chunkResolution, 2);
+    buildTierMesh(coarseTier, commandPool, coarseResolution);
+    coarseTier.morphSnapStride = 2.0f;
+
+    const int coarseGridDim = coarseResolution - 1;
+    const int requestedFineResolution =
+        config.fineChunkResolution > 0 ? std::max(config.fineChunkResolution, 2) : coarseResolution;
+    const int requestedFineGridDim = std::max(requestedFineResolution - 1, coarseGridDim);
+    const int ratio = std::max(1, (requestedFineGridDim + coarseGridDim - 1) / coarseGridDim);
+    const int fineGridDim = coarseGridDim * ratio;
+
+    buildTierMesh(fineTier, commandPool, fineGridDim + 1);
+    fineTier.morphSnapStride = 2.0f * static_cast<float>(ratio);
+
     pushConstants.noiseOffset = config.noise.offset;
     pushConstants.noiseScale = config.noise.scale;
     pushConstants.heightScale = config.noise.heightScale;
@@ -115,54 +138,77 @@ void TerrainPatchRenderer::createPipelines(const vk::DescriptorSetLayout materia
     shadowPipeline = shadowBuilder.build();
 }
 
-void TerrainPatchRenderer::setPatches(std::vector<TerrainPatchInstance> patches) { pendingPatches = std::move(patches); }
+void TerrainPatchRenderer::setPatches(std::vector<TerrainPatchInstance> coarsePatches,
+                                      std::vector<TerrainPatchInstance> finePatches) {
+    coarseTier.pendingPatches = std::move(coarsePatches);
+    fineTier.pendingPatches = std::move(finePatches);
+}
 
-void TerrainPatchRenderer::upload(const uint32_t frameIndex) {
-    activeInstanceCount = static_cast<uint32_t>(std::min(pendingPatches.size(), MAX_PATCHES));
-    if (activeInstanceCount == 0) {
+void TerrainPatchRenderer::uploadTier(Tier &tier, const uint32_t frameIndex) {
+    tier.activeInstanceCount = static_cast<uint32_t>(std::min(tier.pendingPatches.size(), MAX_PATCHES));
+    if (tier.activeInstanceCount == 0) {
         return;
     }
-    std::memcpy(instanceBuffers.mapped(frameIndex), pendingPatches.data(), sizeof(TerrainPatchInstance) * activeInstanceCount);
+    std::memcpy(tier.instanceBuffer.mapped(frameIndex), tier.pendingPatches.data(),
+                sizeof(TerrainPatchInstance) * tier.activeInstanceCount);
+}
+
+void TerrainPatchRenderer::upload(const uint32_t frameIndex) {
+    uploadTier(coarseTier, frameIndex);
+    uploadTier(fineTier, frameIndex);
+}
+
+void TerrainPatchRenderer::drawTier(const Tier &tier, const vk::Pipeline pipeline, const DrawCommand &command) const {
+    if (tier.activeInstanceCount == 0) {
+        return;
+    }
+
+    TerrainPushConstants pc = pushConstants;
+    pc.gridDim = tier.gridDim;
+    pc.morphSnapStride = tier.morphSnapStride;
+
+    command.commandBuffer->bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
+    command.commandBuffer->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *pipelineLayout, 0, command.materialSet,
+                                              nullptr);
+    command.commandBuffer->pushConstants<TerrainPushConstants>(*pipelineLayout, vk::ShaderStageFlagBits::eVertex, 0, pc);
+
+    const std::vector<vk::DeviceSize> vertexOffsets = {0};
+    command.commandBuffer->bindVertexBuffers(0, *tier.mesh->unifiedBuffer, vertexOffsets);
+    const std::vector<vk::DeviceSize> instanceOffsets = {0};
+    command.commandBuffer->bindVertexBuffers(1, tier.instanceBuffer[command.frameIndex], instanceOffsets);
+    const vk::DeviceSize vertexSizeOffset = sizeof(Mesh::Vertex) * tier.mesh->vertices.size();
+    command.commandBuffer->bindIndexBuffer(*tier.mesh->unifiedBuffer, vertexSizeOffset, vk::IndexType::eUint32);
+
+    command.commandBuffer->drawIndexed(static_cast<uint32_t>(tier.mesh->indices.size()), tier.activeInstanceCount, 0, 0, 0);
 }
 
 void TerrainPatchRenderer::draw(const DrawCommand &command, bool isWireframe, uint32_t &drawCallCount) const {
-    if (activeInstanceCount == 0) {
-        return;
+    drawTier(coarseTier, isWireframe ? *wireframePipeline : *solidPipeline, command);
+    if (coarseTier.activeInstanceCount > 0) {
+        drawCallCount++;
     }
-    command.commandBuffer->bindPipeline(vk::PipelineBindPoint::eGraphics, isWireframe ? *wireframePipeline : *solidPipeline);
-    command.commandBuffer->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *pipelineLayout, 0, command.materialSet,
-                                              nullptr);
-    command.commandBuffer->pushConstants<TerrainPushConstants>(*pipelineLayout, vk::ShaderStageFlagBits::eVertex, 0,
-                                                               pushConstants);
 
-    const std::vector<vk::DeviceSize> vertexOffsets = {0};
-    command.commandBuffer->bindVertexBuffers(0, *gridMesh->unifiedBuffer, vertexOffsets);
-    const std::vector<vk::DeviceSize> instanceOffsets = {0};
-    command.commandBuffer->bindVertexBuffers(1, instanceBuffers[command.frameIndex], instanceOffsets);
-    const vk::DeviceSize vertexSizeOffset = sizeof(Mesh::Vertex) * gridMesh->vertices.size();
-    command.commandBuffer->bindIndexBuffer(*gridMesh->unifiedBuffer, vertexSizeOffset, vk::IndexType::eUint32);
-
-    command.commandBuffer->drawIndexed(static_cast<uint32_t>(gridMesh->indices.size()), activeInstanceCount, 0, 0, 0);
-    drawCallCount++;
+    drawTier(fineTier, isWireframe ? *wireframePipeline : *solidPipeline, command);
+    if (fineTier.activeInstanceCount > 0) {
+        drawCallCount++;
+    }
 }
 
 void TerrainPatchRenderer::drawShadow(const DrawCommand &command) const {
-    if (activeInstanceCount == 0) {
-        return;
+    drawTier(coarseTier, *shadowPipeline, command);
+    drawTier(fineTier, *shadowPipeline, command);
+}
+
+uint64_t TerrainPatchRenderer::getVisibleVertexEstimate() const {
+    uint64_t total = 0;
+
+    if (coarseTier.mesh) {
+        total += static_cast<uint64_t>(coarseTier.mesh->indices.size()) * coarseTier.activeInstanceCount;
     }
 
-    command.commandBuffer->bindPipeline(vk::PipelineBindPoint::eGraphics, *shadowPipeline);
-    command.commandBuffer->bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *pipelineLayout, 0, command.materialSet,
-                                              nullptr);
-    command.commandBuffer->pushConstants<TerrainPushConstants>(*pipelineLayout, vk::ShaderStageFlagBits::eVertex, 0,
-                                                               pushConstants);
+    if (fineTier.mesh) {
+        total += static_cast<uint64_t>(fineTier.mesh->indices.size()) * fineTier.activeInstanceCount;
+    }
 
-    const std::vector<vk::DeviceSize> vertexOffsets = {0};
-    command.commandBuffer->bindVertexBuffers(0, *gridMesh->unifiedBuffer, vertexOffsets);
-    const std::vector<vk::DeviceSize> instanceOffsets = {0};
-    command.commandBuffer->bindVertexBuffers(1, instanceBuffers[command.frameIndex], instanceOffsets);
-    const vk::DeviceSize vertexSizeOffset = sizeof(Mesh::Vertex) * gridMesh->vertices.size();
-    command.commandBuffer->bindIndexBuffer(*gridMesh->unifiedBuffer, vertexSizeOffset, vk::IndexType::eUint32);
-
-    command.commandBuffer->drawIndexed(static_cast<uint32_t>(gridMesh->indices.size()), activeInstanceCount, 0, 0, 0);
+    return total;
 }

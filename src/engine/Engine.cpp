@@ -255,12 +255,13 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
 
     writeTimestamp(GpuPass::OpaqueGeometry, true, eColorAttachmentOutput);
     instanceRenderer.draw(drawCommand, isWireframe, drawCallCount);
+    vertexCount = instanceRenderer.getVisibleVertexEstimate(frameIndex);
     if (terrainSystem) {
         terrainPatchRenderer.draw(
             {&commandBuffers[frameIndex], *materialDescriptorSets.at(terrainMaterialKey)[frameIndex], frameIndex}, isWireframe,
             drawCallCount);
+        vertexCount += terrainPatchRenderer.getVisibleVertexEstimate();
     }
-    vertexCount = instanceRenderer.getVisibleVertexEstimate(frameIndex);
     writeTimestamp(GpuPass::OpaqueGeometry, false, eColorAttachmentOutput);
 
     writeTimestamp(GpuPass::Xray, true, eColorAttachmentOutput);
@@ -667,7 +668,7 @@ std::shared_ptr<Mesh> Engine::createMeshFromData(std::vector<Mesh::Vertex> verti
 }
 
 TerrainSystem &Engine::createTerrain(const TerrainConfig &config) {
-    terrainPatchRenderer.createGridMesh(commandPool, config);
+    terrainPatchRenderer.createGridMeshes(commandPool, config);
 
     Material material = finalizeMaterial(config.material);
     registerMaterial(material);
@@ -675,7 +676,7 @@ TerrainSystem &Engine::createTerrain(const TerrainConfig &config) {
 
     terrainSystem = std::make_unique<TerrainSystem>(config);
     terrainSystem->update(camera.position());
-    terrainPatchRenderer.setPatches(terrainSystem->activePatches());
+    terrainPatchRenderer.setPatches(terrainSystem->activePatches(), terrainSystem->activeFinePatches());
 
     return *terrainSystem;
 }
@@ -933,7 +934,7 @@ void Engine::update() {
 
     if (terrainSystem) {
         terrainSystem->update(camera.position());
-        terrainPatchRenderer.setPatches(terrainSystem->activePatches());
+        terrainPatchRenderer.setPatches(terrainSystem->activePatches(), terrainSystem->activeFinePatches());
     }
 
     instanceRenderer.applyPendingChanges();

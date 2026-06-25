@@ -36,6 +36,7 @@ struct TerrainPushConstants {
     float regionScale;
     float regionThreshold;
     float regionBlendWidth;
+    float morphSnapStride;
 };
 
 [[vk::push_constant]] TerrainPushConstants terrainPC;
@@ -105,9 +106,8 @@ float terrainHeight(float2 worldPos) {
 }
 
 float2 terrainMorphGridCoord(float2 gridCoord, float morphT) {
-    float2 oddMask = frac(gridCoord * 0.5) * 2.0;
-    float2 evenGridCoord = gridCoord - oddMask;
-    return lerp(gridCoord, evenGridCoord, morphT);
+    float2 snapped = gridCoord - fmod(gridCoord, terrainPC.morphSnapStride);
+    return lerp(gridCoord, snapped, morphT);
 }
 
 struct TerrainVSInput {
@@ -489,3 +489,4 @@ void fragShadow(ShadowVSOutput vertIn) {
     if (alpha < 0.5)
         discard;
 }
+

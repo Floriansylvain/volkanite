@@ -26,6 +26,7 @@ struct TerrainConfig {
     float rootSize = 2048.0f;
     int maxDepth = 6;
     int chunkResolution = 33;
+    int fineChunkResolution = 0;
     float splitFactor = 2.0f;
     float morphRatio = 0.3f;
     float textureWorldScale = 8.0f;
