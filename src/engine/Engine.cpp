@@ -705,24 +705,45 @@ void Engine::updateInstanceBuffers(const uint32_t currentImage) {
     terrainPatchRenderer.upload(currentImage);
 }
 
+std::string Engine::resolvePath(const std::string &filename, const std::string &extension) {
+    if (filename.empty())
+        return "";
+    return (std::filesystem::path("textures") / filename).replace_extension(extension).string();
+}
+
+std::shared_ptr<Texture> Engine::loadTexture(const std::string &filename,
+                                             std::unordered_map<std::string, std::shared_ptr<Texture>> &cache,
+                                             const std::string &extension, const bool isSrgb) const {
+    if (filename.empty())
+        return nullptr;
+    if (const auto it = cache.find(filename); it != cache.end())
+        return it->second;
+
+    auto texture = std::make_shared<Texture>(vkCtx);
+    texture->loadFromFile(resolvePath(filename, extension), commandPool, isSrgb);
+    cache.try_emplace(filename, texture);
+    return texture;
+}
+
+std::shared_ptr<Texture> Engine::loadOrmMap(const MergedGroup &group, const std::string &extension) {
+    if (group.roughnessMapFilename.empty() && group.metallicMapFilename.empty() && group.heightMapFilename.empty())
+        return nullptr;
+
+    const std::string ormKey =
+        std::format("{}|{}|{}", group.roughnessMapFilename, group.metallicMapFilename, group.heightMapFilename);
+    if (const auto it = ormMapCache.find(ormKey); it != ormMapCache.end())
+        return it->second;
+
+    auto texture = std::make_shared<Texture>(vkCtx);
+    texture->loadPackedChannels(resolvePath(group.roughnessMapFilename, extension), group.roughness,
+                                resolvePath(group.metallicMapFilename, extension), group.metallic,
+                                resolvePath(group.heightMapFilename, extension), 1.0f, commandPool);
+    ormMapCache.try_emplace(ormKey, texture);
+    return texture;
+}
+
 Engine::FBXModel Engine::createFBXModel(const std::string &fbxPath, const std::string &fileExtension) {
     const auto subMeshes = MeshUtils::loadFBXModel(fbxPath);
-
-    struct MergedGroup {
-        std::vector<Mesh::Vertex> vertices;
-        std::vector<uint32_t> indices;
-
-        std::string albedoFilename;
-        std::string normalMapFilename;
-        std::string roughnessMapFilename;
-        std::string metallicMapFilename;
-        std::string heightMapFilename;
-
-        glm::vec3 baseColor{1.0f};
-        float roughness = 0.5f;
-        float metallic = 0.f;
-    };
-
     std::unordered_map<std::string, MergedGroup, StringHash, std::equal_to<>> merged;
 
     for (const auto &[albedoFilename, normalMapFilename, roughnessMapFilename, metallicMapFilename, heightMapFilename,
@@ -761,25 +782,6 @@ Engine::FBXModel Engine::createFBXModel(const std::string &fbxPath, const std::s
     }
 
     FBXModel model;
-
-    auto loadTexture = [&](const std::string &filename, auto &cache, const bool isSrgb) -> std::shared_ptr<Texture> {
-        if (filename.empty()) {
-            return nullptr;
-        }
-        if (const auto it = cache.find(filename); it != cache.end()) {
-            return it->second;
-        }
-
-        std::filesystem::path texPath = std::filesystem::path("textures") / filename;
-        texPath.replace_extension(fileExtension);
-
-        auto texture = std::make_shared<Texture>(vkCtx);
-        texture->loadFromFile(texPath.string(), commandPool, isSrgb);
-        cache.try_emplace(filename, texture);
-
-        return texture;
-    };
-
     for (auto &group : merged | std::views::values) {
         MeshUtils::deduplicateVertices(group.vertices, group.indices);
         MeshUtils::computeTangents(group.vertices, group.indices);
@@ -790,38 +792,14 @@ Engine::FBXModel Engine::createFBXModel(const std::string &fbxPath, const std::s
         material.metallic = group.metallic;
 
         if (!group.albedoFilename.empty()) {
-            material.albedo = loadTexture(group.albedoFilename, textureCache, true);
+            material.albedo = loadTexture(group.albedoFilename, textureCache, fileExtension, true);
         } else {
-            auto texture = std::make_shared<Texture>(vkCtx);
-            texture->createSolidColor(group.baseColor, commandPool);
-            material.albedo = texture;
+            material.albedo = std::make_shared<Texture>(vkCtx);
+            material.albedo->createSolidColor(group.baseColor, commandPool);
         }
 
-        material.normalMap = loadTexture(group.normalMapFilename, normalMapCache, false);
-
-        if (!group.roughnessMapFilename.empty() || !group.metallicMapFilename.empty() || !group.heightMapFilename.empty()) {
-            const std::string ormKey =
-                std::format("{}|{}|{}", group.roughnessMapFilename, group.metallicMapFilename, group.heightMapFilename);
-
-            if (const auto it = ormMapCache.find(ormKey); it != ormMapCache.end()) {
-                material.ormMap = it->second;
-            } else {
-                const auto resolvePath = [&](const std::string &filename) -> std::string {
-                    if (filename.empty())
-                        return "";
-                    std::filesystem::path texPath = std::filesystem::path("textures") / filename;
-                    texPath.replace_extension(fileExtension);
-                    return texPath.string();
-                };
-
-                auto texture = std::make_shared<Texture>(vkCtx);
-                texture->loadPackedChannels(resolvePath(group.roughnessMapFilename), group.roughness,
-                                            resolvePath(group.metallicMapFilename), group.metallic,
-                                            resolvePath(group.heightMapFilename), 1.0f, commandPool);
-                ormMapCache.try_emplace(ormKey, texture);
-                material.ormMap = texture;
-            }
-        }
+        material.normalMap = loadTexture(group.normalMapFilename, normalMapCache, fileExtension, false);
+        material.ormMap = loadOrmMap(group, fileExtension);
 
         auto mesh = std::make_shared<Mesh>(vkCtx);
         mesh->vertices = std::move(group.vertices);

@@ -108,6 +108,26 @@ class Engine {
     std::unordered_map<std::string, std::shared_ptr<Texture>> normalMapCache;
     std::unordered_map<std::string, std::shared_ptr<Texture>> ormMapCache;
 
+    struct MergedGroup {
+        std::vector<Mesh::Vertex> vertices;
+        std::vector<uint32_t> indices;
+
+        std::string albedoFilename;
+        std::string normalMapFilename;
+        std::string roughnessMapFilename;
+        std::string metallicMapFilename;
+        std::string heightMapFilename;
+
+        glm::vec3 baseColor{1.0f};
+        float roughness = 0.5f;
+        float metallic = 0.f;
+    };
+    static std::string resolvePath(const std::string &filename, const std::string &extension);
+    std::shared_ptr<Texture> loadTexture(const std::string &filename,
+                                         std::unordered_map<std::string, std::shared_ptr<Texture>> &cache,
+                                         const std::string &extension, bool isSrgb) const;
+    std::shared_ptr<Texture> loadOrmMap(const MergedGroup &group, const std::string &extension);
+
     struct FloatPairHash {
         std::size_t operator()(const std::pair<float, float> &p) const noexcept {
             return std::hash<float>{}(p.first) ^ (std::hash<float>{}(p.second) << 1);
