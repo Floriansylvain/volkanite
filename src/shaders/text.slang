@@ -31,23 +31,23 @@ float4 fragMainText(TextVSOutput vertIn) : SV_TARGET {
     float centerCoverage = fontTexture.Sample(fontSampler, vertIn.fragTexCoord).r;
     float maxNeighbor = 0.0;
 
-    [unroll]
-    for (int x = -6; x <= 6; x++) {
-        [unroll]
-        for (int y = -6; y <= 6; y++) {
-            if (x == 0 && y == 0) continue;
+    const float2 directions[8] = {
+        float2(1.0, 0.0), float2(-1.0, 0.0), float2(0.0, 1.0), float2(0.0, -1.0),
+        float2(0.707, 0.707), float2(-0.707, 0.707), float2(0.707, -0.707), float2(-0.707, -0.707)
+    };
 
-            float2 offset = float2(x, y) * texelSize;
-            float sampleCoverage = fontTexture.Sample(fontSampler, vertIn.fragTexCoord + offset).r;
-            maxNeighbor = max(maxNeighbor, sampleCoverage);
-        }
+    [unroll]
+    for (int i = 0; i < 8; i++) {
+        float2 offsetMid = directions[i] * 3.0 * texelSize;
+        float2 offsetMax = directions[i] * 6.0 * texelSize;
+        
+        maxNeighbor = max(maxNeighbor, fontTexture.Sample(fontSampler, vertIn.fragTexCoord + offsetMid).r);
+        maxNeighbor = max(maxNeighbor, fontTexture.Sample(fontSampler, vertIn.fragTexCoord + offsetMax).r);
     }
 
     float outlineCoverage = max(maxNeighbor, centerCoverage);
-
     float3 outlineColor = float3(0.0, 0.0, 0.0);
     float3 textColor = vertIn.fragColor;
-
     float3 finalColor = lerp(outlineColor, textColor, centerCoverage);
 
     return float4(finalColor, outlineCoverage);
