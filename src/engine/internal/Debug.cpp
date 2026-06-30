@@ -55,6 +55,7 @@ void Debug::update(const std::chrono::time_point<std::chrono::steady_clock> fram
 void Debug::rebuildDebugLines(const float avgFrameTimeMs, const DebugFrameInfo &info) {
     debugLines.clear();
 
+    debugLines.push_back(std::format("RESOLUTION: {} x {}", info.width, info.height));
     debugLines.push_back(std::format("MSAA: {}x", info.msaaSamples));
     debugLines.push_back(std::format("ANISOTROPY: {:.0f}x", info.maxAnisotropy));
     debugLines.push_back(std::format("V-SYNC: {} ({})", info.vsyncOn ? "ON" : "OFF", info.presentModeName));

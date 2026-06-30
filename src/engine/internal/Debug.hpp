@@ -19,6 +19,8 @@ enum class CpuPass : uint32_t {
 };
 
 struct DebugFrameInfo {
+    int width = 0;
+    int height = 0;
     uint32_t msaaSamples = 1;
     float maxAnisotropy = 0.0f;
     bool vsyncOn = false;

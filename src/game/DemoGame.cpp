@@ -50,7 +50,7 @@ void DemoGame::init(Engine &engine) {
     {
         TerrainConfig terrainConfig;
         terrainConfig.origin = glm::vec2(0.0f, 0.0f);
-        terrainConfig.rootSize = 131073.f;
+        terrainConfig.rootSize = 262144.f;
         terrainConfig.maxDepth = 9;
         terrainConfig.fineChunkResolution = 64;
         terrainConfig.chunkResolution = 33;
@@ -171,7 +171,7 @@ void DemoGame::update(Engine &engine, const float deltaTime) {
     const bool *key_states = SDL_GetKeyboardState(nullptr);
     glm::vec3 input = {0.f, 0.f, 0.f};
 
-    float speed = 500.0f;
+    float speed = 1000.0f;
 
     if (key_states[SDL_SCANCODE_LSHIFT])
         speed *= 5.f;

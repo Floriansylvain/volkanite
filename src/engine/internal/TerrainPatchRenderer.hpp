@@ -18,6 +18,7 @@ class TerrainPatchRenderer {
                            vk::ImageView shadowMapView, vk::Sampler shadowSampler);
 
     void setPatches(std::vector<TerrainPatchInstance> coarsePatches, std::vector<TerrainPatchInstance> finePatches);
+    void setViewBias(const glm::vec3 &cameraForward, const TerrainConfig &config);
     void upload(uint32_t frameIndex);
 
     struct DrawCommand {
@@ -72,6 +73,17 @@ class TerrainPatchRenderer {
         float layer3HeightRange;
         float layer3PreferredSlope;
         float layer3SlopeRange;
+
+        int useViewBias = 1;
+        float viewFullResRadius = 32.0f;
+        float viewAheadMultiplier = 0.45f;
+        float viewBehindMultiplier = 2.5f;
+        float cameraForwardX = 1.0f;
+        float cameraForwardY = 0.0f;
+
+        float skirtDepthFactor = 0.02f;
+        float skirtMinDepth = 0.25f;
+        float skirtMaxDepth = 3.0f;
     };
 
     struct Tier {

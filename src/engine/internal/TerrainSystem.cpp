@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <glm/gtx/norm.hpp>
 #include <limits>
 
 namespace {
@@ -21,12 +22,22 @@ float TerrainSystem::nearestDistance(const TerrainChunk &chunk, const glm::vec2 
     return nearestPointDistance(cameraXY, chunk.center, chunk.size * 0.5f);
 }
 
-void TerrainSystem::update(const glm::vec3 &cameraPosition, const CullingUtils::Frustum &frustum) {
+void TerrainSystem::update(const glm::vec3 &cameraPosition, const glm::vec3 &cameraForward,
+                           const CullingUtils::Frustum &frustum) {
     if (!root) {
         root = std::make_unique<TerrainChunk>(config.origin, config.rootSize, 0);
     }
 
-    decideShape(*root, cameraPosition);
+    const glm::vec2 cameraXY(cameraPosition.x, cameraPosition.y);
+
+    glm::vec2 forward2D(cameraForward.x, cameraForward.y);
+    if (glm::length2(forward2D) < 1e-8f) {
+        forward2D = glm::vec2(1.0f, 0.0f);
+    } else {
+        forward2D = glm::normalize(forward2D);
+    }
+
+    decideShape(*root, cameraXY, forward2D);
     enforceBalance();
 
     patches.clear();
@@ -34,14 +45,38 @@ void TerrainSystem::update(const glm::vec3 &cameraPosition, const CullingUtils::
     collectPatches(*root, frustum);
 }
 
-void TerrainSystem::decideShape(TerrainChunk &chunk, const glm::vec3 &cameraPosition) {
-    const glm::vec2 cameraXY(cameraPosition.x, cameraPosition.y);
+float TerrainSystem::viewBiasMultiplier(const TerrainChunk &chunk, const glm::vec2 &cameraXY,
+                                        const glm::vec2 &forward2D) const {
+    if (!config.useViewBias) {
+        return 1.0f;
+    }
 
-    if (const float distance = nearestDistance(chunk, cameraXY);
+    const float rawDistance = nearestDistance(chunk, cameraXY);
+    if (rawDistance <= config.viewFullResRadius) {
+        return 1.0f;
+    }
+
+    const glm::vec2 toCenter = chunk.center - cameraXY;
+    const float centerDist = glm::length(toCenter);
+    const float forwardDot = centerDist > 1e-4f ? glm::dot(toCenter / centerDist, forward2D) : 0.0f;
+
+    const float t = forwardDot * 0.5f + 0.5f;
+    const float directionalMultiplier = glm::mix(config.viewBehindMultiplier, config.viewAheadMultiplier, t);
+
+    const float blend = glm::smoothstep(config.viewFullResRadius, config.viewFullResRadius * 2.0f, rawDistance);
+    return glm::mix(1.0f, directionalMultiplier, blend);
+}
+
+float TerrainSystem::effectiveDistance(const TerrainChunk &chunk, const glm::vec2 &cameraXY, const glm::vec2 &forward2D) const {
+    return nearestDistance(chunk, cameraXY) * viewBiasMultiplier(chunk, cameraXY, forward2D);
+}
+
+void TerrainSystem::decideShape(TerrainChunk &chunk, const glm::vec2 &cameraXY, const glm::vec2 &forward2D) {
+    if (const float distance = effectiveDistance(chunk, cameraXY, forward2D);
         chunk.depth < config.maxDepth && distance < chunk.size * config.splitFactor) {
         ensureChildren(chunk);
         for (const auto &child : chunk.children) {
-            decideShape(*child, cameraPosition);
+            decideShape(*child, cameraXY, forward2D);
         }
     } else {
         collapseChildren(chunk);

@@ -46,6 +46,11 @@ struct TerrainConfig {
     glm::vec2 uvScale{1.0f, 1.0f};
     TerrainNoiseSettings noise;
     std::vector<TerrainMaterialLayer> materialLayers;
+
+    bool useViewBias = true;
+    float viewFullResRadius = 64.0f;
+    float viewAheadMultiplier = 0.25f;
+    float viewBehindMultiplier = 2.5f;
 };
 
 struct TerrainPatchInstance {

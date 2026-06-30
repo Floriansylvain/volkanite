@@ -58,6 +58,17 @@ struct TerrainPushConstants {
     float layer3HeightRange;
     float layer3PreferredSlope;
     float layer3SlopeRange;
+
+    int useViewBias;
+    float viewFullResRadius;
+    float viewAheadMultiplier;
+    float viewBehindMultiplier;
+    float cameraForwardX;
+    float cameraForwardY;
+
+    float skirtDepthFactor;
+    float skirtMinDepth;
+    float skirtMaxDepth;
 };
 
 [[vk::push_constant]] TerrainPushConstants terrainPC;
@@ -170,9 +181,32 @@ TerrainWorldSample terrainSampleWorld(float2 gridCoord, float2 origin, float sca
     return result;
 }
 
+float terrainViewBiasMultiplier(float2 worldXY) {
+    if (terrainPC.useViewBias == 0) {
+        return 1.0;
+    }
+
+    float2 toVertex = worldXY - ubo.cameraPos.xy;
+    float rawDistance = length(toVertex);
+    if (rawDistance <= terrainPC.viewFullResRadius) {
+        return 1.0;
+    }
+
+    float2 dir = rawDistance > 0.0001 ? toVertex / rawDistance : float2(0.0, 0.0);
+    float2 forward2D = float2(terrainPC.cameraForwardX, terrainPC.cameraForwardY);
+    float forwardDot = dot(dir, forward2D);
+
+    float t = forwardDot * 0.5 + 0.5;
+    float directionalMultiplier = lerp(terrainPC.viewBehindMultiplier, terrainPC.viewAheadMultiplier, t);
+
+    float blend = smoothstep(terrainPC.viewFullResRadius, terrainPC.viewFullResRadius * 2.0, rawDistance);
+    return lerp(1.0, directionalMultiplier, blend);
+}
+
 float terrainMorphFactor(float2 unmorphedWorldXY, float morphStart, float morphEnd) {
     float dist = length(ubo.cameraPos.xy - unmorphedWorldXY);
-    return saturate((dist - morphStart) / max(morphEnd - morphStart, 0.0001));
+    float effectiveDist = dist * terrainViewBiasMultiplier(unmorphedWorldXY);
+    return saturate((effectiveDist - morphStart) / max(morphEnd - morphStart, 0.0001));
 }
 
 struct VSOutput {
@@ -275,8 +309,8 @@ float4 terrainLayerWeights(float height, float slope) {
 }
 
 float2 parallaxOcclusionMapping(Sampler2D heightTex, float2 texCoords, float3 viewDirTS, float viewDistance) {
-    const float fadeStart = 10.0;
-    const float fadeEnd = 100.0;
+    const float fadeStart = 150.0;
+    const float fadeEnd = 200.0;
 
     if (viewDistance >= fadeEnd) {
         return texCoords;
@@ -406,7 +440,10 @@ VSOutput vertTerrain(TerrainVSInput input) {
     float3 normal = normalize(float3((hLx - hRx) / (2.0 * eps), (hDy - hUy) / (2.0 * eps), 1.0));
     float3 tangent = normalize(float3(1.0, 0.0, (hRx - hLx) / (2.0 * eps)));
 
-    float3 worldPos = float3(center.worldXY, center.height);
+    bool isSkirt = input.inPos.z > 0.5;
+    float skirtDrop = isSkirt ? clamp(scale * terrainPC.skirtDepthFactor, terrainPC.skirtMinDepth, terrainPC.skirtMaxDepth) : 0.0;
+
+    float3 worldPos = float3(center.worldXY, center.height - skirtDrop);
 
     output.pos = mul(ubo.proj, mul(ubo.view, float4(worldPos, 1.0)));
     output.fragNormal = normal;
@@ -783,7 +820,11 @@ ShadowVSOutput vertTerrainShadow(TerrainVSInput input) {
     float morphT = terrainMorphFactor(unmorphedWorldXY, morphStart, morphEnd);
 
     TerrainWorldSample center = terrainSampleWorld(input.inPos.xy, origin, scale, morphT);
-    float3 worldPos = float3(center.worldXY, center.height);
+
+    bool isSkirt = input.inPos.z > 0.5;
+    float skirtDrop = isSkirt ? clamp(scale * terrainPC.skirtDepthFactor, terrainPC.skirtMinDepth, terrainPC.skirtMaxDepth) : 0.0;
+
+    float3 worldPos = float3(center.worldXY, center.height - skirtDrop);
 
     output.pos = mul(ubo.lightViewProj, float4(worldPos, 1.0));
     output.fragTexCoord = center.worldXY / terrainPC.textureWorldScale;

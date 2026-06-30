@@ -679,7 +679,8 @@ TerrainSystem &Engine::createTerrain(const TerrainConfig &config) {
                                            *shadowSampler);
 
     terrainSystem = std::make_unique<TerrainSystem>(config);
-    terrainSystem->update(camera.position(), computeCullFrustum());
+    terrainSystem->update(camera.position(), camera.forward(), computeCullFrustum());
+    terrainPatchRenderer.setViewBias(camera.forward(), terrainSystem->getConfig());
     terrainPatchRenderer.setPatches(terrainSystem->activePatches(), terrainSystem->activeFinePatches());
 
     return *terrainSystem;
@@ -831,7 +832,13 @@ void Engine::createOcclusionCuller() {
 }
 
 DebugFrameInfo Engine::makeDebugFrameInfo() const {
+    int width;
+    int height;
+    window.getSizeInPixels(&width, &height);
+
     DebugFrameInfo info;
+    info.width = width;
+    info.height = height;
     info.msaaSamples = static_cast<uint32_t>(vkCtx.msaaSamples);
     info.maxAnisotropy = vkCtx.physicalDevice.getProperties().limits.maxSamplerAnisotropy;
     info.vsyncOn = swapChainHandler.presentMode != vk::PresentModeKHR::eImmediate;
@@ -920,7 +927,8 @@ void Engine::update() {
     }
 
     if (terrainSystem) {
-        terrainSystem->update(camera.position(), computeCullFrustum());
+        terrainSystem->update(camera.position(), camera.forward(), computeCullFrustum());
+        terrainPatchRenderer.setViewBias(camera.forward(), terrainSystem->getConfig());
         terrainPatchRenderer.setPatches(terrainSystem->activePatches(), terrainSystem->activeFinePatches());
     }
 

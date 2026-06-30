@@ -5,6 +5,7 @@
 #include "VulkanUtils.hpp"
 #include <algorithm>
 #include <array>
+#include <unordered_map>
 
 namespace {
 
@@ -19,9 +20,24 @@ std::shared_ptr<Mesh> buildGridMesh(VulkanContext &vkCtx, const vk::raii::Comman
         }
     }
 
-    std::vector<uint32_t> indices;
-    indices.reserve(static_cast<size_t>(resolution - 1) * (resolution - 1) * 6);
     const auto vertexIndex = [resolution](const int x, const int y) { return static_cast<uint32_t>(y * resolution + x); };
+
+    std::unordered_map<int, uint32_t> skirtIndexForCell;
+    const auto addSkirtVertex = [&](const int x, const int y) -> uint32_t {
+        const int key = y * resolution + x;
+        if (const auto it = skirtIndexForCell.find(key); it != skirtIndexForCell.end()) {
+            return it->second;
+        }
+        Mesh::Vertex skirt{};
+        skirt.pos = glm::vec3(static_cast<float>(x), static_cast<float>(y), 1.0f);
+        const auto index = static_cast<uint32_t>(vertices.size());
+        vertices.push_back(skirt);
+        skirtIndexForCell.emplace(key, index);
+        return index;
+    };
+
+    std::vector<uint32_t> indices;
+    indices.reserve(static_cast<size_t>(resolution - 1) * (resolution - 1) * 6 + static_cast<size_t>(resolution - 1) * 4 * 12);
 
     for (int y = 0; y < resolution - 1; ++y) {
         for (int x = 0; x < resolution - 1; ++x) {
@@ -38,6 +54,36 @@ std::shared_ptr<Mesh> buildGridMesh(VulkanContext &vkCtx, const vk::raii::Comman
             indices.push_back(bottomRight);
             indices.push_back(bottomLeft);
         }
+    }
+
+    const auto addSkirtQuad = [&](const int ax, const int ay, const int bx, const int by) {
+        const uint32_t outerA = vertexIndex(ax, ay);
+        const uint32_t outerB = vertexIndex(bx, by);
+        const uint32_t skirtA = addSkirtVertex(ax, ay);
+        const uint32_t skirtB = addSkirtVertex(bx, by);
+
+        indices.push_back(outerA);
+        indices.push_back(outerB);
+        indices.push_back(skirtB);
+        indices.push_back(outerA);
+        indices.push_back(skirtB);
+        indices.push_back(skirtA);
+
+        indices.push_back(outerA);
+        indices.push_back(skirtB);
+        indices.push_back(outerB);
+        indices.push_back(outerA);
+        indices.push_back(skirtA);
+        indices.push_back(skirtB);
+    };
+
+    for (int x = 0; x < resolution - 1; ++x) {
+        addSkirtQuad(x, 0, x + 1, 0);
+        addSkirtQuad(x, resolution - 1, x + 1, resolution - 1);
+    }
+    for (int y = 0; y < resolution - 1; ++y) {
+        addSkirtQuad(0, y, 0, y + 1);
+        addSkirtQuad(resolution - 1, y, resolution - 1, y + 1);
     }
 
     auto mesh = std::make_shared<Mesh>(vkCtx);
@@ -263,6 +309,22 @@ void TerrainPatchRenderer::setPatches(std::vector<TerrainPatchInstance> coarsePa
                                       std::vector<TerrainPatchInstance> finePatches) {
     coarseTier.pendingPatches = std::move(coarsePatches);
     fineTier.pendingPatches = std::move(finePatches);
+}
+
+void TerrainPatchRenderer::setViewBias(const glm::vec3 &cameraForward, const TerrainConfig &config) {
+    glm::vec2 forward2D(cameraForward.x, cameraForward.y);
+    if (glm::dot(forward2D, forward2D) < 1e-8f) {
+        forward2D = glm::vec2(1.0f, 0.0f);
+    } else {
+        forward2D = glm::normalize(forward2D);
+    }
+
+    pushConstants.useViewBias = config.useViewBias ? 1 : 0;
+    pushConstants.viewFullResRadius = config.viewFullResRadius;
+    pushConstants.viewAheadMultiplier = config.viewAheadMultiplier;
+    pushConstants.viewBehindMultiplier = config.viewBehindMultiplier;
+    pushConstants.cameraForwardX = forward2D.x;
+    pushConstants.cameraForwardY = forward2D.y;
 }
 
 void TerrainPatchRenderer::uploadTier(Tier &tier, const uint32_t frameIndex) {

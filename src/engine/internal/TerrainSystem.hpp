@@ -11,10 +11,11 @@ class TerrainSystem {
   public:
     explicit TerrainSystem(TerrainConfig config);
 
-    void update(const glm::vec3 &cameraPosition, const CullingUtils::Frustum &frustum);
+    void update(const glm::vec3 &cameraPosition, const glm::vec3 &cameraForward, const CullingUtils::Frustum &frustum);
 
     [[nodiscard]] const std::vector<TerrainPatchInstance> &activePatches() const { return patches; }
     [[nodiscard]] const std::vector<TerrainPatchInstance> &activeFinePatches() const { return finePatches; }
+    [[nodiscard]] const TerrainConfig &getConfig() const { return config; }
 
   private:
     TerrainConfig config;
@@ -24,9 +25,13 @@ class TerrainSystem {
     std::vector<TerrainPatchInstance> finePatches;
 
     [[nodiscard]] static float nearestDistance(const TerrainChunk &chunk, const glm::vec2 &cameraXY);
+    [[nodiscard]] float viewBiasMultiplier(const TerrainChunk &chunk, const glm::vec2 &cameraXY,
+                                           const glm::vec2 &forward2D) const;
+    [[nodiscard]] float effectiveDistance(const TerrainChunk &chunk, const glm::vec2 &cameraXY,
+                                          const glm::vec2 &forward2D) const;
     [[nodiscard]] bool isChunkVisible(const TerrainChunk &chunk, const CullingUtils::Frustum &frustum) const;
 
-    void decideShape(TerrainChunk &chunk, const glm::vec3 &cameraPosition);
+    void decideShape(TerrainChunk &chunk, const glm::vec2 &cameraXY, const glm::vec2 &forward2D);
     static void ensureChildren(TerrainChunk &chunk);
     static void collapseChildren(TerrainChunk &chunk);
 
