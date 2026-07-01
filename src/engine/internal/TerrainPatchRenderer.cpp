@@ -98,14 +98,6 @@ std::shared_ptr<Mesh> buildGridMesh(VulkanContext &vkCtx, const vk::raii::Comman
 TerrainPatchRenderer::TerrainPatchRenderer(VulkanContext &vkCtx, const int maxFramesInFlight)
     : vkCtx(vkCtx), maxFramesInFlight(maxFramesInFlight) {}
 
-// ---------------------------------------------------------------------------
-//   Binding 0  – camera UBO          (vertex + fragment)
-//   Binding 4  – shadow sampler      (fragment)
-//   Binding 5  – biome layer SSBO    (fragment)   <-- new
-//   Binding 8  – albedo array        (fragment, MAX_BIOME_LAYERS entries)
-//   Binding 9  – normal-map array    (fragment, MAX_BIOME_LAYERS entries)
-//   Binding 10 – ORM array           (fragment, MAX_BIOME_LAYERS entries)
-// ---------------------------------------------------------------------------
 void TerrainPatchRenderer::createMaterialSetLayout() {
     vk::DescriptorSetLayoutBinding uboBinding{};
     uboBinding.binding = 0;
@@ -167,10 +159,6 @@ void TerrainPatchRenderer::createGridMeshes(const vk::raii::CommandPool &command
     buildTierMesh(fineTier, commandPool, fineGridDim + 1);
     fineTier.morphSnapStride = 2.0f * static_cast<float>(ratio);
 
-    // ------------------------------------------------------------------
-    // Populate static push-constant fields from config.
-    // Per-layer data is no longer in push constants; it lives in the SSBO.
-    // ------------------------------------------------------------------
     pushConstants.noiseOffset = config.noise.offset;
     pushConstants.noiseScale = config.noise.scale;
     pushConstants.heightScale = config.noise.heightScale;
@@ -191,19 +179,12 @@ void TerrainPatchRenderer::createGridMeshes(const vk::raii::CommandPool &command
     pushConstants.flatBlendWidth = std::max(config.noise.flatBlendWidth, 0.001f);
     pushConstants.minRelief = config.noise.minRelief;
 
-    // Moisture noise params
     pushConstants.moistureOffset = config.moistureOffset;
     pushConstants.moistureScale = config.moistureScale;
 
     pushConstants.layerCount = static_cast<int>(std::min(config.biomeLayers.size(), MAX_BIOME_LAYERS));
 }
 
-// ---------------------------------------------------------------------------
-// setBiomeLayers – called once from Engine::createTerrain.
-//
-// Builds and uploads the per-frame GpuBiomeLayer SSBO and writes all
-// descriptor sets (camera UBO, shadow, SSBO, albedo/normal/ORM arrays).
-// ---------------------------------------------------------------------------
 void TerrainPatchRenderer::setBiomeLayers(const std::vector<TerrainBiomeLayer> &layers,
                                           const std::vector<vk::Buffer> &cameraUniformBuffers,
                                           const vk::ImageView shadowMapView, const vk::Sampler shadowSampler) {
@@ -242,7 +223,6 @@ void TerrainPatchRenderer::setBiomeLayers(const std::vector<TerrainBiomeLayer> &
         biomeLayerBufferReady = true;
     }
 
-    // Upload the same data to every frame slot
     const size_t uploadBytes = sizeof(GpuBiomeLayer) * count;
     for (int f = 0; f < maxFramesInFlight; ++f) {
         std::memcpy(biomeLayerBuffer.mapped(f), gpuLayers.data(), uploadBytes);

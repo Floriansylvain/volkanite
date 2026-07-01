@@ -28,11 +28,9 @@ class TerrainPatchRenderer {
     void drawShadow(const DrawCommand &command) const;
 
     uint64_t getVisibleVertexEstimate() const;
-    // -----------------------------------------------------------------------
     static constexpr size_t MAX_BIOME_LAYERS = 16;
 
     struct GpuBiomeLayer {
-        // vec4[0]
         float preferredHeight;
         float heightRange;
         float preferredSlope;
@@ -49,10 +47,7 @@ class TerrainPatchRenderer {
     static_assert(sizeof(GpuBiomeLayer) == 48, "GpuBiomeLayer must be 48 bytes (3x vec4) to match GLSL std430 layout");
 
   private:
-    // -----------------------------------------------------------------------
-    // -----------------------------------------------------------------------
     struct TerrainPushConstants {
-        // Noise / height generation
         glm::vec2 noiseOffset;
         float noiseScale;
         float heightScale;
