@@ -6,7 +6,7 @@
 
 class Camera {
   public:
-    float x = 0.f, y = 0.f, z = 0.f, yaw = 0.f, pitch = 0.f;
+    double x = 0.f, y = 0.f, z = 0.f, yaw = 0.f, pitch = 0.f;
 
     [[nodiscard]] glm::vec3 forward() const {
         const float yawRad = glm::radians(yaw);
@@ -17,7 +17,9 @@ class Camera {
     [[nodiscard]] glm::vec3 position() const { return {x, y, z}; }
 
     [[nodiscard]] glm::mat4 viewMatrix() const {
-        return lookAt(position(), position() + forward(), glm::vec3(0.0f, 0.0f, 1.0f));
+        glm::mat4 rotation = glm::lookAt(glm::vec3(0.0f), forward(), glm::vec3(0.0f, 0.0f, 1.0f));
+        glm::mat4 translation = glm::translate(glm::mat4(1.0f), -position());
+        return rotation * translation;
     }
 
     [[nodiscard]] static glm::mat4 projMatrix(const float aspect, const float fovDegrees = 55.0f) {

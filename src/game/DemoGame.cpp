@@ -214,7 +214,7 @@ void DemoGame::update(Engine &engine, const float deltaTime) {
     camera.yaw -= mouseDx * sensitivity;
     camera.pitch -= mouseDy * sensitivity;
 
-    constexpr float maxPitch = 89.0f;
+    constexpr double maxPitch = 89.0f;
     camera.pitch = std::clamp(camera.pitch, -maxPitch, maxPitch);
 
     const float yawRad = glm::radians(camera.yaw);
