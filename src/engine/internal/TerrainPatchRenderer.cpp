@@ -5,6 +5,7 @@
 #include "VulkanUtils.hpp"
 #include <algorithm>
 #include <array>
+#include <cstring>
 #include <unordered_map>
 
 namespace {
@@ -68,7 +69,6 @@ std::shared_ptr<Mesh> buildGridMesh(VulkanContext &vkCtx, const vk::raii::Comman
         indices.push_back(outerA);
         indices.push_back(skirtB);
         indices.push_back(skirtA);
-
         indices.push_back(outerA);
         indices.push_back(skirtB);
         indices.push_back(outerB);
@@ -98,6 +98,14 @@ std::shared_ptr<Mesh> buildGridMesh(VulkanContext &vkCtx, const vk::raii::Comman
 TerrainPatchRenderer::TerrainPatchRenderer(VulkanContext &vkCtx, const int maxFramesInFlight)
     : vkCtx(vkCtx), maxFramesInFlight(maxFramesInFlight) {}
 
+// ---------------------------------------------------------------------------
+//   Binding 0  – camera UBO          (vertex + fragment)
+//   Binding 4  – shadow sampler      (fragment)
+//   Binding 5  – biome layer SSBO    (fragment)   <-- new
+//   Binding 8  – albedo array        (fragment, MAX_BIOME_LAYERS entries)
+//   Binding 9  – normal-map array    (fragment, MAX_BIOME_LAYERS entries)
+//   Binding 10 – ORM array           (fragment, MAX_BIOME_LAYERS entries)
+// ---------------------------------------------------------------------------
 void TerrainPatchRenderer::createMaterialSetLayout() {
     vk::DescriptorSetLayoutBinding uboBinding{};
     uboBinding.binding = 0;
@@ -111,17 +119,23 @@ void TerrainPatchRenderer::createMaterialSetLayout() {
     shadowBinding.descriptorCount = 1;
     shadowBinding.stageFlags = vk::ShaderStageFlagBits::eFragment;
 
+    vk::DescriptorSetLayoutBinding biomeSSBOBinding{};
+    biomeSSBOBinding.binding = 5;
+    biomeSSBOBinding.descriptorType = vk::DescriptorType::eStorageBuffer;
+    biomeSSBOBinding.descriptorCount = 1;
+    biomeSSBOBinding.stageFlags = vk::ShaderStageFlagBits::eFragment;
+
     const auto layerArrayBinding = [](const uint32_t binding) {
         vk::DescriptorSetLayoutBinding b{};
         b.binding = binding;
         b.descriptorType = vk::DescriptorType::eCombinedImageSampler;
-        b.descriptorCount = static_cast<uint32_t>(MAX_MATERIAL_LAYERS);
+        b.descriptorCount = static_cast<uint32_t>(MAX_BIOME_LAYERS);
         b.stageFlags = vk::ShaderStageFlagBits::eFragment;
         return b;
     };
 
     const std::vector<vk::DescriptorSetLayoutBinding> bindings = {
-        uboBinding, shadowBinding, layerArrayBinding(8), layerArrayBinding(9), layerArrayBinding(10),
+        uboBinding, shadowBinding, biomeSSBOBinding, layerArrayBinding(8), layerArrayBinding(9), layerArrayBinding(10),
     };
 
     materialSetLayout = VulkanUtils::createDescriptorSetLayout(vkCtx, bindings);
@@ -153,6 +167,10 @@ void TerrainPatchRenderer::createGridMeshes(const vk::raii::CommandPool &command
     buildTierMesh(fineTier, commandPool, fineGridDim + 1);
     fineTier.morphSnapStride = 2.0f * static_cast<float>(ratio);
 
+    // ------------------------------------------------------------------
+    // Populate static push-constant fields from config.
+    // Per-layer data is no longer in push constants; it lives in the SSBO.
+    // ------------------------------------------------------------------
     pushConstants.noiseOffset = config.noise.offset;
     pushConstants.noiseScale = config.noise.scale;
     pushConstants.heightScale = config.noise.heightScale;
@@ -173,49 +191,69 @@ void TerrainPatchRenderer::createGridMeshes(const vk::raii::CommandPool &command
     pushConstants.flatBlendWidth = std::max(config.noise.flatBlendWidth, 0.001f);
     pushConstants.minRelief = config.noise.minRelief;
 
-    const auto layerOrDefault = [&config](const size_t index) -> TerrainMaterialLayer {
-        return index < config.materialLayers.size() ? config.materialLayers[index] : TerrainMaterialLayer{};
-    };
-    const TerrainMaterialLayer layer0 = layerOrDefault(0);
-    const TerrainMaterialLayer layer1 = layerOrDefault(1);
-    const TerrainMaterialLayer layer2 = layerOrDefault(2);
-    const TerrainMaterialLayer layer3 = layerOrDefault(3);
+    // Moisture noise params
+    pushConstants.moistureOffset = config.moistureOffset;
+    pushConstants.moistureScale = config.moistureScale;
 
-    pushConstants.layerCount = static_cast<int>(std::min(config.materialLayers.size(), MAX_MATERIAL_LAYERS));
-    pushConstants.layer0PreferredHeight = layer0.preferredHeight;
-    pushConstants.layer0HeightRange = std::max(layer0.heightRange, 0.001f);
-    pushConstants.layer0PreferredSlope = layer0.preferredSlope;
-    pushConstants.layer0SlopeRange = std::max(layer0.slopeRange, 0.001f);
-    pushConstants.layer1PreferredHeight = layer1.preferredHeight;
-    pushConstants.layer1HeightRange = std::max(layer1.heightRange, 0.001f);
-    pushConstants.layer1PreferredSlope = layer1.preferredSlope;
-    pushConstants.layer1SlopeRange = std::max(layer1.slopeRange, 0.001f);
-    pushConstants.layer2PreferredHeight = layer2.preferredHeight;
-    pushConstants.layer2HeightRange = std::max(layer2.heightRange, 0.001f);
-    pushConstants.layer2PreferredSlope = layer2.preferredSlope;
-    pushConstants.layer2SlopeRange = std::max(layer2.slopeRange, 0.001f);
-    pushConstants.layer3PreferredHeight = layer3.preferredHeight;
-    pushConstants.layer3HeightRange = std::max(layer3.heightRange, 0.001f);
-    pushConstants.layer3PreferredSlope = layer3.preferredSlope;
-    pushConstants.layer3SlopeRange = std::max(layer3.slopeRange, 0.001f);
+    pushConstants.layerCount = static_cast<int>(std::min(config.biomeLayers.size(), MAX_BIOME_LAYERS));
 }
 
-void TerrainPatchRenderer::setMaterialLayers(const std::vector<TerrainMaterialLayer> &layers,
-                                             const std::vector<vk::Buffer> &cameraUniformBuffers,
-                                             const vk::ImageView shadowMapView, const vk::Sampler shadowSampler) {
+// ---------------------------------------------------------------------------
+// setBiomeLayers – called once from Engine::createTerrain.
+//
+// Builds and uploads the per-frame GpuBiomeLayer SSBO and writes all
+// descriptor sets (camera UBO, shadow, SSBO, albedo/normal/ORM arrays).
+// ---------------------------------------------------------------------------
+void TerrainPatchRenderer::setBiomeLayers(const std::vector<TerrainBiomeLayer> &layers,
+                                          const std::vector<vk::Buffer> &cameraUniformBuffers,
+                                          const vk::ImageView shadowMapView, const vk::Sampler shadowSampler) {
     if (layers.empty()) {
-        throw EngineExceptions::Compatibility("TerrainConfig.materialLayers must contain at least one layer");
+        throw EngineExceptions::Compatibility("TerrainConfig.biomeLayers must contain at least one layer");
     }
-    if (layers.size() > MAX_MATERIAL_LAYERS) {
-        throw EngineExceptions::Compatibility("TerrainConfig.materialLayers supports at most 4 layers");
+    if (layers.size() > MAX_BIOME_LAYERS) {
+        throw EngineExceptions::Compatibility("TerrainConfig.biomeLayers exceeds MAX_BIOME_LAYERS (16)");
+    }
+
+    const auto count = static_cast<uint32_t>(layers.size());
+    const auto framesU = static_cast<uint32_t>(maxFramesInFlight);
+
+    std::vector<GpuBiomeLayer> gpuLayers(count);
+    for (uint32_t i = 0; i < count; ++i) {
+        const TerrainBiomeLayer &l = layers[i];
+        gpuLayers[i].preferredHeight = l.preferredHeight;
+        gpuLayers[i].heightRange = std::max(l.heightRange, 0.001f);
+        gpuLayers[i].preferredSlope = l.preferredSlope;
+        gpuLayers[i].slopeRange = std::max(l.slopeRange, 0.001f);
+        gpuLayers[i].preferredMoisture = l.preferredMoisture;
+        gpuLayers[i].moistureRange = std::max(l.moistureRange, 0.001f);
+        gpuLayers[i].textureScale = std::max(l.textureScale, 0.001f);
+        gpuLayers[i].patchiness = std::clamp(l.patchiness, 0.0f, 1.0f);
+        gpuLayers[i].patchScale = std::max(l.patchScale, 1.0f);
+        gpuLayers[i].blendSharpness = std::max(l.blendSharpness, 0.01f);
+        gpuLayers[i].pad0 = 0.0f;
+        gpuLayers[i].pad1 = 0.0f;
+    }
+    const vk::DeviceSize ssboSize = sizeof(GpuBiomeLayer) * MAX_BIOME_LAYERS;
+
+    if (!biomeLayerBufferReady) {
+        using enum vk::BufferUsageFlagBits;
+        using enum vk::MemoryPropertyFlagBits;
+        biomeLayerBuffer = PerFrameBuffer(vkCtx, framesU, ssboSize, eStorageBuffer, eHostVisible | eHostCoherent);
+        biomeLayerBufferReady = true;
+    }
+
+    // Upload the same data to every frame slot
+    const size_t uploadBytes = sizeof(GpuBiomeLayer) * count;
+    for (int f = 0; f < maxFramesInFlight; ++f) {
+        std::memcpy(biomeLayerBuffer.mapped(f), gpuLayers.data(), uploadBytes);
     }
 
     if (materialDescriptorPool == nullptr) {
-        const auto framesU = static_cast<uint32_t>(maxFramesInFlight);
-        const std::array<vk::DescriptorPoolSize, 2> poolSizes = {
+        const std::array<vk::DescriptorPoolSize, 3> poolSizes = {
             vk::DescriptorPoolSize{vk::DescriptorType::eUniformBuffer, framesU},
+            vk::DescriptorPoolSize{vk::DescriptorType::eStorageBuffer, framesU},
             vk::DescriptorPoolSize{vk::DescriptorType::eCombinedImageSampler,
-                                   framesU * static_cast<uint32_t>(1 + MAX_MATERIAL_LAYERS * 3)},
+                                   framesU * (1u + static_cast<uint32_t>(MAX_BIOME_LAYERS) * 3u)},
         };
 
         vk::DescriptorPoolCreateInfo poolInfo{};
@@ -240,19 +278,19 @@ void TerrainPatchRenderer::setMaterialLayers(const std::vector<TerrainMaterialLa
     DescriptorWriter writer(vkCtx);
     for (int f = 0; f < maxFramesInFlight; ++f) {
         writer.writeBuffer(*materialSets[f], 0, cameraUniformBuffers[f], vk::WholeSize, vk::DescriptorType::eUniformBuffer);
+
         writer.writeImage(*materialSets[f], 4, vk::DescriptorType::eCombinedImageSampler, shadowMapView, shadowSampler);
 
-        for (uint32_t i = 0; i < static_cast<uint32_t>(MAX_MATERIAL_LAYERS); ++i) {
-            const Material &material = materialForSlot(i);
-            writer.writeImage(*materialSets[f], 8, vk::DescriptorType::eCombinedImageSampler,
-                              *material.albedo->textureImageView, *material.albedo->textureSampler,
-                              vk::ImageLayout::eShaderReadOnlyOptimal, i);
-            writer.writeImage(*materialSets[f], 9, vk::DescriptorType::eCombinedImageSampler,
-                              *material.normalMap->textureImageView, *material.normalMap->textureSampler,
-                              vk::ImageLayout::eShaderReadOnlyOptimal, i);
-            writer.writeImage(*materialSets[f], 10, vk::DescriptorType::eCombinedImageSampler,
-                              *material.ormMap->textureImageView, *material.ormMap->textureSampler,
-                              vk::ImageLayout::eShaderReadOnlyOptimal, i);
+        writer.writeBuffer(*materialSets[f], 5, biomeLayerBuffer[f], ssboSize, vk::DescriptorType::eStorageBuffer);
+
+        for (uint32_t i = 0; i < static_cast<uint32_t>(MAX_BIOME_LAYERS); ++i) {
+            const Material &mat = materialForSlot(i);
+            writer.writeImage(*materialSets[f], 8, vk::DescriptorType::eCombinedImageSampler, *mat.albedo->textureImageView,
+                              *mat.albedo->textureSampler, vk::ImageLayout::eShaderReadOnlyOptimal, i);
+            writer.writeImage(*materialSets[f], 9, vk::DescriptorType::eCombinedImageSampler, *mat.normalMap->textureImageView,
+                              *mat.normalMap->textureSampler, vk::ImageLayout::eShaderReadOnlyOptimal, i);
+            writer.writeImage(*materialSets[f], 10, vk::DescriptorType::eCombinedImageSampler, *mat.ormMap->textureImageView,
+                              *mat.ormMap->textureSampler, vk::ImageLayout::eShaderReadOnlyOptimal, i);
         }
     }
     writer.update();
@@ -289,7 +327,6 @@ void TerrainPatchRenderer::createPipelines(const vk::Format colorFormat, const v
         .setMSAA(vkCtx.msaaSamples);
 
     solidPipeline = builder.build();
-
     builder.setPolygonMode(vk::PolygonMode::eLine);
     wireframePipeline = builder.build();
 
@@ -357,11 +394,11 @@ void TerrainPatchRenderer::drawTier(const Tier &tier, const vk::Pipeline pipelin
         *pipelineLayout, vk::ShaderStageFlagBits::eVertex | vk::ShaderStageFlagBits::eFragment, 0, pc);
 
     const std::vector<vk::DeviceSize> vertexOffsets = {0};
-    command.commandBuffer->bindVertexBuffers(0, *tier.mesh->unifiedBuffer, vertexOffsets);
     const std::vector<vk::DeviceSize> instanceOffsets = {0};
+    command.commandBuffer->bindVertexBuffers(0, *tier.mesh->unifiedBuffer, vertexOffsets);
     command.commandBuffer->bindVertexBuffers(1, tier.instanceBuffer[command.frameIndex], instanceOffsets);
-    const vk::DeviceSize vertexSizeOffset = sizeof(Mesh::Vertex) * tier.mesh->vertices.size();
-    command.commandBuffer->bindIndexBuffer(*tier.mesh->unifiedBuffer, vertexSizeOffset, vk::IndexType::eUint32);
+    const vk::DeviceSize indexOffset = sizeof(Mesh::Vertex) * tier.mesh->vertices.size();
+    command.commandBuffer->bindIndexBuffer(*tier.mesh->unifiedBuffer, indexOffset, vk::IndexType::eUint32);
 
     command.commandBuffer->drawIndexed(static_cast<uint32_t>(tier.mesh->indices.size()), tier.activeInstanceCount, 0, 0, 0);
 }
@@ -371,7 +408,6 @@ void TerrainPatchRenderer::draw(const DrawCommand &command, const bool isWirefra
     if (coarseTier.activeInstanceCount > 0) {
         drawCallCount++;
     }
-
     drawTier(fineTier, isWireframe ? *wireframePipeline : *solidPipeline, command);
     if (fineTier.activeInstanceCount > 0) {
         drawCallCount++;
@@ -385,14 +421,11 @@ void TerrainPatchRenderer::drawShadow(const DrawCommand &command) const {
 
 uint64_t TerrainPatchRenderer::getVisibleVertexEstimate() const {
     uint64_t total = 0;
-
     if (coarseTier.mesh) {
         total += static_cast<uint64_t>(coarseTier.mesh->indices.size()) * coarseTier.activeInstanceCount;
     }
-
     if (fineTier.mesh) {
         total += static_cast<uint64_t>(fineTier.mesh->indices.size()) * fineTier.activeInstanceCount;
     }
-
     return total;
 }

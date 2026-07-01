@@ -26,12 +26,18 @@ struct TerrainNoiseSettings {
     float minRelief = 0.12f;
 };
 
-struct TerrainMaterialLayer {
+struct TerrainBiomeLayer {
     Material material;
     float preferredHeight = 0.0f;
     float heightRange = 50.0f;
     float preferredSlope = 0.0f;
     float slopeRange = 0.5f;
+    float preferredMoisture = 0.5f;
+    float moistureRange = 1.0f;
+    float textureScale = 1.0f;
+    float patchiness = 0.0f;
+    float patchScale = 300.0f;
+    float blendSharpness = 1.0f;
 };
 
 struct TerrainConfig {
@@ -45,7 +51,9 @@ struct TerrainConfig {
     float textureWorldScale = 8.0f;
     glm::vec2 uvScale{1.0f, 1.0f};
     TerrainNoiseSettings noise;
-    std::vector<TerrainMaterialLayer> materialLayers;
+    float moistureScale = 4000.0f;
+    glm::vec2 moistureOffset{0.0f, 0.0f};
+    std::vector<TerrainBiomeLayer> biomeLayers;
 
     bool useViewBias = true;
     float viewFullResRadius = 64.0f;

@@ -671,12 +671,11 @@ std::shared_ptr<Mesh> Engine::createMeshFromData(std::vector<Mesh::Vertex> verti
 TerrainSystem &Engine::createTerrain(const TerrainConfig &config) {
     terrainPatchRenderer.createGridMeshes(commandPool, config);
 
-    std::vector<TerrainMaterialLayer> finalizedLayers = config.materialLayers;
+    std::vector<TerrainBiomeLayer> finalizedLayers = config.biomeLayers;
     for (auto &layer : finalizedLayers) {
         layer.material = finalizeMaterial(layer.material);
     }
-    terrainPatchRenderer.setMaterialLayers(finalizedLayers, cameraUniformBuffers.handles(), *shadowDepthImageView,
-                                           *shadowSampler);
+    terrainPatchRenderer.setBiomeLayers(finalizedLayers, cameraUniformBuffers.handles(), *shadowDepthImageView, *shadowSampler);
 
     terrainSystem = std::make_unique<TerrainSystem>(config);
     terrainSystem->update(camera.position(), camera.forward(), computeCullFrustum());

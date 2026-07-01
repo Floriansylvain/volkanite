@@ -41,23 +41,11 @@ struct TerrainPushConstants {
     float flatThreshold;
     float flatBlendWidth;
     float minRelief;
+
+    float2 moistureOffset;
+    float moistureScale;
+
     int layerCount;
-    float layer0PreferredHeight;
-    float layer0HeightRange;
-    float layer0PreferredSlope;
-    float layer0SlopeRange;
-    float layer1PreferredHeight;
-    float layer1HeightRange;
-    float layer1PreferredSlope;
-    float layer1SlopeRange;
-    float layer2PreferredHeight;
-    float layer2HeightRange;
-    float layer2PreferredSlope;
-    float layer2SlopeRange;
-    float layer3PreferredHeight;
-    float layer3HeightRange;
-    float layer3PreferredSlope;
-    float layer3SlopeRange;
 
     int useViewBias;
     float viewFullResRadius;
@@ -281,32 +269,48 @@ float3 fresnelSchlickRoughness(float cosTheta, float3 Fzero, float roughness) {
 [[vk::binding(3, 0)]] Sampler2D ormMap; 
 [[vk::binding(4, 0)]] Sampler2D shadowMap;
 
-[[vk::binding(8, 0)]] Sampler2D layerAlbedo[4];
-[[vk::binding(9, 0)]] Sampler2D layerNormalMap[4];
-[[vk::binding(10, 0)]] Sampler2D layerOrmMap[4];
+[[vk::binding(8, 0)]] Sampler2D layerAlbedo[16];
+[[vk::binding(9, 0)]] Sampler2D layerNormalMap[16];
+[[vk::binding(10, 0)]] Sampler2D layerOrmMap[16];
 
-float4 terrainLayerWeights(float height, float slope) {
-    float4 preferredHeight = float4(terrainPC.layer0PreferredHeight, terrainPC.layer1PreferredHeight,
-                                    terrainPC.layer2PreferredHeight, terrainPC.layer3PreferredHeight);
-    float4 heightRange = float4(terrainPC.layer0HeightRange, terrainPC.layer1HeightRange, terrainPC.layer2HeightRange,
-                                terrainPC.layer3HeightRange);
-    float4 preferredSlope = float4(terrainPC.layer0PreferredSlope, terrainPC.layer1PreferredSlope,
-                                   terrainPC.layer2PreferredSlope, terrainPC.layer3PreferredSlope);
-    float4 slopeRange = float4(terrainPC.layer0SlopeRange, terrainPC.layer1SlopeRange, terrainPC.layer2SlopeRange,
-                               terrainPC.layer3SlopeRange);
+struct BiomeLayer {
+    float preferredHeight;
+    float heightRange;
+    float preferredSlope;
+    float slopeRange;
+    float preferredMoisture;
+    float moistureRange;
+    float textureScale;
+    float patchiness;
+    float patchScale;
+    float blendSharpness;
+    float pad0;
+    float pad1;
+};
 
-    float4 epsilon = float4(0.001, 0.001, 0.001, 0.001);
-    float4 heightTerm = (height - preferredHeight) / max(heightRange, epsilon);
-    float4 slopeTerm = (slope - preferredSlope) / max(slopeRange, epsilon);
-    float4 rawWeight = exp(-(heightTerm * heightTerm) - (slopeTerm * slopeTerm));
+[[vk::binding(5, 0)]] StructuredBuffer<BiomeLayer> biomeLayerBuffer;
 
-    float4 activeMask = float4(terrainPC.layerCount > 0 ? 1.0 : 0.0, terrainPC.layerCount > 1 ? 1.0 : 0.0,
-                               terrainPC.layerCount > 2 ? 1.0 : 0.0, terrainPC.layerCount > 3 ? 1.0 : 0.0);
-    rawWeight *= activeMask;
-
-    float sum = max(rawWeight.x + rawWeight.y + rawWeight.z + rawWeight.w, 0.0001);
-    return rawWeight / sum;
+float terrainMoisture(float2 worldXY) {
+    float2 base = (worldXY + terrainPC.moistureOffset) / max(terrainPC.moistureScale, 1.0);
+    float amplitude = 1.0;
+    float frequency = 1.0;
+    float value = 0.0;
+    for (int i = 0; i < 4; i++) {
+        value += terrainGradientNoise2D(base * frequency) * amplitude;
+        amplitude *= terrainPC.persistence;
+        frequency *= terrainPC.lacunarity;
+    }
+    return saturate(value * 0.5 + 0.5);
 }
+
+float terrainPatchNoise(float2 worldXY, float patchScale) {
+    float2 base = worldXY / max(patchScale, 1.0);
+    float v = terrainGradientNoise2D(base)
+             + terrainGradientNoise2D(base * 2.1) * 0.5;
+    return saturate(v * 0.6667 + 0.5);
+}
+
+
 
 float2 parallaxOcclusionMapping(Sampler2D heightTex, float2 texCoords, float3 viewDirTS, float viewDistance) {
     const float fadeStart = 150.0;
@@ -722,47 +726,84 @@ float4 fragTerrain(VSOutput vertIn) : SV_TARGET {
     float3 N = normalize(vertIn.fragNormal);
     float3 worldPos = ubo.cameraPos.xyz - vertIn.viewDiff;
 
-    float4 weights = terrainLayerWeights(worldPos.z, 1.0 - N.z);
-    float3 triWeights = terrainTriplanarWeights(N);
+    float height   = worldPos.z;
+    float slope    = 1.0 - saturate(N.z);
+    float moisture = terrainMoisture(worldPos.xy);
+
+    float3 triWeights  = terrainTriplanarWeights(N);
+    int dominantAxis   = terrainDominantAxis(triWeights);
+    float3x3 axisBasis = terrainAxisBasis(dominantAxis);
+    float3 viewDirTS   = normalize(mul(axisBasis, V));
 
     TerrainTriplanarUVs baseUVs = terrainBaseUVs(worldPos, vertIn.uvScale, terrainPC.textureWorldScale);
+    TerrainTriplanarUVs baseDx, baseDy;
+    baseDx.uvX = ddx(baseUVs.uvX); baseDx.uvY = ddx(baseUVs.uvY); baseDx.uvZ = ddx(baseUVs.uvZ);
+    baseDy.uvX = ddy(baseUVs.uvX); baseDy.uvY = ddy(baseUVs.uvY); baseDy.uvZ = ddy(baseUVs.uvZ);
 
-    TerrainTriplanarUVs dx;
-    dx.uvX = ddx(baseUVs.uvX); dx.uvY = ddx(baseUVs.uvY); dx.uvZ = ddx(baseUVs.uvZ);
-    TerrainTriplanarUVs dy;
-    dy.uvX = ddy(baseUVs.uvX); dy.uvY = ddy(baseUVs.uvY); dy.uvZ = ddy(baseUVs.uvZ);
+    static const int MAX_LAYERS = 16;
+    static const float WEIGHT_CUTOFF = 0.02;
 
-    int dominantAxis = terrainDominantAxis(triWeights);
-    float3x3 axisBasis = terrainAxisBasis(dominantAxis);
-    float3 viewDirTS = normalize(mul(axisBasis, V));
+    float weights[MAX_LAYERS];
+    float totalWeight = 0.0;
+    for (int i = 0; i < terrainPC.layerCount; i++) {
+        BiomeLayer L = biomeLayerBuffer[i];
+        float hT = (height   - L.preferredHeight)  / max(L.heightRange,   0.001);
+        float sT = (slope    - L.preferredSlope)    / max(L.slopeRange,    0.001);
+        float mT = (moisture - L.preferredMoisture) / max(L.moistureRange, 0.001);
+        weights[i] = pow(max(exp(-(hT * hT) - (sT * sT) - (mT * mT)), 0.0), max(L.blendSharpness, 0.01));
+        totalWeight += weights[i];
+    }
+    if (totalWeight < 1e-5) { weights[0] = 1.0; totalWeight = 1.0; }
+    for (int i = 0; i < terrainPC.layerCount; i++) weights[i] /= totalWeight;
 
-    float4 texColor = float4(0.0, 0.0, 0.0, 0.0);
+    for (int i = 0; i < terrainPC.layerCount; i++) {
+        if (weights[i] >= WEIGHT_CUTOFF && biomeLayerBuffer[i].patchiness > 0.001) {
+            float patch = terrainPatchNoise(worldPos.xy, biomeLayerBuffer[i].patchScale);
+            weights[i] *= lerp(1.0, patch * 2.0, biomeLayerBuffer[i].patchiness);
+        }
+    }
+
+    totalWeight = 0.0;
+    for (int i = 0; i < terrainPC.layerCount; i++) totalWeight += max(weights[i], 0.0);
+    if (totalWeight < 1e-5) totalWeight = 1.0;
+
+    int dominantLayer = 0;
+    float dominantW   = -1.0;
+    for (int i = 0; i < terrainPC.layerCount; i++) {
+        weights[i] = max(weights[i], 0.0) / totalWeight;
+        if (weights[i] > dominantW) { dominantW = weights[i]; dominantLayer = i; }
+    }
+
+    float4 texColor    = float4(0.0, 0.0, 0.0, 0.0);
     float3 totalNormal = float3(0.0, 0.0, 0.0);
-    float3 totalOrm = float3(0.0, 0.0, 0.0);
+    float3 totalOrm    = float3(0.0, 0.0, 0.0);
 
-    if (weights.x > 0.01) {
-        TerrainLayerSample s = sampleTerrainLayer(layerAlbedo[0], layerNormalMap[0], layerOrmMap[0], N, baseUVs, triWeights, dominantAxis, viewDirTS, viewDistance, dx, dy);
-        texColor += s.albedo * weights.x;
-        totalNormal += s.worldNormal * weights.x;
-        totalOrm += s.orm * weights.x;
-    }
-    if (weights.y > 0.01) {
-        TerrainLayerSample s = sampleTerrainLayer(layerAlbedo[1], layerNormalMap[1], layerOrmMap[1], N, baseUVs, triWeights, dominantAxis, viewDirTS, viewDistance, dx, dy);
-        texColor += s.albedo * weights.y;
-        totalNormal += s.worldNormal * weights.y;
-        totalOrm += s.orm * weights.y;
-    }
-    if (weights.z > 0.01) {
-        TerrainLayerSample s = sampleTerrainLayer(layerAlbedo[2], layerNormalMap[2], layerOrmMap[2], N, baseUVs, triWeights, dominantAxis, viewDirTS, viewDistance, dx, dy);
-        texColor += s.albedo * weights.z;
-        totalNormal += s.worldNormal * weights.z;
-        totalOrm += s.orm * weights.z;
-    }
-    if (weights.w > 0.01) {
-        TerrainLayerSample s = sampleTerrainLayer(layerAlbedo[3], layerNormalMap[3], layerOrmMap[3], N, baseUVs, triWeights, dominantAxis, viewDirTS, viewDistance, dx, dy);
-        texColor += s.albedo * weights.w;
-        totalNormal += s.worldNormal * weights.w;
-        totalOrm += s.orm * weights.w;
+    for (int i = 0; i < terrainPC.layerCount; i++) {
+        float w = weights[i];
+        if (w < WEIGHT_CUTOFF) continue;
+
+        float s = max(biomeLayerBuffer[i].textureScale, 0.001);
+        TerrainTriplanarUVs layerUVs;
+        layerUVs.uvX = baseUVs.uvX / s; layerUVs.uvY = baseUVs.uvY / s; layerUVs.uvZ = baseUVs.uvZ / s;
+        TerrainTriplanarUVs layerDx, layerDy;
+        layerDx.uvX = baseDx.uvX / s; layerDx.uvY = baseDx.uvY / s; layerDx.uvZ = baseDx.uvZ / s;
+        layerDy.uvX = baseDy.uvX / s; layerDy.uvY = baseDy.uvY / s; layerDy.uvZ = baseDy.uvZ / s;
+
+        TerrainLayerSample sample;
+        if (i == dominantLayer) {
+            sample = sampleTerrainLayer(
+                layerAlbedo[i], layerNormalMap[i], layerOrmMap[i],
+                N, layerUVs, triWeights, dominantAxis, viewDirTS, viewDistance,
+                layerDx, layerDy);
+        } else {
+            sample.albedo      = sampleTriplanarStandard(layerAlbedo[i], layerUVs, triWeights, layerDx, layerDy);
+            sample.worldNormal = sampleTriplanarNormal(layerNormalMap[i], layerUVs, N, triWeights, layerDx, layerDy);
+            sample.orm         = sampleTriplanarStandard(layerOrmMap[i], layerUVs, triWeights, layerDx, layerDy).rgb;
+        }
+
+        texColor    += sample.albedo      * w;
+        totalNormal += sample.worldNormal * w;
+        totalOrm    += sample.orm         * w;
     }
 
     if (texColor.a < 0.5)
@@ -775,7 +816,7 @@ float4 fragTerrain(VSOutput vertIn) : SV_TARGET {
     float shadow = computeShadow(worldPos, N, L, vertIn.pos.xy);
 
     float roughness = max(orm.r, 0.04);
-    float metallic = orm.g;
+    float metallic  = orm.g;
 
     float3 finalColor = evaluatePBR(N, V, L, texColor.rgb, roughness, metallic, shadow);
 
@@ -844,3 +885,4 @@ void fragShadow(ShadowVSOutput vertIn) {
 [shader("fragment")]
 void fragTerrainShadow(ShadowVSOutput vertIn) {
 }
+

@@ -13,9 +13,8 @@ class TerrainPatchRenderer {
     void createMaterialSetLayout();
     void createGridMeshes(const vk::raii::CommandPool &commandPool, const TerrainConfig &config);
     void createPipelines(vk::Format colorFormat, vk::Format depthFormat, vk::Format shadowDepthFormat);
-
-    void setMaterialLayers(const std::vector<TerrainMaterialLayer> &layers, const std::vector<vk::Buffer> &cameraUniformBuffers,
-                           vk::ImageView shadowMapView, vk::Sampler shadowSampler);
+    void setBiomeLayers(const std::vector<TerrainBiomeLayer> &layers, const std::vector<vk::Buffer> &cameraUniformBuffers,
+                        vk::ImageView shadowMapView, vk::Sampler shadowSampler);
 
     void setPatches(std::vector<TerrainPatchInstance> coarsePatches, std::vector<TerrainPatchInstance> finePatches);
     void setViewBias(const glm::vec3 &cameraForward, const TerrainConfig &config);
@@ -29,12 +28,31 @@ class TerrainPatchRenderer {
     void drawShadow(const DrawCommand &command) const;
 
     uint64_t getVisibleVertexEstimate() const;
+    // -----------------------------------------------------------------------
+    static constexpr size_t MAX_BIOME_LAYERS = 16;
+
+    struct GpuBiomeLayer {
+        // vec4[0]
+        float preferredHeight;
+        float heightRange;
+        float preferredSlope;
+        float slopeRange;
+        float preferredMoisture;
+        float moistureRange;
+        float textureScale;
+        float patchiness;
+        float patchScale;
+        float blendSharpness;
+        float pad0;
+        float pad1;
+    };
+    static_assert(sizeof(GpuBiomeLayer) == 48, "GpuBiomeLayer must be 48 bytes (3x vec4) to match GLSL std430 layout");
 
   private:
-    static constexpr size_t MAX_PATCHES = 4096;
-    static constexpr size_t MAX_MATERIAL_LAYERS = 4;
-
+    // -----------------------------------------------------------------------
+    // -----------------------------------------------------------------------
     struct TerrainPushConstants {
+        // Noise / height generation
         glm::vec2 noiseOffset;
         float noiseScale;
         float heightScale;
@@ -56,23 +74,10 @@ class TerrainPatchRenderer {
         float flatThreshold;
         float flatBlendWidth;
         float minRelief;
+        glm::vec2 moistureOffset;
+        float moistureScale;
+
         int layerCount;
-        float layer0PreferredHeight;
-        float layer0HeightRange;
-        float layer0PreferredSlope;
-        float layer0SlopeRange;
-        float layer1PreferredHeight;
-        float layer1HeightRange;
-        float layer1PreferredSlope;
-        float layer1SlopeRange;
-        float layer2PreferredHeight;
-        float layer2HeightRange;
-        float layer2PreferredSlope;
-        float layer2SlopeRange;
-        float layer3PreferredHeight;
-        float layer3HeightRange;
-        float layer3PreferredSlope;
-        float layer3SlopeRange;
 
         int useViewBias = 1;
         float viewFullResRadius = 32.0f;
@@ -85,6 +90,8 @@ class TerrainPatchRenderer {
         float skirtMinDepth = 0.25f;
         float skirtMaxDepth = 3.0f;
     };
+
+    static constexpr size_t MAX_PATCHES = 4096;
 
     struct Tier {
         std::shared_ptr<Mesh> mesh;
@@ -108,6 +115,9 @@ class TerrainPatchRenderer {
     vk::raii::DescriptorSetLayout materialSetLayout = nullptr;
     vk::raii::DescriptorPool materialDescriptorPool = nullptr;
     std::vector<vk::raii::DescriptorSet> materialSets;
+
+    PerFrameBuffer biomeLayerBuffer;
+    bool biomeLayerBufferReady = false;
 
     vk::raii::PipelineLayout pipelineLayout = nullptr;
     vk::raii::Pipeline solidPipeline = nullptr;
