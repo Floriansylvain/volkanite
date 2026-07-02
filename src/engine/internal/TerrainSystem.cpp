@@ -1,185 +1,123 @@
 #include "TerrainSystem.hpp"
+#include "Exceptions.hpp"
 #include <algorithm>
-#include <array>
 #include <cmath>
-#include <limits>
 
-namespace {
-
-float nearestPointDistance(const glm::vec2 &point, const glm::vec2 &center, const float halfSize) {
-    const glm::vec2 minBounds = center - glm::vec2(halfSize);
-    const glm::vec2 maxBounds = center + glm::vec2(halfSize);
-    const glm::vec2 clamped = glm::clamp(point, minBounds, maxBounds);
-    return glm::length(point - clamped);
+TerrainSystem::TerrainSystem(TerrainConfig config) : config(std::move(config)) {
+    if (this->config.lodLevels.empty()) {
+        throw EngineExceptions::Compatibility("TerrainConfig.lodLevels must contain at least one level");
+    }
 }
 
-} // namespace
-
-TerrainSystem::TerrainSystem(TerrainConfig config) : config(std::move(config)) {}
-
-float TerrainSystem::nearestDistance(const TerrainChunk &chunk, const glm::vec2 &cameraXY) {
-    return nearestPointDistance(cameraXY, chunk.center, chunk.size * 0.5f);
+TerrainChunkCoord TerrainSystem::chunkCoordAt(const glm::vec2 &worldXY) const {
+    const glm::vec2 local = (worldXY - config.origin) / config.chunkWorldSize;
+    return TerrainChunkCoord{static_cast<int32_t>(std::floor(local.x)), static_cast<int32_t>(std::floor(local.y))};
 }
 
-void TerrainSystem::update(const glm::vec3 &cameraPosition, const CullingUtils::Frustum &frustum) {
-    if (!root) {
-        root = std::make_unique<TerrainChunk>(config.origin, config.rootSize, 0);
+glm::vec2 TerrainSystem::chunkCenter(const TerrainChunkCoord &coord) const {
+    return config.origin +
+           (glm::vec2(static_cast<float>(coord.x), static_cast<float>(coord.y)) + glm::vec2(0.5f)) * config.chunkWorldSize;
+}
+
+int TerrainSystem::pickLod(const float distanceChunks) const {
+    for (size_t i = 0; i < config.lodLevels.size(); ++i) {
+        if (distanceChunks <= config.lodLevels[i].maxChunkDistance) {
+            return static_cast<int>(i);
+        }
+    }
+    return static_cast<int>(config.lodLevels.size() - 1);
+}
+
+float TerrainSystem::requestPriority(const TerrainGenerationRequest &request, const glm::vec2 &cameraXY,
+                                     const glm::vec2 &viewDirXY) {
+    const glm::vec2 toChunk = request.worldOrigin - cameraXY;
+    const float distance = glm::length(toChunk);
+
+    float alignment = 0.0f;
+    if (distance > 0.0001f && glm::length(viewDirXY) > 0.0001f) {
+        alignment = glm::dot(toChunk / distance, viewDirXY);
     }
 
-    decideShape(*root, cameraPosition);
-    enforceBalance();
-
-    patches.clear();
-    finePatches.clear();
-    collectPatches(*root, frustum);
+    constexpr float viewBias = 0.5f;
+    return distance * (1.0f - alignment * viewBias);
 }
 
-void TerrainSystem::decideShape(TerrainChunk &chunk, const glm::vec3 &cameraPosition) {
+void TerrainSystem::purgePendingRequestsFor(const TerrainChunkCoord &coord) {
+    pendingRequests.erase(std::remove_if(pendingRequests.begin(), pendingRequests.end(),
+                                         [&](const TerrainGenerationRequest &r) { return r.coord == coord; }),
+                          pendingRequests.end());
+}
+
+void TerrainSystem::update(const glm::vec3 &cameraPosition, const glm::vec3 &viewDirection) {
     const glm::vec2 cameraXY(cameraPosition.x, cameraPosition.y);
+    const TerrainChunkCoord cameraChunk = chunkCoordAt(cameraXY);
 
-    if (const float distance = nearestDistance(chunk, cameraXY);
-        chunk.depth < config.maxDepth && distance < chunk.size * config.splitFactor) {
-        ensureChildren(chunk);
-        for (const auto &child : chunk.children) {
-            decideShape(*child, cameraPosition);
+    const int loadRadius = std::max(config.renderDistanceChunks, 0);
+    const int unloadRadius = loadRadius + 1;
+
+    for (auto it = knownChunks.begin(); it != knownChunks.end();) {
+        const float dx = static_cast<float>(it->first.x - cameraChunk.x);
+        const float dy = static_cast<float>(it->first.y - cameraChunk.y);
+        const float distChunks = std::sqrt(dx * dx + dy * dy);
+
+        if (distChunks > static_cast<float>(unloadRadius)) {
+            purgePendingRequestsFor(it->first);
+            pendingUnloads.push_back(it->first);
+            it = knownChunks.erase(it);
+            continue;
         }
-    } else {
-        collapseChildren(chunk);
-    }
-}
 
-void TerrainSystem::ensureChildren(TerrainChunk &chunk) {
-    if (chunk.isSplit()) {
-        return;
-    }
+        if (pickLod(distChunks) != it->second) {
+            purgePendingRequestsFor(it->first);
+            it = knownChunks.erase(it);
+            continue;
+        }
 
-    const float childSize = chunk.size * 0.5f;
-    const float childOffset = childSize * 0.5f;
-
-    static constexpr std::array<glm::vec2, 4> childDirections = {glm::vec2(-1.0f, -1.0f), glm::vec2(1.0f, -1.0f),
-                                                                 glm::vec2(-1.0f, 1.0f), glm::vec2(1.0f, 1.0f)};
-
-    for (size_t i = 0; i < chunk.children.size(); ++i) {
-        const glm::vec2 childCenter = chunk.center + childDirections[i] * childOffset;
-        chunk.children[i] = std::make_unique<TerrainChunk>(childCenter, childSize, chunk.depth + 1);
-    }
-}
-
-void TerrainSystem::collapseChildren(TerrainChunk &chunk) {
-    for (auto &child : chunk.children) {
-        child = nullptr;
-    }
-}
-
-const TerrainChunk *TerrainSystem::findLeafContaining(const glm::vec2 &point) const {
-    if (!root) {
-        return nullptr;
+        ++it;
     }
 
-    if (const float halfRoot = root->size * 0.5f; point.x < root->center.x - halfRoot || point.x > root->center.x + halfRoot ||
-                                                  point.y < root->center.y - halfRoot || point.y > root->center.y + halfRoot) {
-        return nullptr;
-    }
-
-    const TerrainChunk *node = root.get();
-    while (node->isSplit()) {
-        const TerrainChunk *next = nullptr;
-        for (const auto &child : node->children) {
-            const float half = child->size * 0.5f;
-            if (point.x >= child->center.x - half && point.x < child->center.x + half && point.y >= child->center.y - half &&
-                point.y < child->center.y + half) {
-                next = child.get();
-                break;
+    for (int dy = -loadRadius; dy <= loadRadius; ++dy) {
+        for (int dx = -loadRadius; dx <= loadRadius; ++dx) {
+            if (dx * dx + dy * dy > loadRadius * loadRadius) {
+                continue;
             }
+
+            const TerrainChunkCoord coord{cameraChunk.x + dx, cameraChunk.y + dy};
+            if (knownChunks.contains(coord)) {
+                continue;
+            }
+
+            const float distChunks = std::sqrt(static_cast<float>(dx * dx + dy * dy));
+            const int lod = pickLod(distChunks);
+            knownChunks.emplace(coord, lod);
+            pendingRequests.push_back(TerrainGenerationRequest{coord, chunkCenter(coord), config.chunkWorldSize, lod});
         }
-        if (!next) {
-            break;
-        }
-        node = next;
     }
-    return node;
+
+    const glm::vec2 viewDirXY(viewDirection.x, viewDirection.y);
+    std::sort(pendingRequests.begin(), pendingRequests.end(),
+              [&](const TerrainGenerationRequest &a, const TerrainGenerationRequest &b) {
+                  return requestPriority(a, cameraXY, viewDirXY) < requestPriority(b, cameraXY, viewDirXY);
+              });
 }
 
-void TerrainSystem::enforceBalance() {
-    if (!root) {
-        return;
-    }
+std::vector<TerrainGenerationRequest> TerrainSystem::takeNextRequests(const int maxCount) {
+    std::vector<TerrainGenerationRequest> result;
 
-    bool changed = true;
-    int guard = 0;
-    while (changed && guard <= config.maxDepth + 1) {
-        changed = balancePass(*root);
-        ++guard;
-    }
-}
-
-bool TerrainSystem::balancePass(TerrainChunk &chunk) {
-    if (chunk.isSplit()) {
-        bool changed = false;
-        for (const auto &child : chunk.children) {
-            changed = balancePass(*child) || changed;
-        }
-        return changed;
-    }
-
-    if (chunk.depth >= config.maxDepth) {
-        return false;
-    }
-
-    static constexpr std::array<glm::vec2, 4> edgeDirections = {glm::vec2(1.0f, 0.0f), glm::vec2(-1.0f, 0.0f),
-                                                                glm::vec2(0.0f, 1.0f), glm::vec2(0.0f, -1.0f)};
-
-    const float probe = chunk.size * 0.5f + std::max(chunk.size * 0.001f, 0.01f);
-
-    for (const auto &dir : edgeDirections) {
-        if (const TerrainChunk *neighbor = findLeafContaining(chunk.center + dir * probe);
-            neighbor && neighbor->depth > chunk.depth + 1) {
-            ensureChildren(chunk);
-            return true;
+    const size_t count = std::min(pendingRequests.size(), static_cast<size_t>(std::max(maxCount, 0)));
+    for (size_t i = 0; i < count; ++i) {
+        const auto it = knownChunks.find(pendingRequests[i].coord);
+        if (it != knownChunks.end() && it->second == pendingRequests[i].lodIndex) {
+            result.push_back(pendingRequests[i]);
         }
     }
+    pendingRequests.erase(pendingRequests.begin(), pendingRequests.begin() + static_cast<long>(count));
 
-    return false;
+    return result;
 }
 
-bool TerrainSystem::isChunkVisible(const TerrainChunk &chunk, const CullingUtils::Frustum &frustum) const {
-    constexpr float verticalRangeMultiplier = 3.0f;
-    const float verticalHalfExtent = config.noise.heightScale * verticalRangeMultiplier;
-    const glm::vec3 boundsCenter(chunk.center.x, chunk.center.y, config.noise.baseHeight);
-    const float horizontalRadius = chunk.size * 0.70710678f;
-    const float boundsRadius = std::sqrt(horizontalRadius * horizontalRadius + verticalHalfExtent * verticalHalfExtent);
-    return CullingUtils::sphereInFrustum(frustum, boundsCenter, boundsRadius);
-}
-
-void TerrainSystem::collectPatches(const TerrainChunk &chunk, const CullingUtils::Frustum &frustum) {
-    if (!isChunkVisible(chunk, frustum)) {
-        return;
-    }
-
-    if (chunk.isSplit()) {
-        for (const auto &child : chunk.children) {
-            collectPatches(*child, frustum);
-        }
-        return;
-    }
-
-    TerrainPatchInstance patch;
-    patch.origin = chunk.center - glm::vec2(chunk.size * 0.5f);
-
-    if (chunk.depth == 0) {
-        constexpr float noMorph = std::numeric_limits<float>::max();
-        patch.params = glm::vec4(chunk.size, noMorph, noMorph, 0.0f);
-    } else {
-        const float nearThreshold = chunk.size * config.splitFactor;
-        const float farThreshold = nearThreshold * 2.0f;
-        const float morphEnd = farThreshold;
-        const float morphStart = farThreshold - (farThreshold - nearThreshold) * config.morphRatio;
-        patch.params = glm::vec4(chunk.size, morphStart, morphEnd, 0.0f);
-    }
-
-    if (chunk.depth == config.maxDepth) {
-        finePatches.push_back(patch);
-    } else {
-        patches.push_back(patch);
-    }
+std::vector<TerrainChunkCoord> TerrainSystem::takeChunksToUnload() {
+    std::vector<TerrainChunkCoord> result = std::move(pendingUnloads);
+    pendingUnloads.clear();
+    return result;
 }

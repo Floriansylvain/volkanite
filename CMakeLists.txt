@@ -48,7 +48,7 @@ if (APPLE)
     target_link_libraries(${PROJECT_NAME} PRIVATE "-framework Cocoa" "-framework IOKit" "-framework QuartzCore")
 endif ()
 
-set(SLANG_SHADER_NAMES shader text cull/DepthToMip0 cull/Downsample cull/CullInstances)
+set(SLANG_SHADER_NAMES shader text cull/DepthToMip0 cull/Downsample cull/CullInstances terrain/TerrainBakeHeight terrain/TerrainBakeNormal)
 set(SLANG_SPV_FILES "")
 
 foreach (SHADER_NAME IN LISTS SLANG_SHADER_NAMES)

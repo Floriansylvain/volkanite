@@ -15,6 +15,22 @@ class Texture {
     void createSolidValue(float value, const vk::raii::CommandPool &commandPool);
     void createSolidValue3(const glm::vec3 &values, const vk::raii::CommandPool &commandPool);
 
+    void createFromPixels(const void *pixels, uint32_t texWidth, uint32_t texHeight, vk::Format pixelFormat,
+                          const vk::raii::CommandPool &commandPool, bool clampToEdge = true);
+
+    struct PendingUpload {
+        vk::raii::Buffer stagingBuffer = nullptr;
+        vk::raii::DeviceMemory stagingBufferMemory = nullptr;
+    };
+    [[nodiscard]] PendingUpload createFromPixelsRecorded(const void *pixels, uint32_t texWidth, uint32_t texHeight,
+                                                         vk::Format pixelFormat, const vk::raii::CommandBuffer &commandBuffer,
+                                                         bool clampToEdge = true);
+
+    void createStorageTarget(uint32_t texWidth, uint32_t texHeight, vk::Format targetFormat,
+                             const vk::raii::CommandBuffer &commandBuffer, bool clampToEdge = true);
+
+    [[nodiscard]] vk::Image getImage() const { return *textureImage; }
+
     void loadPackedChannels(const std::string &rPath, float rFallback, const std::string &gPath, float gFallback,
                             const std::string &bPath, float bFallback, const vk::raii::CommandPool &commandPool);
 
@@ -35,7 +51,7 @@ class Texture {
     vk::Format format = vk::Format::eR8G8B8A8Srgb;
 
     void createImageView();
-    void createSampler();
+    void createSampler(bool clampToEdge = false);
     void generateMipmaps(vk::Format imageFormat, const vk::raii::CommandBuffer &commandBuffer) const;
     void uploadImage(const vk::raii::Buffer &stagingBuffer, uint32_t texWidth, uint32_t texHeight,
                      const vk::raii::CommandPool &commandPool);

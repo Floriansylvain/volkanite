@@ -99,6 +99,14 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
 
     commandBuffers[frameIndex].begin({});
 
+    terrainPatchRenderer.tickRetiredChunks();
+    if (terrainSystem) {
+        for (const auto &request : terrainSystem->takeNextRequests(terrainChunkUploadBudget)) {
+            terrainPatchRenderer.addChunk(request.coord, request.worldOrigin, request.worldSize, request.lodIndex,
+                                          commandBuffers[frameIndex]);
+        }
+    }
+
     writeTimestamp(GpuPass::Total, true, eTopOfPipe);
 
     const float time = std::chrono::duration<float>(std::chrono::high_resolution_clock::now() - engineStartTime).count();
@@ -256,7 +264,8 @@ void Engine::recordCommandBuffer(const uint32_t imageIndex) {
     instanceRenderer.draw(drawCommand, isWireframe, drawCallCount);
     vertexCount = instanceRenderer.getVisibleVertexEstimate(frameIndex);
     if (terrainSystem) {
-        terrainPatchRenderer.draw({&commandBuffers[frameIndex], frameIndex}, isWireframe, drawCallCount);
+        const CullingUtils::Frustum terrainFrustum = computeCullFrustum();
+        terrainPatchRenderer.draw({&commandBuffers[frameIndex], frameIndex, &terrainFrustum}, isWireframe, drawCallCount);
         vertexCount += terrainPatchRenderer.getVisibleVertexEstimate();
     }
     writeTimestamp(GpuPass::OpaqueGeometry, false, eColorAttachmentOutput);
@@ -669,7 +678,7 @@ std::shared_ptr<Mesh> Engine::createMeshFromData(std::vector<Mesh::Vertex> verti
 }
 
 TerrainSystem &Engine::createTerrain(const TerrainConfig &config) {
-    terrainPatchRenderer.createGridMeshes(commandPool, config);
+    terrainPatchRenderer.createChunkMeshes(commandPool, config);
 
     std::vector<TerrainMaterialLayer> finalizedLayers = config.materialLayers;
     for (auto &layer : finalizedLayers) {
@@ -678,9 +687,10 @@ TerrainSystem &Engine::createTerrain(const TerrainConfig &config) {
     terrainPatchRenderer.setMaterialLayers(finalizedLayers, cameraUniformBuffers.handles(), *shadowDepthImageView,
                                            *shadowSampler);
 
+    terrainChunkUploadBudget = std::max(config.maxChunkUploadsPerFrame, 1);
+
     terrainSystem = std::make_unique<TerrainSystem>(config);
-    terrainSystem->update(camera.position(), computeCullFrustum());
-    terrainPatchRenderer.setPatches(terrainSystem->activePatches(), terrainSystem->activeFinePatches());
+    terrainSystem->update(camera.position(), camera.forward());
 
     return *terrainSystem;
 }
@@ -702,7 +712,6 @@ void Engine::updateInstanceBuffers(const uint32_t currentImage) {
     const CullingUtils::Frustum frustum = computeCullFrustum();
 
     instanceRenderer.update(currentImage, frustum);
-    terrainPatchRenderer.upload(currentImage);
 }
 
 std::string Engine::resolvePath(const std::string &filename, const std::string &extension) {
@@ -920,8 +929,11 @@ void Engine::update() {
     }
 
     if (terrainSystem) {
-        terrainSystem->update(camera.position(), computeCullFrustum());
-        terrainPatchRenderer.setPatches(terrainSystem->activePatches(), terrainSystem->activeFinePatches());
+        terrainSystem->update(camera.position(), camera.forward());
+
+        for (const auto &coord : terrainSystem->takeChunksToUnload()) {
+            terrainPatchRenderer.removeChunk(coord);
+        }
     }
 
     instanceRenderer.applyPendingChanges();

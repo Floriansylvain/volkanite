@@ -141,17 +141,18 @@ void Texture::createImageView() {
     textureImageView = VulkanUtils::createImageView(vkCtx, *textureImage, format, vk::ImageAspectFlagBits::eColor, mipLevels);
 }
 
-void Texture::createSampler() {
+void Texture::createSampler(const bool clampToEdge) {
     using enum vk::SamplerAddressMode;
     const vk::PhysicalDeviceProperties properties = vkCtx.physicalDevice.getProperties();
+    const vk::SamplerAddressMode addressMode = clampToEdge ? eClampToEdge : eRepeat;
 
     vk::SamplerCreateInfo samplerInfo = {};
     samplerInfo.magFilter = vk::Filter::eLinear;
     samplerInfo.minFilter = vk::Filter::eLinear;
     samplerInfo.mipmapMode = vk::SamplerMipmapMode::eLinear;
-    samplerInfo.addressModeU = eRepeat;
-    samplerInfo.addressModeV = eRepeat;
-    samplerInfo.addressModeW = eRepeat;
+    samplerInfo.addressModeU = addressMode;
+    samplerInfo.addressModeV = addressMode;
+    samplerInfo.addressModeW = addressMode;
     samplerInfo.anisotropyEnable = vk::True;
     samplerInfo.maxAnisotropy = properties.limits.maxSamplerAnisotropy;
     samplerInfo.maxLod = static_cast<float>(mipLevels);
@@ -405,6 +406,169 @@ void Texture::createSolidValue3(const glm::vec3 &values, const vk::raii::Command
     stagingBufferMemory.unmapMemory();
 
     uploadImage(stagingBuffer, 1, 1, commandPool);
+}
+
+namespace {
+vk::DeviceSize texelSizeForFormat(const vk::Format format) {
+    switch (format) {
+    case vk::Format::eR8Unorm:
+        return 1;
+    case vk::Format::eR16Unorm:
+    case vk::Format::eR16Sfloat:
+        return 2;
+    case vk::Format::eR8G8B8A8Unorm:
+    case vk::Format::eR8G8B8A8Srgb:
+    case vk::Format::eR32Sfloat:
+        return 4;
+    case vk::Format::eR32G32Sfloat:
+        return 8;
+    case vk::Format::eR32G32B32A32Sfloat:
+        return 16;
+    default:
+        throw EngineExceptions::Compatibility("Texture::createFromPixels: unsupported pixel format.");
+    }
+}
+} // namespace
+
+void Texture::createFromPixels(const void *pixels, const uint32_t texWidth, const uint32_t texHeight,
+                               const vk::Format pixelFormat, const vk::raii::CommandPool &commandPool, const bool clampToEdge) {
+    if (const vk::FormatProperties formatProperties = vkCtx.physicalDevice.getFormatProperties(pixelFormat);
+        !(formatProperties.optimalTilingFeatures & vk::FormatFeatureFlagBits::eSampledImageFilterLinear)) {
+        throw EngineExceptions::Compatibility("Texture::createFromPixels: format does not support linear sampling on this "
+                                              "device.");
+    }
+
+    format = pixelFormat;
+    width = texWidth;
+    height = texHeight;
+    mipLevels = 1;
+
+    const vk::DeviceSize imageSize = static_cast<vk::DeviceSize>(texWidth) * texHeight * texelSizeForFormat(pixelFormat);
+    auto [stagingBuffer, stagingBufferMemory] =
+        VulkanUtils::createBuffer(vkCtx, imageSize, vk::BufferUsageFlagBits::eTransferSrc,
+                                  vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+
+    void *data = stagingBufferMemory.mapMemory(0, imageSize);
+    memcpy(data, pixels, imageSize);
+    stagingBufferMemory.unmapMemory();
+
+    using enum vk::ImageUsageFlagBits;
+    VulkanUtils::CreateImageCommand createImageCommand = {};
+    createImageCommand.width = texWidth;
+    createImageCommand.height = texHeight;
+    createImageCommand.mipLevels = mipLevels;
+    createImageCommand.samples = vk::SampleCountFlagBits::e1;
+    createImageCommand.format = format;
+    createImageCommand.tiling = vk::ImageTiling::eOptimal;
+    createImageCommand.usage = eTransferDst | eSampled;
+    createImageCommand.properties = vk::MemoryPropertyFlagBits::eDeviceLocal;
+
+    std::tie(textureImage, textureImageMemory) = VulkanUtils::createImage(vkCtx, createImageCommand);
+
+    const vk::raii::CommandBuffer commandBuffer = VulkanUtils::beginSingleTimeCommands(vkCtx, commandPool);
+    VulkanUtils::transitionImageLayout(commandBuffer, textureImage, vk::ImageLayout::eUndefined,
+                                       vk::ImageLayout::eTransferDstOptimal, mipLevels);
+    VulkanUtils::copyBufferToImage(commandBuffer, stagingBuffer, textureImage, texWidth, texHeight);
+    VulkanUtils::transitionImageLayout(commandBuffer, textureImage, vk::ImageLayout::eTransferDstOptimal,
+                                       vk::ImageLayout::eShaderReadOnlyOptimal, mipLevels);
+    VulkanUtils::endSingleTimeCommands(vkCtx, commandBuffer);
+
+    createImageView();
+    createSampler(clampToEdge);
+}
+
+Texture::PendingUpload Texture::createFromPixelsRecorded(const void *pixels, const uint32_t texWidth, const uint32_t texHeight,
+                                                         const vk::Format pixelFormat,
+                                                         const vk::raii::CommandBuffer &commandBuffer, const bool clampToEdge) {
+    if (const vk::FormatProperties formatProperties = vkCtx.physicalDevice.getFormatProperties(pixelFormat);
+        !(formatProperties.optimalTilingFeatures & vk::FormatFeatureFlagBits::eSampledImageFilterLinear)) {
+        throw EngineExceptions::Compatibility("Texture::createFromPixelsRecorded: format does not support linear sampling "
+                                              "on this device.");
+    }
+
+    format = pixelFormat;
+    width = texWidth;
+    height = texHeight;
+    mipLevels = 1;
+
+    const vk::DeviceSize imageSize = static_cast<vk::DeviceSize>(texWidth) * texHeight * texelSizeForFormat(pixelFormat);
+    PendingUpload upload;
+    std::tie(upload.stagingBuffer, upload.stagingBufferMemory) =
+        VulkanUtils::createBuffer(vkCtx, imageSize, vk::BufferUsageFlagBits::eTransferSrc,
+                                  vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+
+    void *data = upload.stagingBufferMemory.mapMemory(0, imageSize);
+    memcpy(data, pixels, imageSize);
+    upload.stagingBufferMemory.unmapMemory();
+
+    using enum vk::ImageUsageFlagBits;
+    VulkanUtils::CreateImageCommand createImageCommand = {};
+    createImageCommand.width = texWidth;
+    createImageCommand.height = texHeight;
+    createImageCommand.mipLevels = mipLevels;
+    createImageCommand.samples = vk::SampleCountFlagBits::e1;
+    createImageCommand.format = format;
+    createImageCommand.tiling = vk::ImageTiling::eOptimal;
+    createImageCommand.usage = eTransferDst | eSampled;
+    createImageCommand.properties = vk::MemoryPropertyFlagBits::eDeviceLocal;
+
+    std::tie(textureImage, textureImageMemory) = VulkanUtils::createImage(vkCtx, createImageCommand);
+
+    VulkanUtils::transitionImageLayout(commandBuffer, textureImage, vk::ImageLayout::eUndefined,
+                                       vk::ImageLayout::eTransferDstOptimal, mipLevels);
+    VulkanUtils::copyBufferToImage(commandBuffer, upload.stagingBuffer, textureImage, texWidth, texHeight);
+    VulkanUtils::transitionImageLayout(commandBuffer, textureImage, vk::ImageLayout::eTransferDstOptimal,
+                                       vk::ImageLayout::eShaderReadOnlyOptimal, mipLevels);
+
+    createImageView();
+    createSampler(clampToEdge);
+
+    return upload;
+}
+
+void Texture::createStorageTarget(const uint32_t texWidth, const uint32_t texHeight, const vk::Format targetFormat,
+                                  const vk::raii::CommandBuffer &commandBuffer, const bool clampToEdge) {
+    if (const vk::FormatProperties formatProperties = vkCtx.physicalDevice.getFormatProperties(targetFormat);
+        !(formatProperties.optimalTilingFeatures & vk::FormatFeatureFlagBits::eStorageImage) ||
+        !(formatProperties.optimalTilingFeatures & vk::FormatFeatureFlagBits::eSampledImageFilterLinear)) {
+        throw EngineExceptions::Compatibility("Texture::createStorageTarget: format does not support storage + linear "
+                                              "sampling on this device.");
+    }
+
+    format = targetFormat;
+    width = texWidth;
+    height = texHeight;
+    mipLevels = 1;
+
+    using enum vk::ImageUsageFlagBits;
+    VulkanUtils::CreateImageCommand createImageCommand = {};
+    createImageCommand.width = texWidth;
+    createImageCommand.height = texHeight;
+    createImageCommand.mipLevels = mipLevels;
+    createImageCommand.samples = vk::SampleCountFlagBits::e1;
+    createImageCommand.format = format;
+    createImageCommand.tiling = vk::ImageTiling::eOptimal;
+    createImageCommand.usage = eStorage | eSampled;
+    createImageCommand.properties = vk::MemoryPropertyFlagBits::eDeviceLocal;
+
+    std::tie(textureImage, textureImageMemory) = VulkanUtils::createImage(vkCtx, createImageCommand);
+
+    VulkanUtils::ImageBarrierCommand toGeneral{};
+    toGeneral.image = *textureImage;
+    toGeneral.old_layout = vk::ImageLayout::eUndefined;
+    toGeneral.new_layout = vk::ImageLayout::eGeneral;
+    toGeneral.src_access_mask = {};
+    toGeneral.dst_access_mask = vk::AccessFlagBits2::eShaderWrite;
+    toGeneral.src_stage_mask = vk::PipelineStageFlagBits2::eTopOfPipe;
+    toGeneral.dst_stage_mask = vk::PipelineStageFlagBits2::eComputeShader;
+    toGeneral.image_aspect_flags = vk::ImageAspectFlagBits::eColor;
+    toGeneral.base_mip_level = 0;
+    toGeneral.level_count = 1;
+
+    VulkanUtils::imageBarriers(commandBuffer, {toGeneral});
+
+    createImageView();
+    createSampler(clampToEdge);
 }
 
 void Texture::loadPackedChannels(const std::string &rPath, const float rFallback, const std::string &gPath,

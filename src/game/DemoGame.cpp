@@ -50,19 +50,25 @@ void DemoGame::init(Engine &engine) {
     {
         TerrainConfig terrainConfig;
         terrainConfig.origin = glm::vec2(0.0f, 0.0f);
-        terrainConfig.rootSize = 131073.f;
-        terrainConfig.maxDepth = 9;
-        terrainConfig.fineChunkResolution = 64;
-        terrainConfig.chunkResolution = 33;
-        terrainConfig.splitFactor = 2.0f;
+        terrainConfig.chunkWorldSize = 512.0f;
+        terrainConfig.renderDistanceChunks = 32;
+        terrainConfig.maxChunkUploadsPerFrame = 1;
         terrainConfig.textureWorldScale = 32.0f;
+        terrainConfig.lodSkirtDepth = 48.0f;
+
+        terrainConfig.lodLevels.push_back(
+            TerrainLodLevel{.maxChunkDistance = 3.0f, .meshResolution = 65, .heightmapResolution = 129});
+        terrainConfig.lodLevels.push_back(
+            TerrainLodLevel{.maxChunkDistance = 7.0f, .meshResolution = 33, .heightmapResolution = 65});
+        terrainConfig.lodLevels.push_back(
+            TerrainLodLevel{.maxChunkDistance = 16.0f, .meshResolution = 17, .heightmapResolution = 33});
 
         terrainConfig.uvScale = glm::vec2(8.f);
 
         terrainConfig.noise.scale = 6500.f;
         terrainConfig.noise.heightScale = 1200.0f;
         terrainConfig.noise.baseHeight = -200.0f;
-        terrainConfig.noise.octaves = 12;
+        terrainConfig.noise.octaves = 10;
         terrainConfig.noise.persistence = 0.45f;
         terrainConfig.noise.lacunarity = 2.15f;
 
@@ -74,7 +80,7 @@ void DemoGame::init(Engine &engine) {
         terrainConfig.noise.regionBlendWidth = 0.3f;
 
         terrainConfig.noise.flatScale = 3500.0f;
-        terrainConfig.noise.flatThreshold = 0.25f; // 0.4
+        terrainConfig.noise.flatThreshold = 0.25f;
         terrainConfig.noise.flatBlendWidth = 0.15f;
         terrainConfig.noise.minRelief = 0.02f;
 
@@ -101,8 +107,6 @@ void DemoGame::init(Engine &engine) {
             .preferredSlope = 0.1f,
             .slopeRange = 0.65f,
         });
-
-        terrainConfig.morphRatio = 0.15f;
 
         engine.createTerrain(terrainConfig);
     }

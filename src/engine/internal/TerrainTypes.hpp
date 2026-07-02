@@ -3,6 +3,8 @@
 
 #pragma once
 #include "Material.hpp"
+#include <cstdint>
+#include <functional>
 
 struct TerrainNoiseSettings {
     float scale = 150.0f;
@@ -34,23 +36,45 @@ struct TerrainMaterialLayer {
     float slopeRange = 0.5f;
 };
 
-struct TerrainConfig {
-    glm::vec2 origin{0.0f, 0.0f};
-    float rootSize = 2048.0f;
-    int maxDepth = 6;
-    int chunkResolution = 33;
-    int fineChunkResolution = 0;
-    float splitFactor = 2.0f;
-    float morphRatio = 0.3f;
-    float textureWorldScale = 8.0f;
-    glm::vec2 uvScale{1.0f, 1.0f};
-    TerrainNoiseSettings noise;
-    std::vector<TerrainMaterialLayer> materialLayers;
+struct TerrainLayerParamsGpu {
+    float preferredHeight;
+    float heightRange;
+    float preferredSlope;
+    float slopeRange;
 };
 
-struct TerrainPatchInstance {
-    glm::vec2 origin;
-    glm::vec4 params;
+struct TerrainChunkCoord {
+    int32_t x = 0;
+    int32_t y = 0;
+
+    bool operator==(const TerrainChunkCoord &) const = default;
+};
+
+struct TerrainChunkCoordHash {
+    size_t operator()(const TerrainChunkCoord &c) const noexcept {
+        const auto ux = static_cast<uint64_t>(static_cast<uint32_t>(c.x));
+        const auto uy = static_cast<uint64_t>(static_cast<uint32_t>(c.y));
+        return std::hash<uint64_t>{}((ux << 32) | uy);
+    }
+};
+
+struct TerrainLodLevel {
+    float maxChunkDistance = 0.0f;
+    int meshResolution = 65;
+    int heightmapResolution = 129;
+};
+
+struct TerrainConfig {
+    glm::vec2 origin{0.0f, 0.0f};
+    float chunkWorldSize = 256.0f;
+    int renderDistanceChunks = 8;
+    int maxChunkUploadsPerFrame = 2;
+    float textureWorldScale = 8.0f;
+    glm::vec2 uvScale{1.0f, 1.0f};
+    std::vector<TerrainLodLevel> lodLevels;
+    float lodSkirtDepth = 48.0f;
+    TerrainNoiseSettings noise;
+    std::vector<TerrainMaterialLayer> materialLayers;
 };
 
 #endif

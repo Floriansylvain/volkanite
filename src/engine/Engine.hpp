@@ -74,6 +74,7 @@ class Engine {
     OcclusionCuller occlusionCuller;
     TerrainPatchRenderer terrainPatchRenderer;
     std::unique_ptr<TerrainSystem> terrainSystem;
+    int terrainChunkUploadBudget = 1;
 
     uint32_t drawCallCount = 0;
     uint64_t vertexCount = 0;
